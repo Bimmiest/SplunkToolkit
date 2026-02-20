@@ -45,15 +45,20 @@ All state flows through a single Zustand store. The `useProcessingPipeline` hook
 +----------------------------------------------------------+
 | Header                                    [Theme Toggle]  |
 +---------------------------+------------------------------+
-| Raw Data (textarea)       | Metadata (index/host/source/ |
-|                           |          sourcetype)          |
+| Raw Log (textarea)        | Output                       |
+|                           |   [Preview|CIM|Fields|       |
+| Metadata (collapsible)    |    Transforms|Architecture]  |
+|   index/host/source/st    |                              |
++---------------------------+   Preview sub-tabs:          |
+| props.conf (collapsible)  |   Raw | Timestamp |          |
+|   (Monaco editor)         |   Highlighted |              |
++---------------------------+   Calculated Fields | Diff   |
+| transforms.conf           |                              |
+|   (collapsible, Monaco)   |                              |
 +---------------------------+------------------------------+
-| props.conf (Monaco)       | transforms.conf (Monaco)     |
-+---------------------------+--------------+---------------+
-| Preview (7 tabs)          | Validation   | Arch.         |
-|                           |              | Diagram       |
-+---------------------------+--------------+---------------+
 ```
+
+The left column uses a vertical resizable panel group. The `props.conf` and `transforms.conf` editors are collapsible — when collapsed, they nest as fixed-height bars at the bottom of the left column (outside the resizable group), allowing the resize handle to reclaim their space. The Metadata section within the Raw panel is also collapsible.
 
 All panels are resizable via `react-resizable-panels`. Each major panel is wrapped in an `ErrorBoundary` for fault isolation.
 
@@ -88,9 +93,11 @@ src/
 │   │   ├── regexTransform.ts         # REGEX + FORMAT field extraction
 │   │   ├── destKeyRouter.ts          # DEST_KEY routing (_raw, _meta, queue)
 │   │   └── ingestEval.ts             # INGEST_EVAL
-│   └── cim/
-│       ├── cimModels.ts              # CIM validator logic
-│       └── cimModelsData.ts          # 16 CIM data model definitions
+│   ├── cim/
+│   │   ├── cimModels.ts              # CIM validator logic
+│   │   └── cimModelsData.ts          # 16 CIM data model definitions
+│   └── utils/
+│       └── flattenJson.ts            # Recursive JSON flattening for field extraction
 │
 ├── monaco/                           # Monaco Editor language support
 │   ├── directiveRegistry.ts          # 45+ directive metadata entries
@@ -106,46 +113,49 @@ src/
 │   ├── useProcessingPipeline.ts      # Debounced pipeline orchestration
 │   ├── useDebounce.ts                # Generic debounce hook
 │   ├── useTheme.ts                   # Light/dark theme management
-│   └── usePagination.ts             # Event pagination logic
+│   └── usePagination.ts              # Event pagination logic
 │
 ├── utils/
 │   ├── splunkRegex.ts                # Safe regex construction, pattern conversion
 │   ├── strftime.ts                   # Splunk strftime <-> JS date parsing
-│   └── diffEngine.ts                 # Character-level diff computation
+│   ├── diffEngine.ts                 # Character-level diff computation
+│   └── fieldHighlight.ts             # Context-aware field value position matching
 │
 └── components/
     ├── layout/
     │   ├── AppShell.tsx              # Main layout (react-resizable-panels)
     │   └── Header.tsx                # Top bar with title + theme toggle
     ├── raw/
-    │   └── RawPanel.tsx              # Raw log data textarea
+    │   └── RawPanel.tsx              # Raw log textarea + character count
     ├── metadata/
-    │   └── MetadataPanel.tsx         # index/host/source/sourcetype inputs
+    │   └── MetadataPanel.tsx         # Collapsible index/host/source/sourcetype inputs
     ├── editor/
     │   ├── SplunkEditor.tsx          # Monaco wrapper with Monarch tokenizer
-    │   ├── PropsConfEditor.tsx       # props.conf editor with toolbar
-    │   ├── TransformsConfEditor.tsx   # transforms.conf editor with toolbar
+    │   ├── PropsConfEditor.tsx       # props.conf editor (collapsible)
+    │   ├── TransformsConfEditor.tsx   # transforms.conf editor (collapsible)
+    │   ├── EditorValidationList.tsx   # Inline validation summary per editor
     │   └── CopyButton.tsx            # Copy-to-clipboard button
     ├── preview/
-    │   ├── PreviewPanel.tsx          # Tab container + event count
+    │   ├── PreviewPanel.tsx          # Output tab container + preview sub-tabs
+    │   ├── PreviewFilterBar.tsx      # Search, field, status, and modification filters
     │   ├── EventCard.tsx             # Single event display card
     │   ├── EventPagination.tsx       # Page controls
     │   └── tabs/
-    │       ├── MetadataTab.tsx       # Per-event metadata table
     │       ├── RawTab.tsx            # Events with line numbers + timestamps
-    │       ├── HighlightedTab.tsx    # Color-coded field extractions
+    │       ├── TimestampTab.tsx      # Timestamp extraction details per event
+    │       ├── HighlightedTab.tsx    # Color-coded field extractions with sidebar
+    │       ├── CalculatedFieldsTab.tsx # EVAL-computed field highlighting
     │       ├── DiffTab.tsx           # Git-style before/after diff
     │       ├── CimModelsTab.tsx      # CIM compliance with progress bars
     │       ├── FieldsTab.tsx         # All extracted fields table
     │       └── TransformsTab.tsx     # Processing pipeline summary
-    ├── validation/
-    │   └── ValidationPanel.tsx       # ERROR/WARNING/INFO diagnostics list
     ├── architecture/
     │   └── ArchitecturePanel.tsx     # SVG deployment architecture diagram
     └── ui/
         ├── Tabs.tsx                  # Accessible tablist with keyboard nav
         ├── Badge.tsx                 # Colored status badges
         ├── ProgressBar.tsx           # Animated progress bars
+        ├── MultiSelect.tsx           # Multi-select dropdown for filters
         ├── CollapsiblePanel.tsx      # Expand/collapse sections
         ├── ThemeToggle.tsx           # Light/dark mode switch
         └── ErrorBoundary.tsx         # Fault-isolating error boundary
@@ -218,11 +228,13 @@ Raw data input is capped at 1MB to prevent browser tab freezes.
 
 The editors use a custom `splunk-conf` language registered with Monaco, providing IDE-grade editing for Splunk configuration files.
 
+The Monarch tokenizer supports `\` line continuations — continuation lines preserve the highlighting context of the parent directive (eval expressions, regex patterns, field alias values, etc.) via dedicated continuation states.
+
 ### Features
 
 | Feature | Implementation |
 |---------|---------------|
-| **Syntax highlighting** | Monarch tokenizer — stanza headers, directives, regex patterns, strftime tokens, comments, class-based directives (`EXTRACT-myclass`) |
+| **Syntax highlighting** | Monarch tokenizer — stanza headers, directives, regex patterns, strftime tokens, eval expressions, comments, class-based directives (`EXTRACT-myclass`), `\` line continuations |
 | **Autocomplete** | `CompletionItemProvider` — context-aware: directive keys at line start, enum/boolean/strftime values after `=`, stanza types inside `[` |
 | **Hover tooltips** | `HoverProvider` — rich markdown with description, default value, example, category, processing phase, value type, and valid values |
 | **Stanza folding** | `FoldingRangeProvider` — fold stanza blocks and consecutive comment blocks |
@@ -253,19 +265,33 @@ This single registry powers autocomplete, hover tooltips, and linting. Add a dir
 
 ---
 
-## Preview Tabs
+## Output Tabs
+
+The Output panel has five top-level tabs. The **Preview** tab contains five sub-tabs that share a common filter bar (search, field, status, and modification filters) and pagination controls.
+
+### Top-Level Tabs
 
 | Tab | Description |
 |-----|-------------|
-| **Metadata** | Per-event computed metadata (index, host, source, sourcetype) with transform overrides highlighted |
-| **Raw** | Events after line/event breaking, with line numbers, timestamp regions, and field badges |
-| **Highlighted** | Field extractions color-coded inline within `_raw`, with a legend and search/filter |
-| **Diff** | Character-level unified diff (red/green) comparing original raw data vs processed `_raw` |
+| **Preview** | Event display with sub-tabs (see below), shared filters, and pagination |
 | **CIM Models** | Validates extracted fields against 16 CIM data models with progress bars per model and field-by-field breakdown |
 | **Fields** | Searchable/sortable table of all extracted fields — name, value, extraction type, source directive, event count |
 | **Transforms** | Full processing pipeline summary — all transforms in execution order with REGEX/FORMAT/DEST_KEY |
+| **Architecture** | SVG deployment architecture diagram |
 
-All tabs support paginated event display (configurable: 5/10/25/50 events per page).
+### Preview Sub-Tabs
+
+| Sub-Tab | Description |
+|---------|-------------|
+| **Raw** | Events after line/event breaking, with line numbers, timestamp regions, and field badges |
+| **Timestamp** | Timestamp extraction details — matched prefix, format pattern, and parsed timestamp per event |
+| **Highlighted** | Field extractions color-coded inline within `_raw`, with a collapsible field sidebar supporting search, pin-to-filter, and hierarchical field grouping |
+| **Calculated Fields** | EVAL-computed fields highlighted inline within `_raw`, showing which calculated values appear in the original text |
+| **Diff** | Character-level unified diff (red/green) comparing original raw data vs processed `_raw` |
+
+Field highlighting uses context-aware matching — values are matched next to their field key names (JSON `"key":"value"`, KV `key=value`) rather than by plain substring search, ensuring fields like `accountId` and `recipientAccountId` highlight correctly even when they share the same value.
+
+All sub-tabs support paginated event display (configurable: 5/10/25/50 events per page).
 
 ---
 
@@ -296,12 +322,12 @@ Each model defines required and recommended fields. The validator checks your ex
 
 ## State Management
 
-Single Zustand store (`useAppStore.ts`) with no persistence. Refresh clears everything (by design, for security).
+Single Zustand store (`useAppStore.ts`) with minimal persistence. Layout preferences are saved to localStorage; all user data (raw logs, configuration) is ephemeral — refresh clears it.
 
 ```
 rawData / metadata / propsConf / transformsConf   <-- User inputs
 processingResult / validationDiagnostics           <-- Pipeline outputs
-theme / activePreviewTab / currentPage / etc.      <-- UI state
+theme / activeOutputTab / collapsedPanels / etc.   <-- UI state
 ```
 
 ---
@@ -319,21 +345,11 @@ theme / activePreviewTab / currentPage / etc.      <-- UI state
 | react-resizable-panels | 4.6 | Resizable panel layout |
 | diff | 8 | Diff computation for the Diff tab |
 
-### Build Output
-
-The production build splits into three chunks:
-
-- **App code**: ~360KB (109KB gzipped) — components, engine, utilities
-- **Monaco Editor**: ~3.7MB (962KB gzipped) — editor core, loaded as separate chunk
-- **React vendor**: ~11KB (4KB gzipped) — react + react-dom
-
-Language workers (TypeScript, CSS, HTML, JSON) are lazy-loaded and never fetched when only using the custom `splunk-conf` language.
-
 ---
 
 ## Security
 
-- **No data persistence**: No localStorage, sessionStorage, cookies, or URL state. Refresh = clean slate.
+- **No data persistence**: No cookies or URL state. User data (raw logs, configuration) is never saved. Refresh = clean slate.
 - **No network requests**: All processing is client-side. Zero API calls.
 - **CSP headers**: `default-src 'self'` meta tag in `index.html`.
 - **Input sanitization**: React's JSX escaping prevents XSS. All regex construction goes through `safeRegex()` with try/catch guards.
@@ -390,12 +406,18 @@ Add a `case` branch to the `callFunction` switch in `src/engine/processors/evalP
 case 'myfunc': return /* your implementation */;
 ```
 
-### Adding a New Preview Tab
+### Adding a New Preview Sub-Tab
 
 1. Create a tab component in `src/components/preview/tabs/`.
-2. Add the tab ID to the `PreviewTabId` union type in `src/engine/types.ts`.
-3. Add the tab entry to `PREVIEW_TABS` in `src/components/preview/PreviewPanel.tsx`.
-4. Add the `case` to the `TabContent` switch in the same file.
+2. Add the tab ID to the `PreviewSubTabId` union type in `src/engine/types.ts`.
+3. Add the tab entry to `PREVIEW_SUB_TABS` in `src/components/preview/PreviewPanel.tsx`.
+4. Render the component in the `PreviewSubTab` function in the same file.
+
+### Adding a New Output Tab
+
+1. Add the tab ID to the `OutputTabId` union type in `src/engine/types.ts`.
+2. Add the tab entry to the `tabs` array in `PreviewPanel`.
+3. Add the `case` to the `TabContent` switch in the same file.
 
 ---
 
