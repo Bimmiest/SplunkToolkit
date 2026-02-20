@@ -1,0 +1,143 @@
+import { useMemo, useState } from 'react';
+import { useAppStore } from '../../../store/useAppStore';
+import { validateCimCompliance } from '../../../engine/cim/cimModels';
+import { ProgressBar } from '../../ui/ProgressBar';
+
+export function CimModelsTab() {
+  const result = useAppStore((s) => s.processingResult);
+  const [showMatchingOnly, setShowMatchingOnly] = useState(false);
+
+  const allCimResults = useMemo(() => {
+    const allFields = new Set<string>();
+    if (result && result.events.length > 0) {
+      for (const event of result.events) {
+        for (const key of Object.keys(event.fields)) {
+          allFields.add(key);
+        }
+      }
+    }
+    return validateCimCompliance(allFields, { includeAll: true });
+  }, [result]);
+
+  const matchingCount = useMemo(
+    () => allCimResults.filter((r) => r.requiredPresent.length > 0 || r.recommendedPresent.length > 0).length,
+    [allCimResults],
+  );
+
+  const displayResults = showMatchingOnly
+    ? allCimResults.filter((r) => r.requiredPresent.length > 0 || r.recommendedPresent.length > 0)
+    : allCimResults;
+
+  return (
+    <div className="h-full overflow-auto p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-[var(--color-text-muted)]">
+          {matchingCount > 0
+            ? `${matchingCount} matching model${matchingCount !== 1 ? 's' : ''} of ${allCimResults.length}`
+            : `${allCimResults.length} models (no fields matched yet)`}
+        </span>
+        {matchingCount > 0 && (
+          <button
+            onClick={() => setShowMatchingOnly(!showMatchingOnly)}
+            className="text-xs text-[var(--color-accent)] hover:underline cursor-pointer"
+          >
+            {showMatchingOnly ? 'Show all models' : 'Show matching only'}
+          </button>
+        )}
+      </div>
+
+      {displayResults.map((cimResult) => (
+        <CimModelCard key={cimResult.model.name} result={cimResult} />
+      ))}
+    </div>
+  );
+}
+
+function CimModelCard({ result }: { result: ReturnType<typeof validateCimCompliance>[0] }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasMatches = result.requiredPresent.length > 0 || result.recommendedPresent.length > 0;
+
+  const variant = result.requiredPercent >= 80 ? 'success' : result.requiredPercent >= 40 ? 'warning' : 'error';
+
+  return (
+    <div
+      className="border border-[var(--color-border)] rounded bg-[var(--color-bg-secondary)]"
+      style={{ opacity: hasMatches ? 1 : 0.6 }}
+    >
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-[var(--color-bg-tertiary)] transition-colors cursor-pointer"
+      >
+        <div className="flex-1">
+          <div className="text-sm font-medium text-[var(--color-text-primary)]">
+            {result.model.displayName}
+          </div>
+          <div className="text-xs text-[var(--color-text-muted)]">
+            {result.model.description}
+          </div>
+        </div>
+        <div className="w-32">
+          <ProgressBar value={result.requiredPercent} variant={hasMatches ? variant : 'default'} label="Required" />
+        </div>
+        <div className="w-32">
+          <ProgressBar value={result.totalPercent} variant="default" label="Total" />
+        </div>
+        <svg
+          className={`w-4 h-4 text-[var(--color-text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {expanded && (
+        <div className="px-3 py-2 border-t border-[var(--color-border)] space-y-2">
+          <FieldGroup
+            title="Required Fields"
+            present={result.requiredPresent}
+            missing={result.requiredMissing}
+          />
+          <FieldGroup
+            title="Recommended Fields"
+            present={result.recommendedPresent}
+            missing={result.recommendedMissing}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FieldGroup({
+  title,
+  present,
+  missing,
+}: {
+  title: string;
+  present: string[];
+  missing: string[];
+}) {
+  return (
+    <div>
+      <div className="text-xs font-medium text-[var(--color-text-muted)] mb-1">{title}</div>
+      <div className="flex flex-wrap gap-1">
+        {present.map((f) => (
+          <span key={f} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-[var(--color-success)]/10 text-[var(--color-success)]">
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+            {f}
+          </span>
+        ))}
+        {missing.map((f) => (
+          <span key={f} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-[var(--color-error)]/10 text-[var(--color-error)]">
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            {f}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}

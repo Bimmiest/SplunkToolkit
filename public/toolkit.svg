@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- Gear/cog representing configuration -->
+  <path d="M14.5 4h3l.5 3.2a9 9 0 0 1 2.2 1.3l3-1.3 1.5 2.6-2.5 2a9 9 0 0 1 0 2.6l2.5 2-1.5 2.6-3-1.3a9 9 0 0 1-2.2 1.3L17.5 20h-3l-.5-3.2a9 9 0 0 1-2.2-1.3l-3 1.3-1.5-2.6 2.5-2a9 9 0 0 1 0-2.6l-2.5-2 1.5-2.6 3 1.3A9 9 0 0 1 14 7.2L14.5 4z" stroke="#60a5fa" stroke-width="1.5" fill="rgba(96,165,250,0.15)"/>
+  <circle cx="16" cy="12" r="3" stroke="#60a5fa" stroke-width="1.5" fill="none"/>
+  <!-- Magnifying glass representing search/inspection -->
+  <circle cx="20" cy="22" r="4.5" stroke="#60a5fa" stroke-width="1.8" fill="rgba(96,165,250,0.1)"/>
+  <line x1="23.5" y1="25.5" x2="27.5" y2="29.5" stroke="#60a5fa" stroke-width="2" stroke-linecap="round"/>
+</svg>
