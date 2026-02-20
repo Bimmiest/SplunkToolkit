@@ -81,6 +81,7 @@ export function SplunkEditor({ value, onChange, fileType = 'props.conf', languag
       theme={theme === 'dark' ? 'splunk-dark' : 'splunk-light'}
       options={{
         minimap: { enabled: false },
+        contextmenu: false,
         wordWrap: 'off',
         lineNumbers: 'on',
         folding: true,
