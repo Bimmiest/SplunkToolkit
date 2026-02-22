@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useAppStore } from '../../../store/useAppStore';
 
-type SortKey = 'name' | 'count' | 'distinct' | 'source' | 'values';
+type SortKey = 'name' | 'count' | 'distinct' | 'source' | 'aliases' | 'values';
 type SortDir = 'asc' | 'desc';
 
 interface ColumnDef {
@@ -12,11 +12,12 @@ interface ColumnDef {
 }
 
 const COLUMNS: ColumnDef[] = [
-  { key: 'name', label: 'Field Name', defaultWidth: 180, minWidth: 80 },
-  { key: 'count', label: 'Events', defaultWidth: 100, minWidth: 60 },
-  { key: 'distinct', label: 'Distinct Values', defaultWidth: 120, minWidth: 60 },
-  { key: 'source', label: 'Source', defaultWidth: 180, minWidth: 60 },
-  { key: 'values', label: 'Sample Values', defaultWidth: 250, minWidth: 80 },
+  { key: 'name', label: 'Field Name', defaultWidth: 180, minWidth: 20 },
+  { key: 'aliases', label: 'Aliases', defaultWidth: 140, minWidth: 20 },
+  { key: 'count', label: 'Events', defaultWidth: 80, minWidth: 20 },
+  { key: 'distinct', label: 'Distinct Values', defaultWidth: 100, minWidth: 20 },
+  { key: 'source', label: 'Source', defaultWidth: 150, minWidth: 20 },
+  { key: 'values', label: 'Sample Values', defaultWidth: 300, minWidth: 20 },
 ];
 
 export function FieldsTab() {
@@ -50,18 +51,36 @@ export function FieldsTab() {
     });
   }, []);
 
+  // Build alias mapping: target → source from FIELDALIAS processing traces
+  const aliasMap = useMemo(() => {
+    const map = new Map<string, string>(); // target → source
+    const aliasRegex = /(\S+)\s+\(from\s+(\S+)\)/g;
+    for (const event of events) {
+      for (const trace of event.processingTrace) {
+        if (trace.processor !== 'FIELDALIAS') continue;
+        let match;
+        const regex = new RegExp(aliasRegex.source, aliasRegex.flags);
+        while ((match = regex.exec(trace.description)) !== null) {
+          map.set(match[1], match[2]);
+        }
+      }
+    }
+    return map;
+  }, [events]);
+
   const fieldSummary = useMemo(() => {
     const fields = new Map<string, {
       name: string;
       values: Set<string>;
       count: number;
       sources: Set<string>;
+      aliases: string[];
     }>();
 
     for (const event of events) {
       for (const [key, value] of Object.entries(event.fields)) {
         if (!fields.has(key)) {
-          fields.set(key, { name: key, values: new Set(), count: 0, sources: new Set() });
+          fields.set(key, { name: key, values: new Set(), count: 0, sources: new Set(), aliases: [] });
         }
         const entry = fields.get(key)!;
         entry.count++;
@@ -76,11 +95,23 @@ export function FieldsTab() {
       }
     }
 
+    // Attach alias names to their source fields and remove alias entries as standalone rows
+    for (const [target, source] of aliasMap) {
+      const sourceEntry = fields.get(source);
+      if (sourceEntry && !sourceEntry.aliases.includes(target)) {
+        sourceEntry.aliases.push(target);
+      }
+      fields.delete(target);
+    }
+
     let entries = Array.from(fields.values());
 
     if (search) {
       const lower = search.toLowerCase();
-      entries = entries.filter((f) => f.name.toLowerCase().includes(lower));
+      entries = entries.filter((f) =>
+        f.name.toLowerCase().includes(lower) ||
+        f.aliases.some((a) => a.toLowerCase().includes(lower))
+      );
     }
 
     // Identify all parent fields: any field that has at least one child (another field prefixed with "field.")
@@ -134,6 +165,7 @@ export function FieldsTab() {
           const bS = Array.from(b.sources).join(',');
           return dir * aS.localeCompare(bS);
         }
+        case 'aliases': return dir * (a.aliases.length - b.aliases.length);
         case 'values': {
           const aV = Array.from(a.values).slice(0, 1).join('');
           const bV = Array.from(b.values).slice(0, 1).join('');
@@ -150,7 +182,7 @@ export function FieldsTab() {
     }
 
     // Flatten tree: recursively insert children after their parent
-    type EnrichedEntry = typeof entries[0] & { isParent: boolean; depth: number; parentName: string | null };
+    type EnrichedEntry = typeof entries[0] & { isParent: boolean; depth: number; parentName: string | null; aliases: string[] };
     const result: EnrichedEntry[] = [];
 
     function insertWithChildren(entry: typeof entries[0], depth: number, parentName: string | null) {
@@ -272,6 +304,21 @@ export function FieldsTab() {
                     childCount={childCount}
                     onToggle={toggleCollapse}
                   />
+                </td>
+                <td className="py-1.5 px-3" style={{ width: columnWidths.aliases }}>
+                  {field.aliases.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {field.aliases.map((alias) => (
+                        <span
+                          key={alias}
+                          className="inline-block px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] font-mono text-xs"
+                          title={`FIELDALIAS: ${field.name} AS ${alias}`}
+                        >
+                          {alias}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </td>
                 <td className="py-1.5 px-3 text-[var(--color-text-secondary)]" style={{ width: columnWidths.count }}>
                   {field.count}/{events.length}

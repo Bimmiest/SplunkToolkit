@@ -7,6 +7,7 @@ import { HighlightedTab } from './tabs/HighlightedTab';
 import { DiffTab } from './tabs/DiffTab';
 import { CalculatedFieldsTab } from './tabs/CalculatedFieldsTab';
 import { TimestampTab } from './tabs/TimestampTab';
+import { RegexTab } from './tabs/RegexTab';
 import { CimModelsTab } from './tabs/CimModelsTab';
 import { FieldsTab } from './tabs/FieldsTab';
 import { TransformsTab } from './tabs/TransformsTab';
@@ -35,9 +36,10 @@ function hasMetadataDiff(eventMeta: EventMetadata, originalMeta: EventMetadata):
 const PREVIEW_SUB_TABS: { id: PreviewSubTabId; label: string }[] = [
   { id: 'raw', label: 'Raw' },
   { id: 'timestamp', label: 'Timestamp' },
-  { id: 'highlighted', label: 'Highlighted' },
+  { id: 'highlighted', label: 'Extractions' },
   { id: 'calculated', label: 'Calculated Fields' },
   { id: 'diff', label: 'Diff' },
+  { id: 'regex', label: 'Regex' },
 ];
 
 export function PreviewPanel() {
@@ -48,7 +50,7 @@ export function PreviewPanel() {
     { id: 'preview', label: 'Preview' },
     { id: 'cim', label: 'CIM Models' },
     { id: 'fields', label: 'Fields' },
-    { id: 'transforms', label: 'Transforms' },
+    { id: 'transforms', label: 'Pipeline' },
     { id: 'architecture', label: 'Architecture' },
   ], []);
 
@@ -220,6 +222,7 @@ function PreviewSubTab() {
         {subTab === 'calculated' && <CalculatedFieldsTab items={paginatedItems} allEvents={filteredEvents} currentPage={currentPage} eventsPerPage={eventsPerPage} />}
         {subTab === 'diff' && <DiffTab items={paginatedItems} currentPage={currentPage} eventsPerPage={eventsPerPage} />}
         {subTab === 'timestamp' && <TimestampTab items={paginatedItems} currentPage={currentPage} eventsPerPage={eventsPerPage} />}
+        {subTab === 'regex' && <RegexTab items={paginatedItems} currentPage={currentPage} eventsPerPage={eventsPerPage} />}
       </div>
 
       {/* Shared pagination */}

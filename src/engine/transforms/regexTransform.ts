@@ -1,6 +1,11 @@
 import type { SplunkEvent, ConfStanza } from '../types';
 import { safeRegex } from '../../utils/splunkRegex';
 
+/** Convert Splunk Python-style (?P<name>...) to JS (?<name>...) */
+function convertSplunkToJsRegex(pattern: string): string {
+  return pattern.replace(/\(\?P<(\w+)>/g, '(?<$1>');
+}
+
 export interface TransformResult {
   fields: Record<string, string | string[]>;
   destKey?: string;
@@ -26,7 +31,8 @@ export function applyRegexTransform(
     ? event._raw
     : (Array.isArray(event.fields[sourceKey]) ? (event.fields[sourceKey] as string[])[0] : event.fields[sourceKey] as string) ?? '';
 
-  const regex = safeRegex(regexDir.value.trim());
+  const jsPattern = convertSplunkToJsRegex(regexDir.value.trim());
+  const regex = safeRegex(jsPattern);
   if (!regex) return result;
 
   const match = regex.exec(sourceValue);
@@ -41,7 +47,7 @@ export function applyRegexTransform(
     if (destKey === '_raw') {
       // For DEST_KEY = _raw, perform a regex substitution within the source text
       // (like sed s/REGEX/FORMAT/g). JS .replace() handles $1, $2 natively.
-      const globalRegex = safeRegex(regexDir.value.trim(), 'g');
+      const globalRegex = safeRegex(jsPattern, 'g');
       if (globalRegex) {
         result.destKey = destKey;
         result.destValue = sourceValue.replace(globalRegex, format);

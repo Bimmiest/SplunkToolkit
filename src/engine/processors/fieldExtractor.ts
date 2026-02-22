@@ -10,7 +10,8 @@ export function extractFields(events: SplunkEvent[], directives: ConfDirective[]
 
   const extractions = extractDirectives.map((dir) => {
     const { pattern, sourceField } = parseExtractValue(dir.value);
-    const regex = pattern ? safeRegex(pattern) : null;
+    const jsPattern = pattern ? convertSplunkToJsRegex(pattern) : null;
+    const regex = jsPattern ? safeRegex(jsPattern) : null;
     return { directive: dir, regex, sourceField };
   });
 
@@ -64,6 +65,11 @@ function parseExtractValue(value: string): { pattern: string; sourceField?: stri
     return { pattern: inMatch[1], sourceField: inMatch[2] };
   }
   return { pattern: trimmed };
+}
+
+/** Convert Splunk Python-style (?P<name>...) to JS (?<name>...) */
+function convertSplunkToJsRegex(pattern: string): string {
+  return pattern.replace(/\(\?P<(\w+)>/g, '(?<$1>');
 }
 
 function getFieldValue(event: SplunkEvent, fieldName: string): string | undefined {

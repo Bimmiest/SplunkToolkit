@@ -68,4 +68,4 @@ export interface ParsedConf {
 
 export type OutputTabId = 'preview' | 'cim' | 'fields' | 'transforms' | 'architecture';
 
-export type PreviewSubTabId = 'raw' | 'highlighted' | 'calculated' | 'diff' | 'timestamp';
+export type PreviewSubTabId = 'raw' | 'highlighted' | 'calculated' | 'diff' | 'timestamp' | 'regex';

@@ -31,7 +31,7 @@ const FIELD_COLORS = [
 type FieldFilter = 'auto' | 'manual' | 'both';
 
 const AUTO_PROCESSORS = ['KV_MODE', 'INDEXED_EXTRACTIONS'];
-const MANUAL_PROCESSORS = ['EXTRACT', 'REPORT', 'TRANSFORMS', 'FIELDALIAS', 'SEDCMD'];
+const MANUAL_PROCESSORS = ['EXTRACT', 'REPORT', 'TRANSFORMS', 'SEDCMD'];
 
 function isAutoProcessor(processor: string): boolean {
   return AUTO_PROCESSORS.some((p) => processor.startsWith(p));
@@ -91,20 +91,28 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
   const savedLayout = useRef(getSavedLayout());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  const { autoFields, manualFields } = useMemo(() => {
+  const { autoFields, manualFields, fieldProcessorMap } = useMemo(() => {
     const auto = new Set<string>();
     const manual = new Set<string>();
+    const processorMap = new Map<string, string>();
     for (const { event } of allEvents) {
       for (const step of event.processingTrace) {
         if (!step.fieldsAdded) continue;
         if (isAutoProcessor(step.processor)) {
-          for (const f of step.fieldsAdded) auto.add(f);
+          for (const f of step.fieldsAdded) {
+            auto.add(f);
+            if (!processorMap.has(f)) processorMap.set(f, step.processor);
+          }
         } else if (isManualProcessor(step.processor)) {
-          for (const f of step.fieldsAdded) manual.add(f);
+          for (const f of step.fieldsAdded) {
+            manual.add(f);
+            // Manual processor overwrites auto for display purposes
+            processorMap.set(f, step.processor);
+          }
         }
       }
     }
-    return { autoFields: auto, manualFields: manual };
+    return { autoFields: auto, manualFields: manual, fieldProcessorMap: processorMap };
   }, [allEvents]);
 
   // Identify parent container fields (stringified JSON values) to exclude from highlighting
@@ -123,9 +131,13 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
     let colorIdx = 0;
     for (const { event } of allEvents) {
       for (const key of Object.keys(event.fields)) {
-        if (!autoFields.has(key) && !manualFields.has(key)) continue;
-        if (fieldFilter === 'auto' && !autoFields.has(key)) continue;
-        if (fieldFilter === 'manual' && !manualFields.has(key)) continue;
+        const isAuto = autoFields.has(key);
+        const isManual = manualFields.has(key);
+        if (!isAuto && !isManual) continue;
+        // When a field is in both sets, classify it as manual (explicit user intent)
+        const effectiveCategory = isManual ? 'manual' : 'auto';
+        if (fieldFilter === 'auto' && effectiveCategory !== 'auto') continue;
+        if (fieldFilter === 'manual' && effectiveCategory !== 'manual') continue;
         if (!map.has(key)) {
           map.set(key, FIELD_COLORS[colorIdx % FIELD_COLORS.length]);
           colorIdx++;
@@ -208,6 +220,7 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
                   fieldColorMap={highlightColorMap}
                   autoFields={autoFields}
                   activeFields={activeFields}
+                  fieldFilter={fieldFilter}
                   onFieldHover={setHoveredField}
                   onFieldClick={togglePin}
                 />
@@ -229,6 +242,7 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
                       fieldColorMap={highlightColorMap}
                       autoFields={autoFields}
                       activeFields={activeFields}
+                      fieldFilter={fieldFilter}
                       onFieldHover={setHoveredField}
                       onFieldClick={togglePin}
                     />
@@ -247,7 +261,7 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
               <FieldSidebar
                 fieldColorMap={fieldColorMap}
                 containerFields={containerFields}
-                autoFields={autoFields}
+                fieldProcessorMap={fieldProcessorMap}
                 activeFields={activeFields}
                 pinnedFields={pinnedFields}
                 onFieldHover={setHoveredField}
@@ -284,7 +298,7 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
 interface FieldSidebarProps {
   fieldColorMap: Map<string, string>;
   containerFields: Set<string>;
-  autoFields: Set<string>;
+  fieldProcessorMap: Map<string, string>;
   activeFields: Set<string> | null;
   pinnedFields: Set<string>;
   onFieldHover: (field: string | null) => void;
@@ -296,7 +310,7 @@ interface FieldNode {
   name: string;
   leafName: string;
   color: string;
-  isAuto: boolean;
+  processor: string | null;
   isContainer: boolean;
   depth: number;
   children: FieldNode[];
@@ -305,7 +319,7 @@ interface FieldNode {
 function buildFieldTree(
   fieldColorMap: Map<string, string>,
   containerFields: Set<string>,
-  autoFields: Set<string>,
+  fieldProcessorMap: Map<string, string>,
 ): FieldNode[] {
   const roots: FieldNode[] = [];
   const nodeMap = new Map<string, FieldNode>();
@@ -319,7 +333,7 @@ function buildFieldTree(
       name,
       leafName: parts[parts.length - 1],
       color,
-      isAuto: autoFields.has(name),
+      processor: fieldProcessorMap.get(name) ?? null,
       isContainer: containerFields.has(name),
       depth: parts.length - 1,
       children: [],
@@ -345,14 +359,14 @@ function buildFieldTree(
 }
 
 function FieldSidebar({
-  fieldColorMap, containerFields, autoFields, activeFields, pinnedFields, onFieldHover, onFieldClick, onCollapse,
+  fieldColorMap, containerFields, fieldProcessorMap, activeFields, pinnedFields, onFieldHover, onFieldClick, onCollapse,
 }: FieldSidebarProps) {
   const [search, setSearch] = useState('');
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string> | null>(null);
 
   const tree = useMemo(
-    () => buildFieldTree(fieldColorMap, containerFields, autoFields),
-    [fieldColorMap, containerFields, autoFields]
+    () => buildFieldTree(fieldColorMap, containerFields, fieldProcessorMap),
+    [fieldColorMap, containerFields, fieldProcessorMap]
   );
 
   const allGroupNames = useMemo(() => {
@@ -551,9 +565,9 @@ function FieldTreeNode({
             ({node.children.length})
           </span>
         )}
-        {node.isAuto && !hasChildren && (
+        {node.processor && !hasChildren && (
           <span className="text-[9px] text-[var(--color-text-muted)] italic flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-            auto
+            {node.processor.replace(/-.*$/, '')}
           </span>
         )}
 
@@ -592,20 +606,51 @@ function nodeMatchesSearch(node: FieldNode, search: string): boolean {
 // ─── Event Card + Highlighted Raw ────────────────────────────────────────────
 
 function EventCard({
-  event, globalIdx, fieldColorMap, autoFields, activeFields, onFieldHover, onFieldClick,
+  event, globalIdx, fieldColorMap, autoFields, activeFields, fieldFilter, onFieldHover, onFieldClick,
 }: {
   event: SplunkEvent;
   globalIdx: number;
   fieldColorMap: Map<string, string>;
   autoFields: Set<string>;
   activeFields: Set<string> | null;
+  fieldFilter: FieldFilter;
   onFieldHover: (field: string | null) => void;
   onFieldClick: (field: string) => void;
 }) {
+  const eventFields = Object.keys(event.fields).filter((f) => fieldColorMap.has(f));
+
+  // When a specific filter is active, all visible fields belong to that category
+  // (fieldColorMap already only contains fields matching the filter).
+  // When 'both', classify per-event by checking the processing trace.
+  let autoCount = 0;
+  let manualCount = 0;
+  if (fieldFilter === 'auto') {
+    autoCount = eventFields.length;
+  } else if (fieldFilter === 'manual') {
+    manualCount = eventFields.length;
+  } else {
+    manualCount = eventFields.filter((f) =>
+      event.processingTrace.some(
+        (step) => step.fieldsAdded?.includes(f) && isManualProcessor(step.processor),
+      ),
+    ).length;
+    autoCount = eventFields.length - manualCount;
+  }
+
   return (
     <div className="border border-[var(--color-border)] rounded bg-[var(--color-bg-secondary)]">
-      <div className="px-3 py-1.5 border-b border-[var(--color-border)] bg-[var(--color-bg-tertiary)]">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--color-border)] bg-[var(--color-bg-tertiary)]">
         <span className="text-xs font-medium text-[var(--color-text-muted)]">Event #{globalIdx}</span>
+        {autoCount > 0 && (
+          <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-warning)]/15 text-[var(--color-warning)]">
+            {autoCount} auto
+          </span>
+        )}
+        {manualCount > 0 && (
+          <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-accent)]/15 text-[var(--color-accent)]">
+            {manualCount} manual
+          </span>
+        )}
       </div>
       <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-all">
         <HighlightedRaw
