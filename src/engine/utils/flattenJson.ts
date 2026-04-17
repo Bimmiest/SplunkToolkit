@@ -6,6 +6,7 @@ const MAX_DEPTH = 10;
  * - Nested objects produce a parent key (stringified) and child keys (e.g. `user.name`)
  * - Arrays of primitives become multi-value fields
  * - Arrays of objects are indexed (e.g. `items.0.id`, `items.1.id`)
+ * - Returns true if the depth limit was hit (caller can surface a diagnostic).
  */
 export function flattenJson(
   obj: Record<string, unknown>,
@@ -13,8 +14,8 @@ export function flattenJson(
   added: string[],
   prefix = '',
   depth = 0,
-): void {
-  if (depth > MAX_DEPTH) return;
+): boolean {
+  if (depth > MAX_DEPTH) return true;
 
   for (const [key, value] of Object.entries(obj)) {
     const fieldName = prefix ? `${prefix}.${key}` : key;
@@ -37,7 +38,7 @@ export function flattenJson(
         for (let i = 0; i < value.length; i++) {
           const item = value[i];
           if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
-            flattenJson(item as Record<string, unknown>, fields, added, `${fieldName}.${i}`, depth + 1);
+            if (flattenJson(item as Record<string, unknown>, fields, added, `${fieldName}.${i}`, depth + 1)) return true;
           } else if (item !== null && item !== undefined) {
             fields[`${fieldName}.${i}`] = String(item);
             added.push(`${fieldName}.${i}`);
@@ -48,10 +49,11 @@ export function flattenJson(
       // Nested object — store stringified parent + recurse children
       fields[fieldName] = JSON.stringify(value);
       added.push(fieldName);
-      flattenJson(value as Record<string, unknown>, fields, added, fieldName, depth + 1);
+      if (flattenJson(value as Record<string, unknown>, fields, added, fieldName, depth + 1)) return true;
     } else {
       fields[fieldName] = String(value);
       added.push(fieldName);
     }
   }
+  return false;
 }

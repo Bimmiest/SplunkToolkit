@@ -1,4 +1,13 @@
 import type { ConfStanza, EventMetadata } from '../types';
+import { safeRegex, escapeRegex } from '../../utils/splunkRegex';
+
+// Splunk stanza precedence (highest wins): source > host > sourcetype > default
+const STANZA_PRIORITY: Record<ConfStanza['type'], number> = {
+  default: 0,
+  sourcetype: 1,
+  host: 2,
+  source: 3,
+};
 
 export function matchStanzas(stanzas: ConfStanza[], metadata: EventMetadata): ConfStanza[] {
   const matched: { stanza: ConfStanza; priority: number; specificity: number }[] = [];
@@ -6,26 +15,27 @@ export function matchStanzas(stanzas: ConfStanza[], metadata: EventMetadata): Co
   for (const stanza of stanzas) {
     switch (stanza.type) {
       case 'default':
-        matched.push({ stanza, priority: 0, specificity: 0 });
+        matched.push({ stanza, priority: STANZA_PRIORITY.default, specificity: 0 });
         break;
 
       case 'sourcetype':
         if (metadata.sourcetype && stanza.name === metadata.sourcetype) {
-          matched.push({ stanza, priority: 1, specificity: stanza.name.length });
+          matched.push({ stanza, priority: STANZA_PRIORITY.sourcetype, specificity: stanza.name.length });
         }
         break;
 
       case 'host':
-        if (metadata.host && matchPattern(metadata.host, stanza.hostPattern ?? stanza.name)) {
+        if (metadata.host && matchPattern(metadata.host, stanza.hostPattern ?? stanza.name, true)) {
           const specificity = getPatternSpecificity(stanza.hostPattern ?? stanza.name);
-          matched.push({ stanza, priority: 2, specificity });
+          matched.push({ stanza, priority: STANZA_PRIORITY.host, specificity });
         }
         break;
 
       case 'source':
-        if (metadata.source && matchPattern(metadata.source, stanza.sourcePattern ?? stanza.name)) {
+        // source:: matching is case-sensitive in Splunk
+        if (metadata.source && matchPattern(metadata.source, stanza.sourcePattern ?? stanza.name, false)) {
           const specificity = getPatternSpecificity(stanza.sourcePattern ?? stanza.name);
-          matched.push({ stanza, priority: 3, specificity });
+          matched.push({ stanza, priority: STANZA_PRIORITY.source, specificity });
         }
         break;
     }
@@ -39,14 +49,11 @@ export function matchStanzas(stanzas: ConfStanza[], metadata: EventMetadata): Co
   return matched.map((m) => m.stanza);
 }
 
-function matchPattern(value: string, pattern: string): boolean {
+function matchPattern(value: string, pattern: string, caseInsensitive: boolean): boolean {
   const regexStr = patternToRegex(pattern);
-  try {
-    const regex = new RegExp(`^${regexStr}$`, 'i');
-    return regex.test(value);
-  } catch {
-    return value === pattern;
-  }
+  const regex = safeRegex(`^${regexStr}$`, caseInsensitive ? 'i' : undefined);
+  if (regex) return regex.test(value);
+  return caseInsensitive ? value.toLowerCase() === pattern.toLowerCase() : value === pattern;
 }
 
 function patternToRegex(pattern: string): string {
@@ -78,10 +85,6 @@ function getPatternSpecificity(pattern: string): number {
     }
   }
   return score;
-}
-
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export function getDirectiveValue(stanzas: ConfStanza[], key: string): string | undefined {

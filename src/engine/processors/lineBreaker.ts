@@ -34,22 +34,30 @@ const DATE_LIKE_PATTERN = safeRegex(
 );
 
 /**
- * Compute line numbers for a substring within the full raw data.
+ * Build a sorted array of newline character offsets for the entire rawData.
+ * Called once per breakLines invocation; subsequent lookups are O(log n).
  */
-function computeLineNumbers(
-  rawData: string,
-  segmentStart: number,
-  segmentEnd: number
-): { start: number; end: number } {
-  let startLine = 1;
-  for (let i = 0; i < segmentStart && i < rawData.length; i++) {
-    if (rawData[i] === '\n') startLine++;
+function buildNewlineIndex(rawData: string): number[] {
+  const newlines: number[] = [];
+  for (let i = 0; i < rawData.length; i++) {
+    if (rawData[i] === '\n') newlines.push(i);
   }
-  let endLine = startLine;
-  for (let i = segmentStart; i < segmentEnd && i < rawData.length; i++) {
-    if (rawData[i] === '\n') endLine++;
+  return newlines;
+}
+
+/**
+ * Return the 1-indexed line number at a given character offset using the
+ * pre-built newline index (binary search).
+ */
+function lineAtOffset(newlines: number[], offset: number): number {
+  let lo = 0;
+  let hi = newlines.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (newlines[mid] < offset) lo = mid + 1;
+    else hi = mid;
   }
-  return { start: startLine, end: endLine };
+  return lo + 1;
 }
 
 /**
@@ -101,7 +109,9 @@ export function breakLines(
     //   the captured group within that region is what gets removed.
 
     // To split correctly we iterate matches ourselves.
-    const nonGlobalRegex = safeRegex(lineBreakerPattern);
+    // Use 'd' flag so RegExpExecArray.indices gives exact capture offsets,
+    // avoiding the indexOf() ambiguity when captured text repeats in the match.
+    const nonGlobalRegex = safeRegex(lineBreakerPattern, 'd');
     if (!nonGlobalRegex) {
       segments = [rawData];
       segmentOffsets.push(0);
@@ -122,21 +132,16 @@ export function breakLines(
 
         // The full match spans m.index .. m.index + m[0].length
         // The captured group is m[1], which is the separator to discard.
-        // Text before the full match belongs to the current segment.
-        // Text between start of full match and start of captured group
-        // also belongs to the current segment.
         const fullMatchStart = m.index;
-        const _fullMatchEnd = m.index + m[0].length; void _fullMatchEnd;
 
-        // Find where the captured group sits within the full match.
-        // m[1] starts at some position within m[0].
+        // Locate the capture group using indices (d flag) for exact position.
         let captureStartInMatch = 0;
         let captureEndInMatch = m[0].length;
         if (m[1] !== undefined) {
-          const captureIdx = m[0].indexOf(m[1]);
-          if (captureIdx !== -1) {
-            captureStartInMatch = captureIdx;
-            captureEndInMatch = captureIdx + m[1].length;
+          const groupIndices = m.indices?.[1];
+          if (groupIndices) {
+            captureStartInMatch = groupIndices[0] - fullMatchStart;
+            captureEndInMatch = groupIndices[1] - fullMatchStart;
           }
         }
 
@@ -197,12 +202,16 @@ export function breakLines(
     const breakOnlyBeforeDateStr = getDirective(directives, 'BREAK_ONLY_BEFORE_DATE');
     const mustBreakAfterStr = getDirective(directives, 'MUST_BREAK_AFTER');
 
-    const breakOnlyBeforeRegex = breakOnlyBeforeStr
-      ? safeRegex(breakOnlyBeforeStr)
+    // Splunk matches BREAK_ONLY_BEFORE at the start of each segment (line-anchored).
+    const breakOnlyBeforeAnchoredRegex = breakOnlyBeforeStr
+      ? safeRegex('^(?:' + breakOnlyBeforeStr + ')')
       : null;
+    // Splunk default: BREAK_ONLY_BEFORE_DATE=true when SHOULD_LINEMERGE=true.
+    // Only disabled when explicitly set to false.
     const breakOnlyBeforeDate =
-      breakOnlyBeforeDateStr !== undefined &&
-      breakOnlyBeforeDateStr.toLowerCase() === 'true';
+      breakOnlyBeforeDateStr === undefined
+        ? true
+        : breakOnlyBeforeDateStr.toLowerCase() !== 'false';
     const mustBreakAfterRegex = mustBreakAfterStr
       ? safeRegex(mustBreakAfterStr)
       : null;
@@ -225,9 +234,10 @@ export function breakLines(
         forceBreakNext = false;
       }
 
-      // BREAK_ONLY_BEFORE: only start new event if regex matches at start
-      if (!startNewEvent && breakOnlyBeforeRegex) {
-        if (breakOnlyBeforeRegex.test(seg.text)) {
+      // BREAK_ONLY_BEFORE: only start new event if regex matches at the start of the segment.
+      // Splunk anchors this to the beginning of the line — use breakOnlyBeforeAnchoredRegex.
+      if (!startNewEvent && breakOnlyBeforeAnchoredRegex) {
+        if (breakOnlyBeforeAnchoredRegex.test(seg.text)) {
           startNewEvent = true;
         }
       }
@@ -239,21 +249,8 @@ export function breakLines(
         }
       }
 
-      // If neither BREAK_ONLY_BEFORE nor BREAK_ONLY_BEFORE_DATE is set,
-      // each segment is its own event by default under linemerge
-      if (
-        !startNewEvent &&
-        !breakOnlyBeforeRegex &&
-        !breakOnlyBeforeDate
-      ) {
-        // Default linemerge behavior: no specific break rule means
-        // we keep merging (Splunk's default is to merge everything
-        // unless a break condition says otherwise). But in practice
-        // Splunk's default SHOULD_LINEMERGE=true with no BREAK_ONLY_*
-        // directives still breaks on each LINE_BREAKER segment.
-        // So each segment is its own event.
-        startNewEvent = true;
-      }
+      // When SHOULD_LINEMERGE=true and no BREAK_ONLY_BEFORE is set,
+      // BREAK_ONLY_BEFORE_DATE=true (Splunk default) controls merging.
 
       if (startNewEvent) {
         mergedSegments.push({ text: seg.text, offset: seg.offset });
@@ -275,8 +272,12 @@ export function breakLines(
   }
 
   // ── Step 3: Create SplunkEvent objects ────────────────────────────
+  const newlines = buildNewlineIndex(rawData);
   const events: SplunkEvent[] = mergedSegments.map((seg) => {
-    const lineNums = computeLineNumbers(rawData, seg.offset, seg.offset + seg.text.length);
+    const lineNums = {
+      start: lineAtOffset(newlines, seg.offset),
+      end: lineAtOffset(newlines, seg.offset + seg.text.length),
+    };
     return {
       _raw: seg.text,
       _time: null,

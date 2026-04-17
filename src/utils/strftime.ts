@@ -5,6 +5,8 @@
  * TIME_FORMAT definitions.
  */
 
+import { escapeRegex } from './splunkRegex';
+
 // ---------------------------------------------------------------------------
 // Lookup tables
 // ---------------------------------------------------------------------------
@@ -61,6 +63,12 @@ function buildDirectiveMap(): Record<string, DirectiveMeta> {
     '%3N': { regex: '(\\d{3})', capture: 'milliseconds' },
     '%6N': { regex: '(\\d{6})', capture: 'microseconds' },
     '%9N': { regex: '(\\d{9})', capture: 'nanoseconds' },
+    // Additional specifiers
+    '%f': { regex: '(\\d{1,6})', capture: 'microsecondsFull' },
+    '%j': { regex: '(\\d{3})', capture: 'dayOfYear' },
+    '%k': { regex: '(\\s?\\d{1,2})', capture: 'hour24' },  // space-padded 24h, same capture as %H
+    '%l': { regex: '(\\s?\\d{1,2})', capture: 'hour12' },  // space-padded 12h, same capture as %I
+    // %% is a literal percent -- expanded before the token loop runs.
     // Composite directives -- expanded before the token loop runs.
     '%T': { regex: '', capture: '' }, // placeholder, expanded to %H:%M:%S
     '%F': { regex: '', capture: '' }, // placeholder, expanded to %Y-%m-%d
@@ -68,13 +76,6 @@ function buildDirectiveMap(): Record<string, DirectiveMeta> {
 }
 
 const DIRECTIVE_MAP = buildDirectiveMap();
-
-// ---------------------------------------------------------------------------
-// Escape a string for literal use inside a regular expression.
-// ---------------------------------------------------------------------------
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 // ---------------------------------------------------------------------------
 // Expand composite directives so the main loop only deals with atomic ones.
@@ -118,6 +119,14 @@ function tokenise(format: string): TokenisedFormat {
 
       // Single-character directive (%Y, %m, etc.)
       const twoChar = expanded.slice(i, i + 2);
+
+      // %% = literal percent sign (no capture group)
+      if (twoChar === '%%') {
+        regexStr += '%';
+        i += 2;
+        continue;
+      }
+
       const meta = DIRECTIVE_MAP[twoChar];
       if (meta) {
         regexStr += meta.regex;
@@ -271,7 +280,21 @@ export function parseTimestamp(text: string, format: string, tz?: string): Date 
     month = 0;
   }
 
-  const day = bag.day ? parseInt(bag.day, 10) : 1;
+  // %j: day-of-year (001-366) — convert to month+day when no month/day present
+  let day: number;
+  if (bag.dayOfYear && !bag.day && !bag.month) {
+    const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+    const months = [31, isLeap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    const maxDoy = isLeap ? 366 : 365;
+    const doy = Math.max(1, Math.min(parseInt(bag.dayOfYear, 10), maxDoy));
+    let rem = doy;
+    let m = 0;
+    while (m < 12 && rem > months[m]) rem -= months[m++];
+    month = m;
+    day = rem;
+  } else {
+    day = bag.day ? parseInt(bag.day, 10) : 1;
+  }
 
   let hour: number;
   if (bag.hour24) {
@@ -297,6 +320,10 @@ export function parseTimestamp(text: string, format: string, tz?: string): Date 
     milliseconds = parseInt(bag.milliseconds, 10);
   } else if (bag.microseconds) {
     milliseconds = Math.floor(parseInt(bag.microseconds, 10) / 1000);
+  } else if (bag.microsecondsFull) {
+    // %f: 1-6 digit microseconds — pad to 6 digits then convert to ms
+    const padded = bag.microsecondsFull.padEnd(6, '0');
+    milliseconds = Math.floor(parseInt(padded, 10) / 1000);
   } else if (bag.nanoseconds) {
     milliseconds = Math.floor(parseInt(bag.nanoseconds, 10) / 1_000_000);
   }

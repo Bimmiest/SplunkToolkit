@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useRef } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Panel, Group, Separator } from 'react-resizable-panels';
 import type { Layout } from 'react-resizable-panels';
 
@@ -88,7 +88,7 @@ function isJsonContainer(value: string | string[]): boolean {
 export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }: HighlightedTabProps) {
   const [fieldFilter, setFieldFilter] = useState<FieldFilter>('both');
   const { pinnedFields, activeFields, togglePin, setHoveredField } = useFieldFocus();
-  const savedLayout = useRef(getSavedLayout());
+  const [initialLayout] = useState(getSavedLayout);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const { autoFields, manualFields, fieldProcessorMap } = useMemo(() => {
@@ -229,7 +229,7 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
           </div>
         ) : (
           /* Resizable split layout */
-          <Group orientation="horizontal" id="highlighted-split" defaultLayout={savedLayout.current} onLayoutChanged={saveLayout}>
+          <Group orientation="horizontal" id="highlighted-split" defaultLayout={initialLayout} onLayoutChanged={saveLayout}>
             <Panel defaultSize={85} minSize={40} id="highlighted-events">
               <div className="h-full overflow-auto p-3 space-y-3">
                 {filteredItems.map((item, idx) => {

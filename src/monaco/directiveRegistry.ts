@@ -45,8 +45,8 @@ const DIRECTIVES: DirectiveInfo[] = [
     description:
       'A strftime-style format string that describes the timestamp format in the event. ' +
       'Splunk uses this format to parse the timestamp from the event text after applying TIME_PREFIX. ' +
-      'Common tokens include %Y (4-digit year), %m (month), %d (day), %H (hour), %M (minute), %S (second), %f (microseconds), %z (timezone offset).',
-    example: 'TIME_FORMAT = %Y-%m-%dT%H:%M:%S.%f%z',
+      'Common tokens include %Y (4-digit year), %m (month), %d (day), %H (hour), %M (minute), %S (second), %3N (milliseconds), %6N (microseconds), %z (timezone offset).',
+    example: 'TIME_FORMAT = %Y-%m-%dT%H:%M:%S.%6N%z',
     defaultValue: '',
     category: 'Time Configuration',
     appliesTo: 'props.conf',
@@ -255,7 +255,7 @@ const DIRECTIVES: DirectiveInfo[] = [
       'A regex with a capturing group that determines event boundaries on the forwarder before data is sent to the indexer. ' +
       'Requires EVENT_BREAKER_ENABLE = true. Works similarly to LINE_BREAKER but is applied on the forwarder.',
     example: 'EVENT_BREAKER = ([\\r\\n]+)(?=\\d{4}-\\d{2}-\\d{2})',
-    defaultValue: '\\r\\n',
+    defaultValue: '([\\r\\n]+)',
     category: 'Event Breaking',
     appliesTo: 'props.conf',
     valueType: 'regex',
@@ -377,19 +377,6 @@ const DIRECTIVES: DirectiveInfo[] = [
     appliesTo: 'props.conf',
     valueType: 'enum',
     enumValues: ['auto', 'none', 'json', 'xml', 'multi'],
-    isClassBased: false,
-    phase: 'search-time',
-  },
-  {
-    key: 'AUTO_KV_JSON',
-    description:
-      'Controls whether Splunk automatically extracts fields from JSON-formatted events at search time. ' +
-      'When true and KV_MODE = auto, Splunk will parse JSON structures and create fields from JSON keys.',
-    example: 'AUTO_KV_JSON = false',
-    defaultValue: 'true',
-    category: 'Field Extraction',
-    appliesTo: 'props.conf',
-    valueType: 'boolean',
     isClassBased: false,
     phase: 'search-time',
   },
@@ -578,7 +565,7 @@ const DIRECTIVES: DirectiveInfo[] = [
     description:
       'An eval expression that runs at index time (ingest) to create or modify fields. ' +
       'This is a powerful mechanism for computing fields before data is written to the index. ' +
-      'Multiple expressions can be separated by semicolons.',
+      'Multiple expressions can be separated by commas.',
     example: 'INGEST_EVAL = vendor=upper(vendor), index=if(severity>7,"critical","main")',
     defaultValue: '',
     category: 'Field Extraction',
@@ -872,19 +859,6 @@ const DIRECTIVES: DirectiveInfo[] = [
     valueType: 'regex',
     isClassBased: false,
     phase: 'index-time',
-  },
-  {
-    key: 'JSON_TRIM_BRACES_IN_ARRAY_NAMES',
-    description:
-      'Controls whether Splunk trims braces from auto-extracted JSON array field names. ' +
-      'When true, "field{}" becomes "field" instead of preserving the brace notation.',
-    example: 'JSON_TRIM_BRACES_IN_ARRAY_NAMES = true',
-    defaultValue: 'false',
-    category: 'Structured Data',
-    appliesTo: 'props.conf',
-    valueType: 'boolean',
-    isClassBased: false,
-    phase: 'search-time',
   },
   {
     key: 'rename',

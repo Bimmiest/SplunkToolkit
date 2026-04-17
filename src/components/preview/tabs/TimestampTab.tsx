@@ -156,13 +156,9 @@ interface TimestampMatch {
   matchedText: string;
 }
 
-const CONF_REGEX = /^\s*(\w+)\s*=\s*(.+)$/gm;
-
 function parseTimeConfig(propsConf: string): TimeConfig {
   const config: TimeConfig = { timePrefix: null, timeFormat: null, maxLookahead: 128, tz: null };
-  let match: RegExpExecArray | null;
-  const regex = new RegExp(CONF_REGEX.source, CONF_REGEX.flags);
-  while ((match = regex.exec(propsConf)) !== null) {
+  for (const match of propsConf.matchAll(/^\s*(\w+)\s*=\s*(.+)$/gm)) {
     const key = match[1].trim();
     const value = match[2].trim();
     switch (key) {

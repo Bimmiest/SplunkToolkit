@@ -17,7 +17,8 @@ function safeProcessor(
   name: string,
   events: SplunkEvent[],
   fn: () => SplunkEvent[],
-  diagnostics: ValidationDiagnostic[]
+  diagnostics: ValidationDiagnostic[],
+  file: ValidationDiagnostic['file'] = 'props.conf'
 ): SplunkEvent[] {
   try {
     return fn();
@@ -25,7 +26,7 @@ function safeProcessor(
     diagnostics.push({
       level: 'error',
       message: `Processor "${name}" failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
-      file: 'props.conf',
+      file,
     });
     return events; // Return unmodified events on failure
   }
@@ -63,12 +64,56 @@ export function runPipeline(
 
   diagnostics.push(...propsConf.errors, ...transformsConf.errors);
 
-  // Cross-reference validation: check TRANSFORMS/REPORT references exist in transforms.conf
+  // Warn about LOOKUP directives — lookup table execution is not simulated
+  for (const stanza of propsConf.stanzas) {
+    for (const dir of stanza.directives) {
+      if (dir.directiveType === 'LOOKUP') {
+        diagnostics.push({
+          level: 'warning',
+          message: `LOOKUP-${dir.className ?? dir.key} is configured but lookup table execution is not simulated — fields will not be populated`,
+          file: 'props.conf',
+          line: dir.line,
+          directiveKey: dir.key,
+        });
+      }
+    }
+  }
+
+  // Validate DEST_KEY=MetaData:* stanzas require the matching prefix in FORMAT
+  const DEST_KEY_REQUIRED_PREFIX: Record<string, string> = {
+    'MetaData:Host': 'host::',
+    'MetaData:Source': 'source::',
+    'MetaData:Sourcetype': 'sourcetype::',
+    'MetaData:Index': 'index::',
+  };
+  for (const stanza of transformsConf.stanzas) {
+    const destKeyDir = stanza.directives.find((d) => d.key === 'DEST_KEY');
+    const formatDir = stanza.directives.find((d) => d.key === 'FORMAT');
+    if (destKeyDir && formatDir) {
+      const dk = destKeyDir.value.trim().replace(/^_/, '');
+      const requiredPrefix = DEST_KEY_REQUIRED_PREFIX[dk];
+      if (requiredPrefix && !formatDir.value.includes(requiredPrefix)) {
+        diagnostics.push({
+          level: 'warning',
+          message: `DEST_KEY = ${destKeyDir.value.trim()} requires FORMAT to include the "${requiredPrefix}" prefix (e.g. FORMAT = ${requiredPrefix}$1). Without it Splunk silently skips the metadata update.`,
+          file: 'transforms.conf',
+          line: formatDir.line,
+          directiveKey: formatDir.key,
+          suggestion: `Change FORMAT = ${formatDir.value.trim()} to FORMAT = ${requiredPrefix}${formatDir.value.trim()}`,
+        });
+      }
+    }
+  }
+
+  // Cross-reference validation: check TRANSFORMS/REPORT references exist, and collect
+  // referenced stanza names in one pass (avoids iterating props stanzas twice).
+  const referencedTransforms = new Set<string>();
   for (const stanza of propsConf.stanzas) {
     for (const dir of stanza.directives) {
       if (dir.directiveType === 'TRANSFORMS' || dir.directiveType === 'REPORT') {
         const stanzaNames = dir.value.split(',').map((s) => s.trim()).filter(Boolean);
         for (const name of stanzaNames) {
+          referencedTransforms.add(name);
           if (!transformsConf.stanzas.find((s) => s.name === name)) {
             diagnostics.push({
               level: 'error',
@@ -79,16 +124,6 @@ export function runPipeline(
             });
           }
         }
-      }
-    }
-  }
-
-  // Check for unreferenced transforms.conf stanzas
-  const referencedTransforms = new Set<string>();
-  for (const stanza of propsConf.stanzas) {
-    for (const dir of stanza.directives) {
-      if (dir.directiveType === 'TRANSFORMS' || dir.directiveType === 'REPORT') {
-        dir.value.split(',').map((s) => s.trim()).filter(Boolean).forEach((n) => referencedTransforms.add(n));
       }
     }
   }
@@ -107,16 +142,32 @@ export function runPipeline(
   const matchedStanzas = matchStanzas(propsConf.stanzas, metadata);
   const directives = mergeDirectives(matchedStanzas);
 
-  // Collect all directives (not merged) for class-based ones
-  const allDirectives: ConfDirective[] = [];
+  // Collect class-based directives (EXTRACT-*, EVAL-*, SEDCMD-*, etc.) deduped by key.
+  // matchedStanzas is already sorted highest-precedence first, so first occurrence wins —
+  // same semantics as mergeDirectives but over the full key (including class suffix).
+  const allDirectivesMap = new Map<string, ConfDirective>();
   for (const stanza of matchedStanzas) {
-    allDirectives.push(...stanza.directives);
+    for (const directive of stanza.directives) {
+      if (!allDirectivesMap.has(directive.key)) {
+        allDirectivesMap.set(directive.key, directive);
+      }
+    }
   }
+  const allDirectives = Array.from(allDirectivesMap.values());
 
   // ── Index-time processing ─────────────────────────────
 
-  // Step 1-2: Line breaking and merging
-  let events = breakLines(truncatedRaw, allDirectives, metadata);
+  // Step 1-2: Line breaking and merging.
+  // Real Splunk implicitly sets SHOULD_LINEMERGE=false when INDEXED_EXTRACTIONS is a
+  // structured format (csv/tsv/psv/w3c), so each line becomes its own event.
+  const STRUCTURED_EXTRACTIONS = new Set(['csv', 'tsv', 'psv', 'w3c']);
+  const indexedExtDir = directives.find((d) => d.key === 'INDEXED_EXTRACTIONS');
+  const lineBreakDirectives =
+    indexedExtDir && STRUCTURED_EXTRACTIONS.has(indexedExtDir.value.trim().toLowerCase()) &&
+    !allDirectives.some((d) => d.key.toUpperCase() === 'SHOULD_LINEMERGE')
+      ? [...allDirectives, { key: 'SHOULD_LINEMERGE', value: 'false', directiveType: 'SHOULD_LINEMERGE', line: 0 } as ConfDirective]
+      : allDirectives;
+  let events = breakLines(truncatedRaw, lineBreakDirectives, metadata);
 
   // Step 3: Truncation
   events = safeProcessor('TRUNCATE', events, () => truncateEvents(events, directives), diagnostics);
@@ -131,7 +182,7 @@ export function runPipeline(
   events = safeProcessor('SEDCMD', events, () => applySedCommands(events, allDirectives), diagnostics);
 
   // Step 7: Index-time TRANSFORMS
-  events = safeProcessor('TRANSFORMS', events, () => applyTransforms(events, allDirectives, transformsConf, 'index-time'), diagnostics);
+  events = safeProcessor('TRANSFORMS', events, () => applyTransforms(events, allDirectives, transformsConf, 'index-time'), diagnostics, 'transforms.conf');
 
   // Step 7b: INGEST_EVAL (from transforms.conf stanzas)
   events = safeProcessor('INGEST_EVAL', events, () => {
@@ -139,11 +190,11 @@ export function runPipeline(
     for (const stanza of transformsConf.stanzas) {
       const ingestEvalDirs = stanza.directives.filter((d) => d.key === 'INGEST_EVAL');
       if (ingestEvalDirs.length > 0) {
-        result = applyIngestEval(result, ingestEvalDirs);
+        result = applyIngestEval(result, ingestEvalDirs, diagnostics);
       }
     }
     return result;
-  }, diagnostics);
+  }, diagnostics, 'transforms.conf');
 
   // ── Search-time processing ────────────────────────────
 
@@ -154,13 +205,13 @@ export function runPipeline(
   events = safeProcessor('KV_MODE', events, () => applyKvMode(events, directives), diagnostics);
 
   // Step 10: Search-time REPORT transforms
-  events = safeProcessor('REPORT', events, () => applyTransforms(events, allDirectives, transformsConf, 'search-time'), diagnostics);
+  events = safeProcessor('REPORT', events, () => applyTransforms(events, allDirectives, transformsConf, 'search-time'), diagnostics, 'transforms.conf');
 
   // Step 11: FIELDALIAS
   events = safeProcessor('FIELDALIAS', events, () => applyFieldAliases(events, allDirectives), diagnostics);
 
   // Step 12: EVAL (calculated fields)
-  events = safeProcessor('EVAL', events, () => applyEvalExpressions(events, allDirectives), diagnostics);
+  events = safeProcessor('EVAL', events, () => applyEvalExpressions(events, allDirectives, diagnostics), diagnostics);
 
   // Collect all processing steps
   const processingSteps = events.flatMap((e) => e.processingTrace);

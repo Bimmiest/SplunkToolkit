@@ -267,7 +267,7 @@ This single registry powers autocomplete, hover tooltips, and linting. Add a dir
 
 ## Output Tabs
 
-The Output panel has five top-level tabs. The **Preview** tab contains five sub-tabs that share a common filter bar (search, field, status, and modification filters) and pagination controls.
+The Output panel has five top-level tabs. The **Preview** tab contains six sub-tabs that share a common filter bar (search, field, status, and modification filters) and pagination controls.
 
 ### Top-Level Tabs
 
@@ -276,7 +276,7 @@ The Output panel has five top-level tabs. The **Preview** tab contains five sub-
 | **Preview** | Event display with sub-tabs (see below), shared filters, and pagination |
 | **CIM Models** | Validates extracted fields against 16 CIM data models with progress bars per model and field-by-field breakdown |
 | **Fields** | Searchable/sortable table of all extracted fields — name, value, extraction type, source directive, event count |
-| **Transforms** | Full processing pipeline summary — all transforms in execution order with REGEX/FORMAT/DEST_KEY |
+| **Pipeline** | Full processing pipeline summary — all transforms in execution order with REGEX/FORMAT/DEST_KEY |
 | **Architecture** | SVG deployment architecture diagram |
 
 ### Preview Sub-Tabs
@@ -285,9 +285,10 @@ The Output panel has five top-level tabs. The **Preview** tab contains five sub-
 |---------|-------------|
 | **Raw** | Events after line/event breaking, with line numbers, timestamp regions, and field badges |
 | **Timestamp** | Timestamp extraction details — matched prefix, format pattern, and parsed timestamp per event |
-| **Highlighted** | Field extractions color-coded inline within `_raw`, with a collapsible field sidebar supporting search, pin-to-filter, and hierarchical field grouping |
+| **Extractions** | Field extractions color-coded inline within `_raw`, with a collapsible field sidebar supporting search, pin-to-filter, and hierarchical field grouping |
 | **Calculated Fields** | EVAL-computed fields highlighted inline within `_raw`, showing which calculated values appear in the original text |
 | **Diff** | Character-level unified diff (red/green) comparing original raw data vs processed `_raw` |
+| **Regex** | Interactive regex reference panel — test patterns against event text and browse common Splunk regex constructs |
 
 Field highlighting uses context-aware matching — values are matched next to their field key names (JSON `"key":"value"`, KV `key=value`) rather than by plain substring search, ensuring fields like `accountId` and `recipientAccountId` highlight correctly even when they share the same value.
 
@@ -349,10 +350,10 @@ theme / activeOutputTab / collapsedPanels / etc.   <-- UI state
 
 ## Security
 
-- **No data persistence**: No cookies or URL state. User data (raw logs, configuration) is never saved. Refresh = clean slate.
+- **Minimal persistence**: The Extractions panel split-ratio is persisted to `localStorage`; all other state (raw logs, configuration) is ephemeral — refresh clears it.
 - **No network requests**: All processing is client-side. Zero API calls.
-- **CSP headers**: `default-src 'self'` meta tag in `index.html`.
-- **Input sanitization**: React's JSX escaping prevents XSS. All regex construction goes through `safeRegex()` with try/catch guards.
+- **CSP headers**: `index.html` sets `default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval'; worker-src 'self' blob:; font-src 'self' data:`. `unsafe-eval` is required by the Monaco Editor web worker; `unsafe-inline` is required for Tailwind's runtime style injection.
+- **Input sanitization**: React's JSX escaping prevents XSS. All regex construction goes through `safeRegex()` which rejects invalid patterns and patterns with known ReDoS risk before compilation.
 - **Input limits**: Raw data capped at 1MB. Individual processor failures are caught and reported without crashing the pipeline.
 
 ---

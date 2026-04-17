@@ -1,11 +1,20 @@
-import type { SplunkEvent, ConfDirective } from '../types';
+import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
+import { safeRegex } from '../../utils/splunkRegex';
 
 type EvalValue = string | number | boolean | null | string[];
 
-export function applyEvalExpressions(events: SplunkEvent[], directives: ConfDirective[]): SplunkEvent[] {
+export function applyEvalExpressions(
+  events: SplunkEvent[],
+  directives: ConfDirective[],
+  diagnostics?: ValidationDiagnostic[],
+): SplunkEvent[] {
   const evalDirectives = directives.filter((d) => d.directiveType === 'EVAL');
 
   if (evalDirectives.length === 0) return events;
+
+  // Collect per-directive errors/warnings once to avoid O(events) duplicates.
+  const reportedErrors = new Set<string>();
+  const reportedStubs = new Set<string>();
 
   return events.map((event) => {
     // Eval expressions run in parallel — compute all before applying
@@ -15,10 +24,31 @@ export function applyEvalExpressions(events: SplunkEvent[], directives: ConfDire
       const fieldName = dir.className ?? '';
       if (!fieldName) continue;
       try {
-        const value = evaluateExpression(dir.value.trim(), event);
+        const value = evaluateExpression(dir.value.trim(), event, (fn) => {
+          if (diagnostics && !reportedStubs.has(fn)) {
+            reportedStubs.add(fn);
+            diagnostics.push({
+              level: 'warning',
+              message: `${fn}() is not fully simulated — results may differ from real Splunk`,
+              file: 'props.conf',
+              line: dir.line,
+              directiveKey: dir.key,
+            });
+          }
+        });
         results.set(fieldName, value);
-      } catch {
-        // Skip failed evaluations
+      } catch (err) {
+        const msg = `EVAL-${fieldName}: ${err instanceof Error ? err.message : String(err)}`;
+        if (diagnostics && !reportedErrors.has(fieldName)) {
+          reportedErrors.add(fieldName);
+          diagnostics.push({
+            level: 'error',
+            message: msg,
+            file: 'props.conf',
+            line: dir.line,
+            directiveKey: dir.key,
+          });
+        }
       }
     }
 
@@ -129,8 +159,8 @@ function tokenize(expr: string): Token[] {
       tokens.push({ type: 'op', value: expr[i] }); i++; continue;
     }
 
-    if (expr[i] === '=' && i + 1 < expr.length && expr[i + 1] === '=') {
-      tokens.push({ type: 'op', value: '==' }); i += 2; continue;
+    if (expr[i] === '=') {
+      tokens.push({ type: 'op', value: '=' }); i++; continue;
     }
 
     // Parens
@@ -150,7 +180,7 @@ function tokenize(expr: string): Token[] {
         ident += expr[i]; i++;
       }
       const upper = ident.toUpperCase();
-      if (upper === 'AND' || upper === 'OR' || upper === 'NOT') {
+      if (upper === 'AND' || upper === 'OR' || upper === 'NOT' || upper === 'IN') {
         tokens.push({ type: 'op', value: upper });
       } else {
         tokens.push({ type: 'ident', value: ident });
@@ -170,11 +200,15 @@ function tokenize(expr: string): Token[] {
 class Parser {
   private tokens: Token[];
   private pos = 0;
+  private depth = 0;
+  private static readonly MAX_DEPTH = 50;
   private event: SplunkEvent;
+  private onStubWarning: ((fn: string) => void) | undefined;
 
-  constructor(tokens: Token[], event: SplunkEvent) {
+  constructor(tokens: Token[], event: SplunkEvent, onStubWarning?: (fn: string) => void) {
     this.tokens = tokens;
     this.event = event;
+    this.onStubWarning = onStubWarning;
   }
 
   private peek(): Token | undefined {
@@ -199,13 +233,20 @@ class Parser {
   }
 
   private parseOr(): EvalValue {
-    let left = this.parseAnd();
-    while (this.peek()?.value === 'OR' || this.peek()?.value === '||') {
-      this.consume();
-      const right = this.parseAnd();
-      left = toBool(left) || toBool(right);
+    if (++this.depth > Parser.MAX_DEPTH) {
+      throw new Error('Expression nesting depth limit exceeded (max 50)');
     }
-    return left;
+    try {
+      let left = this.parseAnd();
+      while (this.peek()?.value === 'OR' || this.peek()?.value === '||') {
+        this.consume();
+        const right = this.parseAnd();
+        left = toBool(left) || toBool(right);
+      }
+      return left;
+    } finally {
+      this.depth--;
+    }
   }
 
   private parseAnd(): EvalValue {
@@ -227,14 +268,41 @@ class Parser {
   }
 
   private parseComparison(): EvalValue {
-    let left = this.parseConcat();
+    const left = this.parseConcat();
     const tok = this.peek();
-    if (tok?.type === 'op' && ['==', '!=', '<', '>', '<=', '>='].includes(tok.value)) {
+
+    // IN / NOT IN
+    if (tok?.type === 'op' && tok.value === 'IN') {
+      this.consume();
+      return this.parseInList(left, false);
+    }
+    if (tok?.type === 'op' && tok.value === 'NOT' && this.tokens[this.pos + 1]?.value === 'IN') {
+      this.consume(); // NOT
+      this.consume(); // IN
+      return this.parseInList(left, true);
+    }
+
+    if (tok?.type === 'op' && ['==', '=', '!=', '<', '>', '<=', '>='].includes(tok.value)) {
       const op = this.consume().value;
       const right = this.parseConcat();
       return compare(left, right, op);
     }
     return left;
+  }
+
+  private parseInList(left: EvalValue, negate: boolean): EvalValue {
+    this.expect('paren', '(');
+    const list: EvalValue[] = [];
+    if (this.peek()?.type !== 'paren' || this.peek()?.value !== ')') {
+      list.push(this.parseOr());
+      while (this.peek()?.type === 'comma') {
+        this.consume();
+        list.push(this.parseOr());
+      }
+    }
+    this.expect('paren', ')');
+    const match = list.some((v) => compare(left, v, '='));
+    return negate ? !match : match;
   }
 
   private parseConcat(): EvalValue {
@@ -336,6 +404,8 @@ class Parser {
   }
 
   private getField(name: string): EvalValue {
+    if (name === '_raw') return this.event._raw;
+    if (name === '_time') return this.event._time ? this.event._time.getTime() / 1000 : null;
     const val = this.event.fields[name];
     if (val === undefined) return null;
     if (Array.isArray(val)) return val;
@@ -375,10 +445,9 @@ class Parser {
       }
       case 'replace': {
         const s = toStr(args[0]);
-        try {
-          const regex = new RegExp(toStr(args[1]), 'g');
-          return s.replace(regex, toStr(args[2]));
-        } catch { return s; }
+        const regex = safeRegex(toStr(args[1]), 'g');
+        if (!regex) return s;
+        return s.replace(regex, toStr(args[2]));
       }
       case 'trim': return toStr(args[0]).trim();
       case 'ltrim': {
@@ -411,7 +480,15 @@ class Parser {
 
       // Type
       case 'tonumber': {
-        const n = parseFloat(toStr(args[0]));
+        const val = toStr(args[0]).trim();
+        const base = args[1] !== undefined ? Math.floor(toNum(args[1])) : 10;
+        if (base === 10) {
+          if (!/^-?\d+(\.\d+)?$/.test(val)) return null;
+          return parseFloat(val);
+        }
+        const validChars = '0123456789abcdefghijklmnopqrstuvwxyz'.slice(0, base);
+        if (!new RegExp(`^[${validChars}]+$`, 'i').test(val)) return null;
+        const n = parseInt(val, base);
         return isNaN(n) ? null : n;
       }
       case 'tostring': {
@@ -476,16 +553,17 @@ class Parser {
         if (start === end) return mv[start] ?? null;
         return mv.slice(start, end + 1);
       }
-      case 'mvfilter': return toMv(args[0]); // simplified
+      case 'mvfilter':
+        this.onStubWarning?.('mvfilter');
+        return toMv(args[0]);
       case 'mvappend': return args.flatMap(toMv);
       case 'mvdedup': return [...new Set(toMv(args[0]))];
       case 'mvfind': {
         const mv = toMv(args[0]);
-        try {
-          const regex = new RegExp(toStr(args[1]));
-          const idx = mv.findIndex((v) => regex.test(v));
-          return idx >= 0 ? idx : null;
-        } catch { return null; }
+        const regex = safeRegex(toStr(args[1]));
+        if (!regex) return null;
+        const idx = mv.findIndex((v) => regex.test(v));
+        return idx >= 0 ? idx : null;
       }
       case 'mvsort': return [...toMv(args[0])].sort();
       case 'mvzip': {
@@ -500,11 +578,12 @@ class Parser {
         return result;
       }
 
-      // Crypto (stubs)
-      case 'md5': return `[md5:${toStr(args[0]).substring(0, 8)}]`;
-      case 'sha1': return `[sha1:${toStr(args[0]).substring(0, 8)}]`;
-      case 'sha256': return `[sha256:${toStr(args[0]).substring(0, 8)}]`;
-      case 'sha512': return `[sha512:${toStr(args[0]).substring(0, 8)}]`;
+      // Crypto — not simulated (crypto.subtle is async; eval is sync).
+      // Return a visible placeholder so the field is set and users see the stub rather than a silent deletion.
+      case 'md5':   this.onStubWarning?.('md5');    return '[md5() not simulated]';
+      case 'sha1':  this.onStubWarning?.('sha1');   return '[sha1() not simulated]';
+      case 'sha256': this.onStubWarning?.('sha256'); return '[sha256() not simulated]';
+      case 'sha512': this.onStubWarning?.('sha512'); return '[sha512() not simulated]';
 
       // Time
       case 'now': return Math.floor(Date.now() / 1000);
@@ -515,27 +594,35 @@ class Parser {
         const date = new Date(epoch * 1000);
         return simpleStrftime(date, format);
       }
-      case 'strptime': return toStr(args[0]); // simplified
-      case 'relative_time': return toNum(args[0]); // simplified
+      case 'strptime':
+        this.onStubWarning?.('strptime');
+        return toStr(args[0]);
+      case 'relative_time':
+        this.onStubWarning?.('relative_time');
+        return toNum(args[0]);
 
       // Other
       case 'null': return null;
       case 'like': {
         const value = toStr(args[0]);
+        // Escape regex metacharacters first, then translate SQL-style wildcards
         const pattern = toStr(args[1])
+          .replace(/[.+*?^${}()|[\]\\]/g, '\\$&')
           .replace(/%/g, '.*')
           .replace(/_/g, '.');
-        try {
-          return new RegExp(`^${pattern}$`, 'i').test(value);
-        } catch { return false; }
+        const regex = safeRegex(`^${pattern}$`, 'i');
+        return regex ? regex.test(value) : false;
       }
       case 'match': {
-        try {
-          return new RegExp(toStr(args[1])).test(toStr(args[0]));
-        } catch { return false; }
+        const regex = safeRegex(toStr(args[1]));
+        return regex ? regex.test(toStr(args[0])) : false;
       }
-      case 'cidrmatch': return false; // simplified
-      case 'searchmatch': return false; // simplified
+      case 'cidrmatch':
+        this.onStubWarning?.('cidrmatch');
+        return false;
+      case 'searchmatch':
+        this.onStubWarning?.('searchmatch');
+        return false;
 
       default:
         return null;
@@ -578,12 +665,24 @@ function toMv(v: EvalValue): string[] {
   return [String(v)];
 }
 
+function isNumericString(v: EvalValue): boolean {
+  if (typeof v !== 'string' || v === '') return false;
+  return !isNaN(Number(v));
+}
+
 function compare(left: EvalValue, right: EvalValue, op: string): boolean {
-  const l = typeof left === 'number' || typeof right === 'number' ? toNum(left) : toStr(left);
-  const r = typeof left === 'number' || typeof right === 'number' ? toNum(right) : toStr(right);
+  // Splunk eval: compare numerically if either side is a number, or if both
+  // sides are strings that look numeric (e.g. field values from parsed events).
+  const bothNumeric =
+    typeof left === 'number' ||
+    typeof right === 'number' ||
+    (isNumericString(left) && isNumericString(right));
+
+  const l = bothNumeric ? toNum(left) : toStr(left);
+  const r = bothNumeric ? toNum(right) : toStr(right);
 
   switch (op) {
-    case '==': return l === r;
+    case '==': case '=': return l === r;
     case '!=': return l !== r;
     case '<': return l < r;
     case '>': return l > r;
@@ -606,8 +705,12 @@ function simpleStrftime(date: Date, format: string): string {
     .replace(/%F/g, `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`);
 }
 
-export function evaluateExpression(expr: string, event: SplunkEvent): EvalValue {
+export function evaluateExpression(
+  expr: string,
+  event: SplunkEvent,
+  onStubWarning?: (fn: string) => void,
+): EvalValue {
   const tokens = tokenize(expr);
-  const parser = new Parser(tokens, event);
+  const parser = new Parser(tokens, event, onStubWarning);
   return parser.parse();
 }

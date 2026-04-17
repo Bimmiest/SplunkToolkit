@@ -42,7 +42,8 @@ function parseSedExpression(value: string): SedCommand | null {
   if (parts.length < 2) return null;
 
   const patternStr = parts[0];
-  const replacement = parts[1];
+  // Convert sed/Splunk backreferences (\1..\9) to JS replacement syntax ($1..$9)
+  const replacement = (parts[1] ?? '').replace(/\\(\d)/g, '$$$1');
   const flags = parts[2] ?? '';
   const isGlobal = flags.includes('g');
 
@@ -81,8 +82,6 @@ export function applySedCommands(events: SplunkEvent[], directives: ConfDirectiv
 
     for (const cmd of commands) {
       const before = raw;
-      // Reset regex lastIndex for global patterns
-      cmd.pattern.lastIndex = 0;
       raw = raw.replace(cmd.pattern, cmd.replacement);
 
       if (raw !== before) {

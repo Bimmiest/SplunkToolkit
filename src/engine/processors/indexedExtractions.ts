@@ -31,8 +31,7 @@ function extractJsonFields(events: SplunkEvent[]): SplunkEvent[] {
 
       const fields = { ...event.fields };
       const added: string[] = [];
-
-      flattenJson(obj, fields, added);
+      const depthTruncated = flattenJson(obj, fields, added);
 
       return {
         ...event,
@@ -42,7 +41,7 @@ function extractJsonFields(events: SplunkEvent[]): SplunkEvent[] {
           {
             processor: 'INDEXED_EXTRACTIONS(json)',
             phase: 'index-time' as const,
-            description: `Extracted ${added.length} JSON fields`,
+            description: `Extracted ${added.length} JSON fields${depthTruncated ? ' (depth limit reached — deeply nested fields omitted)' : ''}`,
             fieldsAdded: added,
           },
         ],
@@ -56,17 +55,18 @@ function extractJsonFields(events: SplunkEvent[]): SplunkEvent[] {
 function extractDelimited(events: SplunkEvent[], delimiter: string, mode: string): SplunkEvent[] {
   if (events.length === 0) return events;
 
-  // First event's first line contains headers
-  const firstRaw = events[0]._raw;
-  const headerLine = firstRaw.split('\n')[0];
-  const headers = parseDelimitedLine(headerLine, delimiter);
+  // The first event is the header row (produced by LINE_BREAKER splitting the file).
+  // All subsequent events are data rows. This matches Splunk's INDEXED_EXTRACTIONS
+  // behaviour: headers are read once from the first line and applied to every data event.
+  const headers = parseDelimitedLine(events[0]._raw, delimiter);
 
   if (headers.length === 0) return events;
 
-  return events.map((event) => {
-    const lines = event._raw.split('\n');
-    const dataLine = lines.length > 1 ? lines[1] : lines[0];
-    const values = parseDelimitedLine(dataLine, delimiter);
+  return events.map((event, idx) => {
+    // Skip the header row itself — it has no data fields to extract.
+    if (idx === 0) return event;
+
+    const values = parseDelimitedLine(event._raw, delimiter);
 
     const fields = { ...event.fields };
     const added: string[] = [];

@@ -22,7 +22,7 @@ const COLUMNS: ColumnDef[] = [
 
 export function FieldsTab() {
   const result = useAppStore((s) => s.processingResult);
-  const events = result?.events ?? [];
+  const events = useMemo(() => result?.events ?? [], [result]);
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('count');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -54,13 +54,10 @@ export function FieldsTab() {
   // Build alias mapping: target → source from FIELDALIAS processing traces
   const aliasMap = useMemo(() => {
     const map = new Map<string, string>(); // target → source
-    const aliasRegex = /(\S+)\s+\(from\s+(\S+)\)/g;
     for (const event of events) {
       for (const trace of event.processingTrace) {
         if (trace.processor !== 'FIELDALIAS') continue;
-        let match;
-        const regex = new RegExp(aliasRegex.source, aliasRegex.flags);
-        while ((match = regex.exec(trace.description)) !== null) {
+        for (const match of trace.description.matchAll(/(\S+)\s+\(from\s+(\S+)\)/g)) {
           map.set(match[1], match[2]);
         }
       }
@@ -207,7 +204,7 @@ export function FieldsTab() {
     }
 
     return result;
-  }, [events, search, sortKey, sortDir]);
+  }, [events, search, sortKey, sortDir, aliasMap]);
 
   // Auto-collapse all parents on initial load
   const allParentNames = useMemo(
@@ -215,11 +212,11 @@ export function FieldsTab() {
     [fieldSummary]
   );
 
-  useEffect(() => {
-    if (collapsedParents === null && allParentNames.length > 0) {
-      setCollapsedParents(new Set(allParentNames));
-    }
-  }, [allParentNames, collapsedParents]);
+  // Initialize collapsed state during render (React's recommended pattern for
+  // derived-state initialization — avoids a useEffect + cascading render).
+  if (collapsedParents === null && allParentNames.length > 0) {
+    setCollapsedParents(new Set(allParentNames));
+  }
 
   // Treat null (not yet initialized) the same as "all collapsed"
   const effectiveCollapsed = collapsedParents ?? new Set(allParentNames);

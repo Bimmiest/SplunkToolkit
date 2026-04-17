@@ -105,7 +105,7 @@ function TabContent({ tab, hasData }: { tab: OutputTabId; hasData: boolean }) {
 
 function PreviewSubTab() {
   const result = useAppStore((s) => s.processingResult);
-  const events = result?.events ?? [];
+  const events = useMemo(() => result?.events ?? [], [result]);
   const originalRaw = result?.originalRaw ?? '';
 
   const [subTab, setSubTab] = useState<PreviewSubTabId>('raw');

@@ -35,8 +35,7 @@ const COMMENT_RE = /^[#;]/;
 /** Matches a blank / whitespace-only line. */
 const BLANK_RE = /^\s*$/;
 
-/** Matches a continuation line (starts with whitespace). */
-const CONTINUATION_RE = /^\s+/;
+// Splunk uses trailing backslash for line continuation (not leading whitespace).
 
 // ---------------------------------------------------------------------------
 // Class-based directive detection
@@ -184,10 +183,9 @@ export function parseConf(
       continue;
     }
 
-    // --- Continuation lines ---
-    if (CONTINUATION_RE.test(line) && lastDirective) {
-      // Append to the previous directive's value.
-      lastDirective.value += '\n' + line.trimStart();
+    // --- Continuation lines (Splunk: previous directive value ends with \) ---
+    if (lastDirective && lastDirective.value.endsWith('\\')) {
+      lastDirective.value = lastDirective.value.slice(0, -1) + line.trimStart();
       continue;
     }
 

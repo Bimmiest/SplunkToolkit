@@ -1,34 +1,82 @@
-import type { SplunkEvent, ConfDirective } from '../types';
+import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 import { evaluateExpression } from '../processors/evalProcessor';
 
-export function applyIngestEval(events: SplunkEvent[], directives: ConfDirective[]): SplunkEvent[] {
-  const ingestEvalDir = directives.find((d) => d.key === 'INGEST_EVAL');
-  if (!ingestEvalDir) return events;
+// Split "field=expr, field2=fn(a,b)" on top-level commas only (not inside parens).
+function splitAssignments(s: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '(') depth++;
+    else if (c === ')') depth--;
+    else if (c === ',' && depth === 0) {
+      parts.push(s.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  parts.push(s.slice(start).trim());
+  return parts.filter(Boolean);
+}
 
-  // INGEST_EVAL can have multiple expressions separated by semicolons
-  const expressions = ingestEvalDir.value.split(';').map((e) => e.trim()).filter(Boolean);
+export function applyIngestEval(
+  events: SplunkEvent[],
+  directives: ConfDirective[],
+  diagnostics?: ValidationDiagnostic[],
+): SplunkEvent[] {
+  const ingestEvalDirs = directives.filter((d) => d.key === 'INGEST_EVAL');
+  if (ingestEvalDirs.length === 0) return events;
+
+  const reportedErrors = new Set<string>();
+  const reportedStubs = new Set<string>();
 
   return events.map((event) => {
-    let currentEvent = { ...event, fields: { ...event.fields } };
+    const currentEvent = { ...event, fields: { ...event.fields } };
+    let totalExpressions = 0;
 
-    for (const expr of expressions) {
-      const eqIdx = expr.indexOf('=');
-      if (eqIdx <= 0) continue;
+    for (const ingestEvalDir of ingestEvalDirs) {
+      const expressions = splitAssignments(ingestEvalDir.value);
+      totalExpressions += expressions.length;
 
-      const fieldName = expr.substring(0, eqIdx).trim();
-      const evalExpr = expr.substring(eqIdx + 1).trim();
+      for (const expr of expressions) {
+        const eqIdx = expr.indexOf('=');
+        if (eqIdx <= 0) continue;
 
-      try {
-        const result = evaluateExpression(evalExpr, currentEvent);
-        if (result === null) {
-          delete currentEvent.fields[fieldName];
-        } else if (Array.isArray(result)) {
-          currentEvent.fields[fieldName] = result;
-        } else {
-          currentEvent.fields[fieldName] = String(result);
+        const fieldName = expr.substring(0, eqIdx).trim();
+        const evalExpr = expr.substring(eqIdx + 1).trim();
+
+        try {
+          const result = evaluateExpression(evalExpr, currentEvent, (fn) => {
+            if (diagnostics && !reportedStubs.has(fn)) {
+              reportedStubs.add(fn);
+              diagnostics.push({
+                level: 'warning',
+                message: `${fn}() is not fully simulated — results may differ from real Splunk`,
+                file: 'transforms.conf',
+                line: ingestEvalDir.line,
+                directiveKey: ingestEvalDir.key,
+              });
+            }
+          });
+          if (result === null) {
+            delete currentEvent.fields[fieldName];
+          } else if (Array.isArray(result)) {
+            currentEvent.fields[fieldName] = result;
+          } else {
+            currentEvent.fields[fieldName] = String(result);
+          }
+        } catch (err) {
+          if (diagnostics && !reportedErrors.has(fieldName)) {
+            reportedErrors.add(fieldName);
+            diagnostics.push({
+              level: 'error',
+              message: `INGEST_EVAL ${fieldName}: ${err instanceof Error ? err.message : String(err)}`,
+              file: 'transforms.conf',
+              line: ingestEvalDir.line,
+              directiveKey: ingestEvalDir.key,
+            });
+          }
         }
-      } catch {
-        // Skip failed evaluations
       }
     }
 
@@ -39,7 +87,7 @@ export function applyIngestEval(events: SplunkEvent[], directives: ConfDirective
         {
           processor: 'INGEST_EVAL',
           phase: 'index-time' as const,
-          description: `Evaluated ${expressions.length} ingest-time expression(s)`,
+          description: `Evaluated ${totalExpressions} ingest-time expression(s)`,
         },
       ],
     };

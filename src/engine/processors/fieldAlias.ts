@@ -54,7 +54,7 @@ interface AliasMapping {
 function parseAliases(value: string): AliasMapping[] {
   const aliases: AliasMapping[] = [];
   // Match patterns: field1 AS field2, field1 ASNEW field2
-  const regex = /(\S+)\s+(AS(?:NEW)?)\s+(\S+)/gi;
+  const regex = /(\S+)\s+\b(AS(?:NEW)?)\b\s+(\S+)/gi;
   let match;
 
   while ((match = regex.exec(value)) !== null) {

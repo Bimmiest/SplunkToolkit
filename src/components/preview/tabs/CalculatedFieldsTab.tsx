@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useRef } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Panel, Group, Separator } from 'react-resizable-panels';
 import type { Layout } from 'react-resizable-panels';
 import { useAppStore } from '../../../store/useAppStore';
@@ -42,8 +42,6 @@ interface CalcField {
   value: string | string[];
 }
 
-const EVAL_REGEX = /^\s*EVAL-(\S+)\s*=\s*(.+)$/gmi;
-
 function useFieldFocus() {
   const [pinnedFields, setPinnedFields] = useState<Set<string>>(new Set());
   const [hoveredField, setHoveredField] = useState<string | null>(null);
@@ -74,14 +72,12 @@ function isAnyFocused(activeFields: Set<string> | null): boolean {
 export function CalculatedFieldsTab({ items, allEvents, currentPage, eventsPerPage }: CalculatedFieldsTabProps) {
   const propsConf = useAppStore((s) => s.propsConf);
   const { pinnedFields, activeFields, togglePin, setHoveredField } = useFieldFocus();
-  const savedLayout = useRef(getSavedLayout());
+  const [initialLayout] = useState(getSavedLayout);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const evalDirectives = useMemo(() => {
     const map = new Map<string, string>();
-    let match: RegExpExecArray | null;
-    const regex = new RegExp(EVAL_REGEX.source, EVAL_REGEX.flags);
-    while ((match = regex.exec(propsConf)) !== null) {
+    for (const match of propsConf.matchAll(/^\s*EVAL-(\S+)\s*=\s*(.+)$/gmi)) {
       map.set(match[1], match[2].trim());
     }
     return map;
@@ -155,7 +151,7 @@ export function CalculatedFieldsTab({ items, allEvents, currentPage, eventsPerPa
       {sidebarCollapsed ? (
         <div className="flex-1 min-w-0">{eventsPanel}</div>
       ) : (
-        <Group orientation="horizontal" id="calc-fields-split" defaultLayout={savedLayout.current} onLayoutChanged={saveLayout}>
+        <Group orientation="horizontal" id="calc-fields-split" defaultLayout={initialLayout} onLayoutChanged={saveLayout}>
           <Panel defaultSize={85} minSize={40} id="calc-events">
             {eventsPanel}
           </Panel>

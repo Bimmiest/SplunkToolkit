@@ -1,6 +1,19 @@
 import type { languages, editor, Position, CancellationToken } from 'monaco-editor';
 import { getDirectivesForFile, getDirectivesByCategory, type DirectiveInfo } from './directiveRegistry';
 
+// Monaco CompletionItemKind numeric values (monaco-editor doesn't export the enum at runtime
+// when imported as `type`, so we maintain this local mapping for readability).
+const CIK = {
+  Enum: 5,
+  Property: 9,
+  Value: 12,
+  Snippet: 14,
+  Constant: 21,
+} as const;
+
+// Monaco CompletionItemInsertTextRule — 4 = InsertAsSnippet
+const InsertAsSnippet = 4;
+
 export function createCompletionProvider(fileType: 'props.conf' | 'transforms.conf'): languages.CompletionItemProvider {
   return {
     triggerCharacters: ['=', '[', '\n'],
@@ -43,25 +56,25 @@ function getStanzaSuggestions(model: editor.ITextModel, position: Position): lan
   return [
     {
       label: 'default',
-      kind: 5, // Enum
+      kind: CIK.Enum,
       detail: 'Default stanza - applies to all sourcetypes',
       insertText: 'default]',
       range,
     },
     {
       label: 'source::',
-      kind: 5,
+      kind: CIK.Enum,
       detail: 'Source-based stanza (highest precedence)',
       insertText: 'source::${1:path}]',
-      insertTextRules: 4, // InsertAsSnippet
+      insertTextRules: InsertAsSnippet,
       range,
     },
     {
       label: 'host::',
-      kind: 5,
+      kind: CIK.Enum,
       detail: 'Host-based stanza',
       insertText: 'host::${1:hostname}]',
-      insertTextRules: 4,
+      insertTextRules: InsertAsSnippet,
       range,
     },
   ];
@@ -89,11 +102,11 @@ function getDirectiveSuggestions(
       if (dir.isClassBased) {
         items.push({
           label: `${dir.key}-`,
-          kind: 14, // Snippet
+          kind: CIK.Snippet,
           detail: `${dir.key}-<class> (${category})`,
           documentation: dir.description,
           insertText: `${dir.key}-\${1:classname} = \${2:value}`,
-          insertTextRules: 4,
+          insertTextRules: InsertAsSnippet,
           sortText: String(sortOrder++).padStart(4, '0'),
           range,
         });
@@ -123,7 +136,7 @@ function directiveToCompletionItem(
 
   return {
     label: dir.key,
-    kind: dir.isClassBased ? 14 : 9, // Snippet or Property
+    kind: dir.isClassBased ? CIK.Snippet : CIK.Property,
     detail: `${category} (${dir.phase})`,
     documentation: {
       value: [
@@ -138,10 +151,13 @@ function directiveToCompletionItem(
         `**Phase:** ${dir.phase}`,
         `**Type:** ${dir.valueType}`,
       ].join('\n'),
+      // isTrusted enables command: links in markdown. Safe here because the content
+      // is built entirely from the static directiveRegistry — never from user input.
+      // IMPORTANT: do not interpolate user-controlled text into this value.
       isTrusted: true,
     },
     insertText,
-    insertTextRules: 4, // InsertAsSnippet
+    insertTextRules: InsertAsSnippet,
     sortText: String(sortOrder).padStart(4, '0'),
     range,
   };
@@ -163,8 +179,8 @@ function getValueSuggestions(
 
   if (dir.valueType === 'boolean') {
     items.push(
-      { label: 'true', kind: 12, insertText: 'true', range, detail: 'Boolean true' },
-      { label: 'false', kind: 12, insertText: 'false', range, detail: 'Boolean false' },
+      { label: 'true', kind: CIK.Value, insertText: 'true', range, detail: 'Boolean true' },
+      { label: 'false', kind: CIK.Value, insertText: 'false', range, detail: 'Boolean false' },
     );
   }
 
@@ -172,7 +188,7 @@ function getValueSuggestions(
     for (const val of dir.enumValues) {
       items.push({
         label: val,
-        kind: 12,
+        kind: CIK.Value,
         insertText: val,
         range,
         detail: `Valid value for ${dir.key}`,
@@ -192,7 +208,7 @@ function getValueSuggestions(
     for (const { token, desc } of strftimeTokens) {
       items.push({
         label: token,
-        kind: 21, // Constant
+        kind: CIK.Constant,
         insertText: token,
         range,
         detail: desc,

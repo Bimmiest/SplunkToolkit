@@ -1,5 +1,5 @@
 import type { SplunkEvent, ConfDirective } from '../types';
-import { safeRegex } from '../../utils/splunkRegex';
+import { safeRegex, convertSplunkToJsRegex } from '../../utils/splunkRegex';
 
 export function extractFields(events: SplunkEvent[], directives: ConfDirective[]): SplunkEvent[] {
   const extractDirectives = directives
@@ -11,7 +11,8 @@ export function extractFields(events: SplunkEvent[], directives: ConfDirective[]
   const extractions = extractDirectives.map((dir) => {
     const { pattern, sourceField } = parseExtractValue(dir.value);
     const jsPattern = pattern ? convertSplunkToJsRegex(pattern) : null;
-    const regex = jsPattern ? safeRegex(jsPattern) : null;
+    // Use global flag so matchAll finds all occurrences (multivalue support).
+    const regex = jsPattern ? safeRegex(jsPattern, 'g') : null;
     return { directive: dir, regex, sourceField };
   });
 
@@ -28,16 +29,21 @@ export function extractFields(events: SplunkEvent[], directives: ConfDirective[]
 
       if (!sourceValue) continue;
 
-      extraction.regex.lastIndex = 0;
-      const match = extraction.regex.exec(sourceValue);
-      if (!match?.groups) continue;
+      // Collect all matches; named groups captured more than once become arrays.
+      const groupValues: Record<string, string[]> = {};
+      for (const m of sourceValue.matchAll(extraction.regex)) {
+        if (!m.groups) continue;
+        for (const [name, value] of Object.entries(m.groups)) {
+          if (value !== undefined) {
+            (groupValues[name] ??= []).push(value);
+          }
+        }
+      }
 
       const added: string[] = [];
-      for (const [name, value] of Object.entries(match.groups)) {
-        if (value !== undefined) {
-          newFields[name] = value;
-          added.push(name);
-        }
+      for (const [name, values] of Object.entries(groupValues)) {
+        newFields[name] = values.length === 1 ? values[0] : values;
+        added.push(name);
       }
 
       if (added.length > 0) {
@@ -60,16 +66,11 @@ export function extractFields(events: SplunkEvent[], directives: ConfDirective[]
 
 function parseExtractValue(value: string): { pattern: string; sourceField?: string } {
   const trimmed = value.trim();
-  const inMatch = trimmed.match(/^(.+?)\s+in\s+(\w+)\s*$/);
+  const inMatch = trimmed.match(/^(.+?)\s+in\s+([\w.]+)\s*$/);
   if (inMatch) {
     return { pattern: inMatch[1], sourceField: inMatch[2] };
   }
   return { pattern: trimmed };
-}
-
-/** Convert Splunk Python-style (?P<name>...) to JS (?<name>...) */
-function convertSplunkToJsRegex(pattern: string): string {
-  return pattern.replace(/\(\?P<(\w+)>/g, '(?<$1>');
 }
 
 function getFieldValue(event: SplunkEvent, fieldName: string): string | undefined {

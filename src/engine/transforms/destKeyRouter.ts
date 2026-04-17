@@ -1,7 +1,7 @@
 import type { SplunkEvent } from '../types';
 import type { TransformResult } from './regexTransform';
 
-export function applyDestKey(event: SplunkEvent, result: TransformResult): SplunkEvent {
+export function applyDestKey(event: SplunkEvent, result: TransformResult): SplunkEvent | null {
   if (!result.matched || !result.destKey || !result.destValue) {
     // No routing, just add extracted fields
     return {
@@ -10,8 +10,10 @@ export function applyDestKey(event: SplunkEvent, result: TransformResult): Splun
     };
   }
 
-  // Normalise: Splunk accepts both _MetaData:X and MetaData:X
-  const destKey = result.destKey.replace(/^_/, '');
+  // Normalise _MetaData:X → MetaData:X (Splunk alias).
+  // Only strip the leading _ when followed by "MetaData:" — never strip from
+  // built-in keys like _raw, _meta, _time.
+  const destKey = result.destKey.replace(/^_(?=MetaData:)/i, '');
   const destValue = result.destValue;
 
   switch (destKey) {
@@ -41,7 +43,8 @@ export function applyDestKey(event: SplunkEvent, result: TransformResult): Splun
     }
 
     case 'queue':
-      // nullQueue = drop event, indexQueue = keep
+      // nullQueue = drop event from pipeline; indexQueue = keep
+      if (destValue === 'nullQueue') return null;
       return {
         ...event,
         _meta: { ...event._meta, _queue: destValue },
@@ -49,30 +52,43 @@ export function applyDestKey(event: SplunkEvent, result: TransformResult): Splun
       };
 
     case 'MetaData:Host':
+      // Splunk requires FORMAT to include "host::" prefix; without it the update is silently skipped.
+      if (!destValue.startsWith('host::')) {
+        return { ...event, fields: { ...event.fields, ...result.fields } };
+      }
       return {
         ...event,
-        metadata: { ...event.metadata, host: destValue.replace(/^host::/, '') },
+        metadata: { ...event.metadata, host: destValue.slice('host::'.length) },
         fields: { ...event.fields, ...result.fields },
       };
 
     case 'MetaData:Index':
+      if (!destValue.startsWith('index::')) {
+        return { ...event, fields: { ...event.fields, ...result.fields } };
+      }
       return {
         ...event,
-        metadata: { ...event.metadata, index: destValue.replace(/^index::/, '') },
+        metadata: { ...event.metadata, index: destValue.slice('index::'.length) },
         fields: { ...event.fields, ...result.fields },
       };
 
     case 'MetaData:Source':
+      if (!destValue.startsWith('source::')) {
+        return { ...event, fields: { ...event.fields, ...result.fields } };
+      }
       return {
         ...event,
-        metadata: { ...event.metadata, source: destValue.replace(/^source::/, '') },
+        metadata: { ...event.metadata, source: destValue.slice('source::'.length) },
         fields: { ...event.fields, ...result.fields },
       };
 
     case 'MetaData:Sourcetype':
+      if (!destValue.startsWith('sourcetype::')) {
+        return { ...event, fields: { ...event.fields, ...result.fields } };
+      }
       return {
         ...event,
-        metadata: { ...event.metadata, sourcetype: destValue.replace(/^sourcetype::/, '') },
+        metadata: { ...event.metadata, sourcetype: destValue.slice('sourcetype::'.length) },
         fields: { ...event.fields, ...result.fields },
       };
 

@@ -6,6 +6,9 @@ interface AppState {
   rawData: string;
   setRawData: (data: string) => void;
 
+  isProcessing: boolean;
+  setIsProcessing: (v: boolean) => void;
+
   metadata: EventMetadata;
   setMetadataField: (field: keyof EventMetadata, value: string) => void;
 
@@ -43,6 +46,9 @@ interface AppState {
 export const useAppStore = create<AppState>((set) => ({
   rawData: '',
   setRawData: (data) => set({ rawData: data, currentPage: 1 }),
+
+  isProcessing: false,
+  setIsProcessing: (v) => set({ isProcessing: v }),
 
   metadata: {
     index: 'main',

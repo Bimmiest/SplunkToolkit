@@ -49,6 +49,13 @@ body {
   transition: background-color 0.2s, color 0.2s;
 }
 
+/* Indeterminate progress bar animation */
+@keyframes indeterminate {
+  0%   { transform: translateX(-100%); }
+  50%  { transform: translateX(100%); }
+  100% { transform: translateX(300%); }
+}
+
 /* Resizable panel handle styles */
 [data-panel-resize-handle-id] {
   background-color: var(--color-border);

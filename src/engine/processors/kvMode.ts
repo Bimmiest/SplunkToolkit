@@ -10,10 +10,11 @@ export function applyKvMode(events: SplunkEvent[], directives: ConfDirective[]):
   return events.map((event) => {
     const newFields = { ...event.fields };
     const added: string[] = [];
+    let depthWarning = false;
 
     switch (mode) {
       case 'json':
-        extractJson(event._raw, newFields, added);
+        depthWarning = extractJson(event._raw, newFields, added);
         break;
       case 'xml':
         extractXml(event._raw, newFields, added);
@@ -34,7 +35,7 @@ export function applyKvMode(events: SplunkEvent[], directives: ConfDirective[]):
         {
           processor: `KV_MODE(${mode})`,
           phase: 'search-time' as const,
-          description: `Extracted ${added.length} fields via KV_MODE=${mode}`,
+          description: `Extracted ${added.length} fields via KV_MODE=${mode}${depthWarning ? ' (depth limit reached — deeply nested fields omitted)' : ''}`,
           fieldsAdded: added,
         },
       ],
@@ -42,84 +43,39 @@ export function applyKvMode(events: SplunkEvent[], directives: ConfDirective[]):
   });
 }
 
-function extractJson(raw: string, fields: Record<string, string | string[]>, added: string[]): void {
-  try {
-    const jsonStart = raw.indexOf('{');
-    const jsonEnd = raw.lastIndexOf('}');
-    if (jsonStart === -1 || jsonEnd === -1) return;
+function findFirstJsonObject(raw: string): string | null {
+  const start = raw.indexOf('{');
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < raw.length; i++) {
+    const ch = raw[i];
+    if (escape) { escape = false; continue; }
+    if (ch === '\\' && inString) { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{') depth++;
+    else if (ch === '}') { depth--; if (depth === 0) return raw.slice(start, i + 1); }
+  }
+  return null;
+}
 
-    const jsonStr = raw.substring(jsonStart, jsonEnd + 1);
+function extractJson(raw: string, fields: Record<string, string | string[]>, added: string[]): boolean {
+  try {
+    const jsonStr = findFirstJsonObject(raw);
+    if (!jsonStr) return false;
     const obj = JSON.parse(jsonStr);
 
     if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
-      flattenJson(obj, fields, added);
+      return flattenJson(obj, fields, added);
     }
   } catch {
     // Not valid JSON, skip
   }
+  return false;
 }
 
-function extractXml(raw: string, fields: Record<string, string | string[]>, added: string[]): void {
-  // Pass 0: Extract self-closing tags with attributes: <Tag Attr="Y"/>
-  // e.g. <Provider Name="Microsoft-Windows-Security-Auditing" Guid="{...}"/>
-  // e.g. <Execution ProcessId="3120" ThreadId="3240"/>
-  // Splunk extracts attributes directly as field names; if an attribute is "Name",
-  // use TagName as the field name to avoid a generic "Name" field
-  const selfClosingRegex = /<(\w+)\s+((?:\w+="[^"]*"\s*)+)\/>/g;
-  let match;
-
-  while ((match = selfClosingRegex.exec(raw)) !== null) {
-    const tagName = match[1];
-    const attrString = match[2];
-    const attrRegex = /(\w+)="([^"]*)"/g;
-    let attrMatch;
-    while ((attrMatch = attrRegex.exec(attrString)) !== null) {
-      const attrName = attrMatch[1];
-      const attrValue = attrMatch[2];
-      if (attrName && attrValue) {
-        // "Name" attribute uses TagName as field (e.g. <Provider Name="X"/> → Provider_Name)
-        // Other attributes use their name directly (e.g. <Execution ProcessId="3120"/> → ProcessId)
-        const fieldName = attrName === 'Name' ? `${tagName}_Name` : attrName;
-        if (!fields[fieldName]) {
-          fields[fieldName] = attrValue;
-          added.push(fieldName);
-        }
-      }
-    }
-  }
-
-  // Pass 1: Extract <Tag Name="fieldName">value</Tag> patterns (e.g. Windows EventLog XML)
-  // This must run before the generic tag extraction to handle <Data Name="X">val</Data> correctly
-  const namedTagRegex = /<(\w+)\s+Name="([^"]+)"[^>]*>([^<]*)<\/\1>/g;
-  const handledPositions = new Set<number>();
-
-  while ((match = namedTagRegex.exec(raw)) !== null) {
-    const fieldName = match[2];
-    const value = match[3].trim();
-    if (fieldName && value) {
-      // Support multi-value: if same field name appears multiple times, collect as array
-      addXmlField(fields, added, fieldName, value);
-      handledPositions.add(match.index);
-    }
-  }
-
-  // Pass 2: Extract simple <Tag>value</Tag> leaf nodes (no child elements)
-  const tagRegex = /<(\w+)(?:\s[^>]*)?>([^<]*)<\/\1>/g;
-  while ((match = tagRegex.exec(raw)) !== null) {
-    if (handledPositions.has(match.index)) continue;
-
-    const key = match[1];
-    const value = match[2].trim();
-    if (key && value) {
-      addXmlField(fields, added, key, value);
-    }
-  }
-
-  // Pass 3: Recursively extract from nested elements that contain children
-  extractNestedXml(raw, fields, added);
-}
-
-/** Add a field value, supporting multi-value for duplicate field names */
 function addXmlField(fields: Record<string, string | string[]>, added: string[], key: string, value: string): void {
   const existing = fields[key];
   if (existing !== undefined) {
@@ -134,110 +90,78 @@ function addXmlField(fields: Record<string, string | string[]>, added: string[],
   }
 }
 
-/** Extract fields from XML elements that contain child elements (not just text) */
-function extractNestedXml(raw: string, fields: Record<string, string | string[]>, added: string[]): void {
-  // Find elements whose content contains other tags (i.e. parent elements)
-  // Match opening tags, then find their closing tags accounting for nesting
-  const openTagRegex = /<(\w+)(?:\s[^>]*)?>(?=[\s\S]*<)/g;
-  let match;
-
-  while ((match = openTagRegex.exec(raw)) !== null) {
-    const tagName = match[1];
-    const startAfterOpen = match.index + match[0].length;
-
-    // Find the matching closing tag (handle nesting)
-    const closeTag = `</${tagName}>`;
-    let depth = 1;
-    let pos = startAfterOpen;
-    let found = false;
-
-    while (pos < raw.length && depth > 0) {
-      const nextOpen = raw.indexOf(`<${tagName}`, pos);
-      const nextClose = raw.indexOf(closeTag, pos);
-
-      if (nextClose === -1) break;
-
-      if (nextOpen !== -1 && nextOpen < nextClose) {
-        // Check it's actually an opening tag (not a different tag starting with same name)
-        const charAfterName = raw[nextOpen + tagName.length + 1];
-        if (charAfterName === '>' || charAfterName === ' ' || charAfterName === '/') {
-          depth++;
-        }
-        pos = nextOpen + 1;
-      } else {
-        depth--;
-        if (depth === 0) {
-          found = true;
-          // The inner content is between startAfterOpen and nextClose
-          const innerContent = raw.substring(startAfterOpen, nextClose);
-
-          // Only process if inner content contains child tags (it's a parent)
-          if (innerContent.includes('<') && !fields[tagName]) {
-            // Recursively extract from inner content
-            extractXmlInner(innerContent, fields, added, tagName);
-          }
-        }
-        pos = nextClose + closeTag.length;
-      }
-    }
-
-    if (!found) continue;
+function extractXml(raw: string, fields: Record<string, string | string[]>, added: string[]): void {
+  // Wrap in a root element so DOMParser handles fragments without a single root.
+  // DOMParser decodes entities, handles CDATA, and correctly matches multi-line content.
+  let doc: Document;
+  try {
+    doc = new DOMParser().parseFromString(`<_root_>${raw}</_root_>`, 'text/xml');
+  } catch {
+    return;
   }
+  // If parsing failed, the document contains a <parsererror> element.
+  if (doc.querySelector('parsererror')) {
+    // Try wrapping the raw text as-is in case it is already a valid document.
+    try {
+      doc = new DOMParser().parseFromString(raw, 'text/xml');
+      if (doc.querySelector('parsererror')) return;
+    } catch {
+      return;
+    }
+  }
+
+  walkXmlElement(doc.documentElement, fields, added, true);
 }
 
-/** Extract fields from inner XML content */
-function extractXmlInner(content: string, fields: Record<string, string | string[]>, added: string[], _parentTag: string): void {
-  let match;
+function walkXmlElement(
+  el: Element,
+  fields: Record<string, string | string[]>,
+  added: string[],
+  isRoot: boolean,
+): void {
+  const tagName = el.localName;
 
-  // Self-closing tags within nested content
-  const selfClosingRegex = /<(\w+)\s+((?:\w+="[^"]*"\s*)+)\/>/g;
-  while ((match = selfClosingRegex.exec(content)) !== null) {
-    const tagName = match[1];
-    const attrString = match[2];
-    const attrRegex = /(\w+)="([^"]*)"/g;
-    let attrMatch;
-    while ((attrMatch = attrRegex.exec(attrString)) !== null) {
-      const fieldName = attrMatch[1] === 'Name' ? `${tagName}_Name` : attrMatch[1];
-      if (attrMatch[2] && !fields[fieldName]) {
-        fields[fieldName] = attrMatch[2];
-        added.push(fieldName);
-      }
+  // Extract attributes.
+  for (let i = 0; i < el.attributes.length; i++) {
+    const attr = el.attributes[i];
+    // "Name" attribute on an element uses TagName_Name as field name (Windows EventLog convention).
+    const fieldName = attr.name === 'Name' ? `${tagName}_Name` : attr.name;
+    if (attr.value && !fields[fieldName]) {
+      fields[fieldName] = attr.value;
+      added.push(fieldName);
     }
   }
 
-  // Extract <Tag Name="fieldName">value</Tag> within nested content
-  const namedTagRegex = /<(\w+)\s+Name="([^"]+)"[^>]*>([^<]*)<\/\1>/g;
-  while ((match = namedTagRegex.exec(content)) !== null) {
-    const fieldName = match[2];
-    const value = match[3].trim();
-    if (fieldName && value) {
-      addXmlField(fields, added, fieldName, value);
-    }
-  }
+  const children = Array.from(el.children);
 
-  // Extract simple leaf <Tag>value</Tag> within nested content
-  const tagRegex = /<(\w+)(?:\s[^>]*)?>([^<]*)<\/\1>/g;
-  while ((match = tagRegex.exec(content)) !== null) {
-    const key = match[1];
-    const value = match[2].trim();
-    if (key && value && !fields[key]) {
-      fields[key] = value;
-      added.push(key);
+  if (children.length === 0) {
+    // Leaf node — extract text content as a field.
+    const value = el.textContent?.trim() ?? '';
+    // For <Tag Name="fieldName">value</Tag>, use the Name attribute as the field name.
+    const nameAttr = el.getAttribute('Name');
+    const fieldKey = nameAttr ?? (isRoot ? null : tagName);
+    if (fieldKey && value) {
+      addXmlField(fields, added, fieldKey, value);
+    }
+  } else {
+    // Parent node — recurse into children.
+    for (const child of children) {
+      walkXmlElement(child, fields, added, false);
     }
   }
 }
 
 function extractKeyValue(raw: string, fields: Record<string, string | string[]>, added: string[]): void {
   // Match key=value, key="value", key='value'
+  // Key character class broadened to include hyphen, dot, colon (e.g. x-forwarded-for=...)
   const patterns = [
-    /(?:^|[\s,;])(\w+)="([^"]*)"/g,
-    /(?:^|[\s,;])(\w+)='([^']*)'/g,
-    /(?:^|[\s,;])(\w+)=([\w.:\-/\\@#+]+)/g,
+    /(?:^|[\s,;])([\w.\-:]+)="([^"]*)"/g,
+    /(?:^|[\s,;])([\w.\-:]+)='([^']*)'/g,
+    /(?:^|[\s,;])([\w.\-:]+)=([\w.:\-/\\@#+]+)/g,
   ];
 
   for (const pattern of patterns) {
-    let match;
-    while ((match = pattern.exec(raw)) !== null) {
+    for (const match of raw.matchAll(pattern)) {
       const key = match[1];
       const value = match[2];
       if (key && value !== undefined && !fields[key]) {

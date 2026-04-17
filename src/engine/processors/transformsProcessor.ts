@@ -1,4 +1,4 @@
-import type { SplunkEvent, ConfDirective, ConfStanza, ParsedConf } from '../types';
+import type { SplunkEvent, ConfDirective, ParsedConf } from '../types';
 import { applyRegexTransform } from '../transforms/regexTransform';
 import { applyDestKey } from '../transforms/destKeyRouter';
 
@@ -13,25 +13,28 @@ export function applyTransforms(
 
   if (transformDirectives.length === 0) return events;
 
-  return events.map((event) => {
-    let currentEvent = event;
+  const stanzaMap = new Map(transformsConf.stanzas.map((s) => [s.name, s]));
 
-    for (const dir of transformDirectives) {
+  return events.flatMap((event) => {
+    let currentEvent: SplunkEvent | null = event;
+
+    outer: for (const dir of transformDirectives) {
       // Value can be comma-separated list of transform stanza names
       const stanzaNames = dir.value.split(',').map((s) => s.trim()).filter(Boolean);
 
       for (const stanzaName of stanzaNames) {
-        const transformStanza = transformsConf.stanzas.find((s) => s.name === stanzaName);
+        const transformStanza = stanzaMap.get(stanzaName);
         if (!transformStanza) continue;
 
         const result = applyRegexTransform(currentEvent, transformStanza);
 
         if (result.matched) {
-          currentEvent = applyDestKey(currentEvent, result);
+          const routed = applyDestKey(currentEvent, result);
+          if (routed === null) return []; // nullQueue — drop the event
           currentEvent = {
-            ...currentEvent,
+            ...routed,
             processingTrace: [
-              ...currentEvent.processingTrace,
+              ...routed.processingTrace,
               {
                 processor: `${directiveType}-${dir.className ?? ''}:${stanzaName}`,
                 phase,
@@ -42,17 +45,12 @@ export function applyTransforms(
               },
             ],
           };
+          if (result.destKey === 'queue') break outer; // routing is final
         }
       }
     }
 
-    return currentEvent;
+    return currentEvent ? [currentEvent] : [];
   });
 }
 
-export function resolveTransformStanza(
-  transformsConf: ParsedConf,
-  stanzaName: string
-): ConfStanza | undefined {
-  return transformsConf.stanzas.find((s) => s.name === stanzaName);
-}

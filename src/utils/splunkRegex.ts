@@ -1,104 +1,42 @@
 /**
  * Utilities for working with Splunk regex patterns.
- *
- * Handles safe compilation, validation, and conversion of Splunk-specific
- * pattern syntaxes (source:: and host:: patterns) into JavaScript RegExp objects.
  */
+
+/** Escape a literal string for use inside a RegExp. */
+export function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Convert Splunk Python-style (?P<name>...) named groups to JS (?<name>...) syntax. */
+export function convertSplunkToJsRegex(pattern: string): string {
+  return pattern.replace(/\(\?P<(\w+)>/g, '(?<$1>');
+}
+
+/**
+ * Patterns that exhibit catastrophic backtracking when applied to long input.
+ * Reject these before compiling to prevent main-thread hangs.
+ *
+ * Heuristic: an unescaped capturing or non-capturing group whose body itself
+ * contains a `+` or `*` quantifier, followed by another `+` or `*` on the group.
+ * Examples: (a+)+  (\w+)+  (.+)+  (?:\d*)*
+ */
+const REDOS_RE = /\((?:[^()\\]|\\.)*[+*][^()]*\)[+*]/;
+
+export function hasReDoSRisk(pattern: string): boolean {
+  return REDOS_RE.test(pattern);
+}
 
 /**
  * Safely compile a regex pattern, returning null on invalid patterns
- * instead of throwing an exception.
+ * or patterns with known ReDoS risk.
  */
 export function safeRegex(pattern: string, flags?: string): RegExp | null {
+  if (hasReDoSRisk(pattern)) return null;
   try {
     return new RegExp(pattern, flags);
   } catch {
     return null;
   }
-}
-
-/**
- * Escape a string for use as a literal inside a regular expression.
- */
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/**
- * Convert a Splunk `source::` pattern to a JavaScript RegExp.
- *
- * Splunk source patterns use a glob-like syntax:
- *  - `...` matches any number of path segments (equivalent to `**` in globs,
- *    translated to `.*` in regex).
- *  - `*`   matches any characters within a single path segment (translated to
- *    `[^/\\]*` so it does not cross directory boundaries).
- *  - `?`   matches exactly one non-separator character.
- *  - All other characters are treated as literals and properly escaped.
- *
- * The returned regex is anchored (^ ... $) and case-insensitive to match
- * Splunk's behavior on case-insensitive file systems.
- */
-export function sourcePatternToRegex(pattern: string): RegExp {
-  // Tokenise so we can distinguish the special sequences from literals.
-  // We split on the special tokens while keeping the delimiters.
-  const tokens = pattern.split(/(\.\.\.|\*|\?)/);
-
-  let regexStr = '^';
-  for (const token of tokens) {
-    switch (token) {
-      case '...':
-        // Match any characters including path separators
-        regexStr += '.*';
-        break;
-      case '*':
-        // Match any characters except path separators
-        regexStr += '[^/\\\\]*';
-        break;
-      case '?':
-        // Match exactly one non-separator character
-        regexStr += '[^/\\\\]';
-        break;
-      default:
-        regexStr += escapeRegex(token);
-        break;
-    }
-  }
-  regexStr += '$';
-
-  return new RegExp(regexStr, 'i');
-}
-
-/**
- * Convert a Splunk `host::` pattern to a JavaScript RegExp.
- *
- * Host patterns are simpler than source patterns since there are no path
- * separators to worry about:
- *  - `*`  matches any sequence of characters.
- *  - `?`  matches exactly one character.
- *  - All other characters are literal.
- *
- * The returned regex is anchored and case-insensitive.
- */
-export function hostPatternToRegex(pattern: string): RegExp {
-  const tokens = pattern.split(/(\*|\?)/);
-
-  let regexStr = '^';
-  for (const token of tokens) {
-    switch (token) {
-      case '*':
-        regexStr += '.*';
-        break;
-      case '?':
-        regexStr += '.';
-        break;
-      default:
-        regexStr += escapeRegex(token);
-        break;
-    }
-  }
-  regexStr += '$';
-
-  return new RegExp(regexStr, 'i');
 }
 
 /**
@@ -108,6 +46,9 @@ export function hostPatternToRegex(pattern: string): RegExp {
  *          if the pattern compiles successfully.
  */
 export function validateRegex(pattern: string): string | null {
+  if (hasReDoSRisk(pattern)) {
+    return 'Pattern contains a structure prone to catastrophic backtracking (ReDoS risk).';
+  }
   try {
     new RegExp(pattern);
     return null;
