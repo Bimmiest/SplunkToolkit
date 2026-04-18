@@ -18,6 +18,7 @@ export function flattenJson(
   if (depth > MAX_DEPTH) return true;
 
   for (const [key, value] of Object.entries(obj)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
     const fieldName = prefix ? `${prefix}.${key}` : key;
 
     if (value === null || value === undefined) {

@@ -80,16 +80,11 @@ export function breakLines(
 
   // ── Step 1: LINE_BREAKER ──────────────────────────────────────────
   const lineBreakerPattern = getDirective(directives, 'LINE_BREAKER') ?? '([\\r\\n]+)';
-  const lineBreakerRegex = safeRegex(lineBreakerPattern, 'g');
 
   let segments: string[];
   const segmentOffsets: number[] = []; // character offset of each segment in rawData
 
-  if (!lineBreakerRegex) {
-    // Invalid regex -- treat entire data as one segment
-    segments = [rawData];
-    segmentOffsets.push(0);
-  } else {
+  {
     segments = [];
     // Use the LINE_BREAKER to split.  The capturing group content is the
     // separator and is discarded; text before and between matches are segments.
@@ -113,6 +108,7 @@ export function breakLines(
     // avoiding the indexOf() ambiguity when captured text repeats in the match.
     const nonGlobalRegex = safeRegex(lineBreakerPattern, 'd');
     if (!nonGlobalRegex) {
+      // Invalid regex — treat entire data as one segment.
       segments = [rawData];
       segmentOffsets.push(0);
     } else {

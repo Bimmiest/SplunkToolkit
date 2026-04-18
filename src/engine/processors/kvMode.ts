@@ -43,35 +43,44 @@ export function applyKvMode(events: SplunkEvent[], directives: ConfDirective[]):
   });
 }
 
-function findFirstJsonObject(raw: string): string | null {
-  const start = raw.indexOf('{');
-  if (start === -1) return null;
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  for (let i = start; i < raw.length; i++) {
-    const ch = raw[i];
-    if (escape) { escape = false; continue; }
-    if (ch === '\\' && inString) { escape = true; continue; }
-    if (ch === '"') { inString = !inString; continue; }
-    if (inString) continue;
-    if (ch === '{') depth++;
-    else if (ch === '}') { depth--; if (depth === 0) return raw.slice(start, i + 1); }
+function* jsonObjectCandidates(raw: string): Generator<string> {
+  let searchFrom = 0;
+  let attempts = 0;
+  while (attempts < 5) {
+    const start = raw.indexOf('{', searchFrom);
+    if (start === -1) return;
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    let found = false;
+    for (let i = start; i < raw.length; i++) {
+      const ch = raw[i];
+      if (escape) { escape = false; continue; }
+      if (ch === '\\' && inString) { escape = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) { yield raw.slice(start, i + 1); found = true; break; }
+      }
+    }
+    if (!found) return; // no closing brace found — nothing further to try
+    searchFrom = start + 1;
+    attempts++;
   }
-  return null;
 }
 
 function extractJson(raw: string, fields: Record<string, string | string[]>, added: string[]): boolean {
-  try {
-    const jsonStr = findFirstJsonObject(raw);
-    if (!jsonStr) return false;
-    const obj = JSON.parse(jsonStr);
-
-    if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
-      return flattenJson(obj, fields, added);
+  for (const candidate of jsonObjectCandidates(raw)) {
+    try {
+      const obj = JSON.parse(candidate);
+      if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
+        return flattenJson(obj, fields, added);
+      }
+    } catch {
+      // Not valid JSON at this position — try next candidate
     }
-  } catch {
-    // Not valid JSON, skip
   }
   return false;
 }

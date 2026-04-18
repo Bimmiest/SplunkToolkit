@@ -138,22 +138,9 @@ export function runPipeline(
     }
   }
 
-  // 2. Match stanzas to metadata (by precedence)
+  // 2. Match stanzas to metadata (by precedence) and merge directives (deduped by key, first wins).
   const matchedStanzas = matchStanzas(propsConf.stanzas, metadata);
   const directives = mergeDirectives(matchedStanzas);
-
-  // Collect class-based directives (EXTRACT-*, EVAL-*, SEDCMD-*, etc.) deduped by key.
-  // matchedStanzas is already sorted highest-precedence first, so first occurrence wins —
-  // same semantics as mergeDirectives but over the full key (including class suffix).
-  const allDirectivesMap = new Map<string, ConfDirective>();
-  for (const stanza of matchedStanzas) {
-    for (const directive of stanza.directives) {
-      if (!allDirectivesMap.has(directive.key)) {
-        allDirectivesMap.set(directive.key, directive);
-      }
-    }
-  }
-  const allDirectives = Array.from(allDirectivesMap.values());
 
   // ── Index-time processing ─────────────────────────────
 
@@ -164,9 +151,9 @@ export function runPipeline(
   const indexedExtDir = directives.find((d) => d.key === 'INDEXED_EXTRACTIONS');
   const lineBreakDirectives =
     indexedExtDir && STRUCTURED_EXTRACTIONS.has(indexedExtDir.value.trim().toLowerCase()) &&
-    !allDirectives.some((d) => d.key.toUpperCase() === 'SHOULD_LINEMERGE')
-      ? [...allDirectives, { key: 'SHOULD_LINEMERGE', value: 'false', directiveType: 'SHOULD_LINEMERGE', line: 0 } as ConfDirective]
-      : allDirectives;
+    !directives.some((d) => d.key.toUpperCase() === 'SHOULD_LINEMERGE')
+      ? [...directives, { key: 'SHOULD_LINEMERGE', value: 'false', directiveType: 'SHOULD_LINEMERGE', line: 0 } as ConfDirective]
+      : directives;
   let events = breakLines(truncatedRaw, lineBreakDirectives, metadata);
 
   // Step 3: Truncation
@@ -179,10 +166,10 @@ export function runPipeline(
   events = safeProcessor('INDEXED_EXTRACTIONS', events, () => applyIndexedExtractions(events, directives), diagnostics);
 
   // Step 6: SEDCMD
-  events = safeProcessor('SEDCMD', events, () => applySedCommands(events, allDirectives), diagnostics);
+  events = safeProcessor('SEDCMD', events, () => applySedCommands(events, directives), diagnostics);
 
   // Step 7: Index-time TRANSFORMS
-  events = safeProcessor('TRANSFORMS', events, () => applyTransforms(events, allDirectives, transformsConf, 'index-time'), diagnostics, 'transforms.conf');
+  events = safeProcessor('TRANSFORMS', events, () => applyTransforms(events, directives, transformsConf, 'index-time'), diagnostics, 'transforms.conf');
 
   // Step 7b: INGEST_EVAL (from transforms.conf stanzas)
   events = safeProcessor('INGEST_EVAL', events, () => {
@@ -199,19 +186,19 @@ export function runPipeline(
   // ── Search-time processing ────────────────────────────
 
   // Step 8: EXTRACT (inline field extraction)
-  events = safeProcessor('EXTRACT', events, () => extractFields(events, allDirectives), diagnostics);
+  events = safeProcessor('EXTRACT', events, () => extractFields(events, directives), diagnostics);
 
   // Step 9: KV_MODE
   events = safeProcessor('KV_MODE', events, () => applyKvMode(events, directives), diagnostics);
 
   // Step 10: Search-time REPORT transforms
-  events = safeProcessor('REPORT', events, () => applyTransforms(events, allDirectives, transformsConf, 'search-time'), diagnostics, 'transforms.conf');
+  events = safeProcessor('REPORT', events, () => applyTransforms(events, directives, transformsConf, 'search-time'), diagnostics, 'transforms.conf');
 
   // Step 11: FIELDALIAS
-  events = safeProcessor('FIELDALIAS', events, () => applyFieldAliases(events, allDirectives), diagnostics);
+  events = safeProcessor('FIELDALIAS', events, () => applyFieldAliases(events, directives), diagnostics);
 
   // Step 12: EVAL (calculated fields)
-  events = safeProcessor('EVAL', events, () => applyEvalExpressions(events, allDirectives, diagnostics), diagnostics);
+  events = safeProcessor('EVAL', events, () => applyEvalExpressions(events, directives, diagnostics), diagnostics);
 
   // Collect all processing steps
   const processingSteps = events.flatMap((e) => e.processingTrace);

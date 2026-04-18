@@ -66,7 +66,9 @@ export function extractFields(events: SplunkEvent[], directives: ConfDirective[]
 
 function parseExtractValue(value: string): { pattern: string; sourceField?: string } {
   const trimmed = value.trim();
-  const inMatch = trimmed.match(/^(.+?)\s+in\s+([\w.]+)\s*$/);
+  // Greedy match: consume as much as possible before the last " in <field>" suffix.
+  // This avoids mis-splitting on regex bodies that contain the word "in".
+  const inMatch = trimmed.match(/^([\s\S]+)\s+in\s+([\w.]+)\s*$/);
   if (inMatch) {
     return { pattern: inMatch[1], sourceField: inMatch[2] };
   }

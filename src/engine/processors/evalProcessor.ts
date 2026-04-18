@@ -233,6 +233,9 @@ class Parser {
   }
 
   private parseOr(): EvalValue {
+    // Depth guard only covers OR-level nesting; flat chains via parseAddSub/parseMulDiv
+    // do not increment depth. The worker watchdog (5 s) is the primary protection
+    // against pathological inputs that slip through.
     if (++this.depth > Parser.MAX_DEPTH) {
       throw new Error('Expression nesting depth limit exceeded (max 50)');
     }

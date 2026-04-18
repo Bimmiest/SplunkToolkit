@@ -27,7 +27,7 @@ const STANZA_RE = /^\[(.+)\]\s*$/;
  * optional whitespace.  The value extends to the end of the line (trailing
  * whitespace is preserved because Splunk does the same).
  */
-const DIRECTIVE_RE = /^([^\s=][^=]*?)\s*=\s?(.*)$/;
+const DIRECTIVE_RE = /^([^\s=][^=]*?)\s*=\s*(.*)$/;
 
 /** Matches a comment line (leading `#` or `;`). */
 const COMMENT_RE = /^[#;]/;

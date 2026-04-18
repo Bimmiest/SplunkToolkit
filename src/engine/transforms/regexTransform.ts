@@ -8,8 +8,9 @@ export interface TransformResult {
   matched: boolean;
 }
 
-// Pre-compiled pattern for $N back-reference substitution (replaces per-match new RegExp loops).
+// Pre-compiled patterns for format string substitution.
 const CAPTURE_REF_PATTERN = /\$(\d+)/g;
+const NAMED_REF_PATTERN = /\$\{(\w+)\}/g;
 
 // Cache compiled regexes per stanza to avoid re-compiling on every event.
 // WeakMap so entries are GC'd when stanza objects are collected.
@@ -27,11 +28,8 @@ function getCompiledRegex(transformStanza: ConfStanza, jsPattern: string): { pla
 function expandFormat(format: string, match: RegExpExecArray): string {
   let result = format.replace(CAPTURE_REF_PATTERN, (_, idx) => match[parseInt(idx)] ?? '');
   if (match.groups) {
-    for (const [name, value] of Object.entries(match.groups)) {
-      if (value !== undefined) {
-        result = result.replace(new RegExp(`\\$\\{${name}\\}`, 'g'), value);
-      }
-    }
+    const groups = match.groups;
+    result = result.replace(NAMED_REF_PATTERN, (_, name) => groups[name] ?? '');
   }
   return result;
 }
@@ -94,11 +92,7 @@ export function applyRegexTransform(
         const fakeMatch = args.slice(0, groupCount + 1) as RegExpExecArray;
         let formatted = format.replace(CAPTURE_REF_PATTERN, (_, idx) => fakeMatch[parseInt(idx)] ?? '');
         if (namedGroups) {
-          for (const [name, value] of Object.entries(namedGroups)) {
-            if (value !== undefined) {
-              formatted = formatted.replace(new RegExp(`\\$\\{${name}\\}`, 'g'), value);
-            }
-          }
+          formatted = formatted.replace(NAMED_REF_PATTERN, (_, name) => namedGroups[name] ?? '');
         }
         return formatted;
       });
@@ -123,19 +117,19 @@ export function applyRegexTransform(
       }
     } else {
       // No DEST_KEY: parse FORMAT as "field1::$1 field2::$2" — iterate all matches.
+      // Supports quoted values: field::"value with spaces"
+      const PAIR_RE = /(\w+)::(?:"([^"]*)"|(\S+))/g;
       const { global } = compiled;
       global.lastIndex = 0;
       let m: RegExpExecArray | null;
       while ((m = global.exec(sourceValue)) !== null) {
         const formatted = expandFormat(format, m);
-        const pairs = formatted.match(/(\w+)::((?:[^\s]|\\ )+)/g);
-        if (pairs) {
-          for (const pair of pairs) {
-            const colonIdx = pair.indexOf('::');
-            const field = pair.substring(0, colonIdx);
-            const value = pair.substring(colonIdx + 2);
-            addMultiValue(result.fields, field, value);
-          }
+        PAIR_RE.lastIndex = 0;
+        let p: RegExpExecArray | null;
+        while ((p = PAIR_RE.exec(formatted)) !== null) {
+          const field = p[1];
+          const value = p[2] !== undefined ? p[2] : p[3];
+          addMultiValue(result.fields, field, value);
         }
       }
     }
