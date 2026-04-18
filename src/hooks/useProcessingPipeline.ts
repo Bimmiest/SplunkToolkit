@@ -34,7 +34,7 @@ export function useProcessingPipeline() {
       }
     }
 
-    function initWorker() {
+    function initWorker(): Worker {
       const worker = createWorker();
       workerRef.current = worker;
 
@@ -77,14 +77,15 @@ export function useProcessingPipeline() {
         // last in-flight request so the user doesn't need to manually re-trigger.
         workerRef.current?.terminate();
         workerRef.current = null;
-        initWorker();
+        const restartedWorker = initWorker();
         const pending = lastRequestRef.current;
         if (pending) {
           setIsProcessing(true);
-          const newWorker = workerRef.current;
-          newWorker?.postMessage(pending);
+          restartedWorker.postMessage(pending);
         }
       };
+
+      return worker;
     }
 
     initWorkerRef.current = initWorker;
