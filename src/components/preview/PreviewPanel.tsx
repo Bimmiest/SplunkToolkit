@@ -1,7 +1,9 @@
 import { useState, useMemo } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { Tabs } from '../ui/Tabs';
+import { Icon } from '../ui/Icon';
 import type { EventMetadata, OutputTabId, PreviewSubTabId, SplunkEvent } from '../../engine/types';
+import { SAMPLE_CONFIGS } from '../../engine/sampleData';
 import { RawTab } from './tabs/RawTab';
 import { HighlightedTab } from './tabs/HighlightedTab';
 import { DiffTab } from './tabs/DiffTab';
@@ -35,9 +37,9 @@ function hasMetadataDiff(eventMeta: EventMetadata, originalMeta: EventMetadata):
 
 const PREVIEW_SUB_TABS: { id: PreviewSubTabId; label: string }[] = [
   { id: 'raw', label: 'Raw' },
-  { id: 'timestamp', label: 'Timestamp' },
   { id: 'highlighted', label: 'Extractions' },
-  { id: 'calculated', label: 'Calculated Fields' },
+  { id: 'timestamp', label: 'Timestamp' },
+  { id: 'calculated', label: 'Calc Fields' },
   { id: 'diff', label: 'Diff' },
   { id: 'regex', label: 'Regex' },
 ];
@@ -46,6 +48,7 @@ export function PreviewPanel() {
   const activeTab = useAppStore((s) => s.activeOutputTab);
   const setActiveTab = useAppStore((s) => s.setActiveOutputTab);
   const result = useAppStore((s) => s.processingResult);
+  const isProcessing = useAppStore((s) => s.isProcessing);
   const tabs = useMemo(() => [
     { id: 'preview', label: 'Preview' },
     { id: 'cim', label: 'CIM Models' },
@@ -58,10 +61,7 @@ export function PreviewPanel() {
     <div className="h-full flex flex-col bg-[var(--color-bg-primary)]">
       <div className="flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
         <div className="flex items-center gap-2 px-3">
-          <svg className="w-4 h-4 text-[var(--color-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-          </svg>
+          <Icon name="eye" className="w-4 h-4 text-[var(--color-accent)]" />
           <span className="text-sm font-medium text-[var(--color-text-primary)]">Output</span>
         </div>
         <Tabs
@@ -72,12 +72,22 @@ export function PreviewPanel() {
         />
       </div>
       <div
-        className="flex-1 min-h-0 overflow-auto"
+        className="flex-1 min-h-0 overflow-auto relative"
         role="tabpanel"
         id={`tabpanel-${activeTab}`}
         aria-labelledby={`tab-${activeTab}`}
+        aria-busy={isProcessing}
       >
         <TabContent tab={activeTab} hasData={!!result && result.events.length > 0} />
+        {isProcessing && (
+          <div
+            className="absolute inset-0 flex items-center justify-center pointer-events-none"
+            style={{ backgroundColor: 'var(--color-bg-primary)', opacity: 0.6 }}
+            aria-hidden="true"
+          >
+            <span className="text-xs text-[var(--color-text-muted)]">Processing…</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -87,11 +97,7 @@ function TabContent({ tab, hasData }: { tab: OutputTabId; hasData: boolean }) {
   if (tab === 'architecture') return <ArchitecturePanel embedded />;
 
   if (!hasData) {
-    return (
-      <div className="flex items-center justify-center h-full text-[var(--color-text-muted)] text-sm">
-        Paste raw data and configure props.conf to see output
-      </div>
-    );
+    return <EmptyState />;
   }
 
   switch (tab) {
@@ -103,6 +109,48 @@ function TabContent({ tab, hasData }: { tab: OutputTabId; hasData: boolean }) {
   }
 }
 
+function EmptyState() {
+  const setRawData = useAppStore((s) => s.setRawData);
+  const setPropsConf = useAppStore((s) => s.setPropsConf);
+  const setTransformsConf = useAppStore((s) => s.setTransformsConf);
+  const setMetadata = useAppStore((s) => s.setMetadata);
+
+  const loadExample = (idx: number) => {
+    const sample = SAMPLE_CONFIGS[idx];
+    setRawData(sample.rawData);
+    setPropsConf(sample.propsConf);
+    setTransformsConf(sample.transformsConf);
+    setMetadata(sample.metadata);
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full gap-6 px-6 text-center">
+      <div className="flex flex-col items-center gap-2">
+        <Icon name="eye" className="w-10 h-10 text-[var(--color-border)]" />
+        <p className="text-sm font-medium text-[var(--color-text-secondary)]">No data to preview</p>
+        <p className="text-xs text-[var(--color-text-muted)] max-w-xs">
+          Paste raw log data in the left panel and add a sourcetype stanza in props.conf to simulate the Splunk processing pipeline.
+        </p>
+      </div>
+      <div className="flex flex-col items-center gap-2 w-full max-w-xs">
+        <p className="text-xs font-medium text-[var(--color-text-muted)]">Load an example</p>
+        <div className="flex flex-col gap-1.5 w-full">
+          {SAMPLE_CONFIGS.map((sample, idx) => (
+            <button
+              key={sample.name}
+              onClick={() => loadExample(idx)}
+              className="w-full text-left px-3 py-2 rounded-md text-xs bg-[var(--color-bg-secondary)] border border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+            >
+              <span className="font-medium block">{sample.name}</span>
+              <span className="text-[var(--color-text-muted)]">{sample.description}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PreviewSubTab() {
   const result = useAppStore((s) => s.processingResult);
   const events = useMemo(() => result?.events ?? [], [result]);
@@ -112,7 +160,7 @@ function PreviewSubTab() {
   const [search, setSearch] = useState('');
   const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set());
   const [selectedStatus, setSelectedStatus] = useState<Set<string>>(new Set());
-  const [selectedModification, setSelectedModification] = useState<Set<string>>(new Set());
+  const [selectedChangeState, setSelectedChangeState] = useState<Set<string>>(new Set());
 
   const originalMetadata = useAppStore((s) => s.metadata);
 
@@ -159,10 +207,10 @@ function PreviewSubTab() {
         if (selectedStatus.has('Dropped') && !selectedStatus.has('Accepted') && !item.isDropped) return false;
         if (selectedStatus.has('Accepted') && !selectedStatus.has('Dropped') && item.isDropped) return false;
       }
-      if (selectedModification.size > 0) {
-        const wantRaw = selectedModification.has('Raw Modified');
-        const wantMeta = selectedModification.has('Metadata Modified');
-        const wantUnmodified = selectedModification.has('Unmodified');
+      if (selectedChangeState.size > 0) {
+        const wantRaw = selectedChangeState.has('Raw Modified');
+        const wantMeta = selectedChangeState.has('Metadata Modified');
+        const wantUnmodified = selectedChangeState.has('Unmodified');
         const matchesRaw = item.hasChanges;
         const matchesMeta = item.hasMetadataChanges;
         const matchesUnmodified = !item.hasChanges && !item.hasMetadataChanges;
@@ -171,33 +219,22 @@ function PreviewSubTab() {
       }
       return true;
     });
-  }, [enrichedEvents, search, selectedFields, selectedStatus, selectedModification]);
+  }, [enrichedEvents, search, selectedFields, selectedStatus, selectedChangeState]);
 
   const { paginatedItems, currentPage, totalPages, eventsPerPage, totalItems, setCurrentPage, setEventsPerPage } =
     usePagination(filteredEvents);
 
   return (
     <div className="flex flex-col h-full">
-      {/* Sub-tab bar */}
-      <div className="flex-shrink-0 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3">
-        <div className="flex gap-1">
-          {PREVIEW_SUB_TABS.map((tab) => {
-            const isActive = tab.id === subTab;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setSubTab(tab.id)}
-                className="px-2.5 py-1.5 text-xs font-medium transition-colors cursor-pointer"
-                style={{
-                  color: isActive ? 'var(--color-accent)' : 'var(--color-text-muted)',
-                  borderBottom: isActive ? '2px solid var(--color-accent)' : '2px solid transparent',
-                }}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
+      {/* Sub-tab bar — uses shared Tabs for keyboard nav + ARIA */}
+      <div className="flex-shrink-0 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2">
+        <Tabs
+          tabs={PREVIEW_SUB_TABS}
+          activeTab={subTab}
+          onTabChange={(id) => setSubTab(id as PreviewSubTabId)}
+          ariaLabel="Event preview sub-tabs"
+          size="sm"
+        />
       </div>
 
       {/* Shared filter bar */}
@@ -209,8 +246,8 @@ function PreviewSubTab() {
         onFieldsChange={(f) => { setSelectedFields(f); setCurrentPage(1); }}
         selectedStatus={selectedStatus}
         onStatusChange={(s) => { setSelectedStatus(s); setCurrentPage(1); }}
-        selectedModification={selectedModification}
-        onModificationChange={(m) => { setSelectedModification(m); setCurrentPage(1); }}
+        selectedChangeState={selectedChangeState}
+        onChangeStateChange={(m) => { setSelectedChangeState(m); setCurrentPage(1); }}
         filteredCount={filteredEvents.length}
         totalCount={enrichedEvents.length}
       />

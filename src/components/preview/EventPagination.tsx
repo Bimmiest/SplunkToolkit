@@ -63,19 +63,7 @@ export function EventPagination({
           <button
             onClick={() => onPageChange(currentPage - 1)}
             disabled={currentPage <= 1}
-            className="px-2 py-1 rounded transition-colors cursor-pointer border-none outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-40"
-            style={{
-              backgroundColor: 'var(--color-bg-tertiary)',
-              color: 'var(--color-text-secondary)',
-            }}
-            onMouseEnter={(e) => {
-              if (!e.currentTarget.disabled) {
-                e.currentTarget.style.backgroundColor = 'var(--color-border)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'var(--color-bg-tertiary)';
-            }}
+            className="px-2 py-1 rounded cursor-pointer border-none outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-40 bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:enabled:bg-[var(--color-border)]"
             aria-label="Previous page"
           >
             <svg
@@ -103,19 +91,7 @@ export function EventPagination({
           <button
             onClick={() => onPageChange(currentPage + 1)}
             disabled={currentPage >= totalPages}
-            className="px-2 py-1 rounded transition-colors cursor-pointer border-none outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-40"
-            style={{
-              backgroundColor: 'var(--color-bg-tertiary)',
-              color: 'var(--color-text-secondary)',
-            }}
-            onMouseEnter={(e) => {
-              if (!e.currentTarget.disabled) {
-                e.currentTarget.style.backgroundColor = 'var(--color-border)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'var(--color-bg-tertiary)';
-            }}
+            className="px-2 py-1 rounded cursor-pointer border-none outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-40 bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:enabled:bg-[var(--color-border)]"
             aria-label="Next page"
           >
             <svg

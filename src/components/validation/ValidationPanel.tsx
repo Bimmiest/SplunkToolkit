@@ -1,5 +1,6 @@
 import { useAppStore } from '../../store/useAppStore';
 import { Badge } from '../ui/Badge';
+import { Icon } from '../ui/Icon';
 import type { ValidationDiagnostic } from '../../engine/types';
 
 export function ValidationPanel({ embedded }: { embedded?: boolean }) {
@@ -14,9 +15,7 @@ export function ValidationPanel({ embedded }: { embedded?: boolean }) {
       {!embedded && (
         <div className="flex items-center justify-between px-3 py-1.5 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
           <div className="flex items-center gap-2">
-            <svg className="w-4 h-4 text-[var(--color-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+            <Icon name="check-circle" className="w-4 h-4 text-[var(--color-accent)]" />
             <span className="text-sm font-medium text-[var(--color-text-primary)]">Validation</span>
           </div>
           <div className="flex items-center gap-2">
@@ -53,28 +52,19 @@ export function ValidationPanel({ embedded }: { embedded?: boolean }) {
 }
 
 function ValidationItem({ diagnostic }: { diagnostic: ValidationDiagnostic }) {
-  const iconColor = diagnostic.level === 'error'
-    ? 'var(--color-error)'
+  const iconColorClass = diagnostic.level === 'error'
+    ? 'text-[var(--color-error)]'
     : diagnostic.level === 'warning'
-      ? 'var(--color-warning)'
-      : 'var(--color-info)';
+      ? 'text-[var(--color-warning)]'
+      : 'text-[var(--color-info)]';
 
   return (
     <div className="flex items-start gap-2 px-3 py-2 hover:bg-[var(--color-bg-tertiary)] transition-colors">
       <div className="flex-shrink-0 mt-0.5">
-        {diagnostic.level === 'error' ? (
-          <svg className="w-4 h-4" style={{ color: iconColor }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        ) : diagnostic.level === 'warning' ? (
-          <svg className="w-4 h-4" style={{ color: iconColor }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-        ) : (
-          <svg className="w-4 h-4" style={{ color: iconColor }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        )}
+        <Icon
+          name={diagnostic.level === 'error' ? 'error-circle' : diagnostic.level === 'warning' ? 'warning' : 'info-circle'}
+          className={`w-4 h-4 ${iconColorClass}`}
+        />
       </div>
       <div className="flex-1 min-w-0">
         <div className="text-xs text-[var(--color-text-primary)]">{diagnostic.message}</div>

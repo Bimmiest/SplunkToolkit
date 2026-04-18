@@ -3,11 +3,26 @@ import { useAppStore } from '../../store/useAppStore';
 import { ThemeToggle } from '../ui/ThemeToggle';
 import { Badge } from '../ui/Badge';
 import { ProgressBar } from '../ui/ProgressBar';
+import { Icon } from '../ui/Icon';
+import { ClearButton } from '../editor/ClearButton';
 
 export function Header() {
   const result = useAppStore((s) => s.processingResult);
   const diagnostics = useAppStore((s) => s.validationDiagnostics);
   const isProcessing = useAppStore((s) => s.isProcessing);
+  const setRawData = useAppStore((s) => s.setRawData);
+  const setPropsConf = useAppStore((s) => s.setPropsConf);
+  const setTransformsConf = useAppStore((s) => s.setTransformsConf);
+  const setMetadata = useAppStore((s) => s.setMetadata);
+
+  const resetAll = () => {
+    setRawData('');
+    setPropsConf('');
+    setTransformsConf('');
+    setMetadata({ index: 'main', host: '', source: '', sourcetype: '' });
+  };
+
+  const hasAnyContent = !!useAppStore((s) => s.rawData || s.propsConf || s.transformsConf);
 
   const fieldCount = useMemo(() => {
     if (!result) return 0;
@@ -34,12 +49,7 @@ export function Header() {
     >
     <div className="flex items-center justify-between px-4 h-12">
       <div className="flex items-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" className="w-5 h-5 shrink-0">
-          <path d="M14.5 4h3l.5 3.2a9 9 0 0 1 2.2 1.3l3-1.3 1.5 2.6-2.5 2a9 9 0 0 1 0 2.6l2.5 2-1.5 2.6-3-1.3a9 9 0 0 1-2.2 1.3L17.5 20h-3l-.5-3.2a9 9 0 0 1-2.2-1.3l-3 1.3-1.5-2.6 2.5-2a9 9 0 0 1 0-2.6l-2.5-2 1.5-2.6 3 1.3A9 9 0 0 1 14 7.2L14.5 4z" stroke="var(--color-accent)" strokeWidth="1.5" fill="rgba(96,165,250,0.15)"/>
-          <circle cx="16" cy="12" r="3" stroke="var(--color-accent)" strokeWidth="1.5" fill="none"/>
-          <circle cx="20" cy="22" r="4.5" stroke="var(--color-accent)" strokeWidth="1.8" fill="rgba(96,165,250,0.1)"/>
-          <line x1="23.5" y1="25.5" x2="27.5" y2="29.5" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round"/>
-        </svg>
+        <Icon name="settings" className="w-5 h-5 shrink-0 text-[var(--color-accent)]" />
         <h1
           className="text-sm font-bold tracking-wide"
           style={{ color: 'var(--color-text-primary)' }}
@@ -67,10 +77,28 @@ export function Header() {
         {result && errorCount === 0 && warningCount === 0 && (
           <Badge variant="success">Valid</Badge>
         )}
+        {hasAnyContent && (
+          <ClearButton onClear={resetAll} label="Clear All" />
+        )}
         <ThemeToggle />
       </div>
     </div>
     {isProcessing && <ProgressBar />}
+    {/* Screen-reader live region — announces diagnostic changes */}
+    <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      className="sr-only"
+    >
+      {errorCount > 0
+        ? `${errorCount} error${errorCount !== 1 ? 's' : ''}, ${warningCount} warning${warningCount !== 1 ? 's' : ''}`
+        : warningCount > 0
+          ? `${warningCount} warning${warningCount !== 1 ? 's' : ''}`
+          : result
+            ? 'Configuration valid'
+            : ''}
+    </div>
     </header>
   );
 }

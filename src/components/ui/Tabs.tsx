@@ -14,9 +14,10 @@ interface TabsProps {
   activeTab: string;
   onTabChange: (id: string) => void;
   ariaLabel?: string;
+  size?: 'sm' | 'md';
 }
 
-export function Tabs({ tabs, activeTab, onTabChange, ariaLabel }: TabsProps) {
+export function Tabs({ tabs, activeTab, onTabChange, ariaLabel, size = 'md' }: TabsProps) {
   const tablistRef = useRef<HTMLDivElement>(null);
 
   const handleKeyDown = useCallback(
@@ -63,26 +64,13 @@ export function Tabs({ tabs, activeTab, onTabChange, ariaLabel }: TabsProps) {
             id={`tab-${tab.id}`}
             tabIndex={isActive ? 0 : -1}
             onClick={() => onTabChange(tab.id)}
-            className="relative flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer outline-none focus-visible:ring-2"
-            style={{
-              color: isActive
-                ? 'var(--color-accent)'
-                : 'var(--color-text-muted)',
-              borderBottom: isActive
-                ? '2px solid var(--color-accent)'
-                : '2px solid transparent',
-              marginBottom: '-1px',
-            }}
-            onMouseEnter={(e) => {
-              if (!isActive) {
-                e.currentTarget.style.color = 'var(--color-text-secondary)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!isActive) {
-                e.currentTarget.style.color = 'var(--color-text-muted)';
-              }
-            }}
+            className={[
+              'relative flex items-center gap-1.5 font-medium cursor-pointer outline-none focus-visible:ring-2 border-b-2 -mb-px',
+              size === 'sm' ? 'px-2.5 py-1.5 text-xs' : 'px-3 py-1.5 text-sm',
+              isActive
+                ? 'text-[var(--color-accent)] border-b-[var(--color-accent)]'
+                : 'text-[var(--color-text-muted)] border-b-transparent hover:text-[var(--color-text-secondary)]',
+            ].join(' ')}
           >
             {tab.icon && <span className="flex-shrink-0">{tab.icon}</span>}
             <span>{tab.label}</span>

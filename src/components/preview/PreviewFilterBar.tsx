@@ -1,3 +1,4 @@
+import { Icon } from '../ui/Icon';
 import { MultiSelect } from '../ui/MultiSelect';
 
 interface PreviewFilterBarProps {
@@ -8,14 +9,14 @@ interface PreviewFilterBarProps {
   onFieldsChange: (fields: Set<string>) => void;
   selectedStatus: Set<string>;
   onStatusChange: (status: Set<string>) => void;
-  selectedModification: Set<string>;
-  onModificationChange: (mod: Set<string>) => void;
+  selectedChangeState: Set<string>;
+  onChangeStateChange: (mod: Set<string>) => void;
   filteredCount: number;
   totalCount: number;
 }
 
 const STATUS_OPTIONS = ['Accepted', 'Dropped'];
-const MODIFICATION_OPTIONS = ['Raw Modified', 'Metadata Modified', 'Unmodified'];
+const CHANGE_STATE_OPTIONS = ['Raw Modified', 'Metadata Modified', 'Unmodified'];
 
 export function PreviewFilterBar({
   search,
@@ -25,32 +26,26 @@ export function PreviewFilterBar({
   onFieldsChange,
   selectedStatus,
   onStatusChange,
-  selectedModification,
-  onModificationChange,
+  selectedChangeState,
+  onChangeStateChange,
   filteredCount,
   totalCount,
 }: PreviewFilterBarProps) {
-  const hasFilters = search || selectedFields.size > 0 || selectedStatus.size > 0 || selectedModification.size > 0;
+  const hasFilters = search || selectedFields.size > 0 || selectedStatus.size > 0 || selectedChangeState.size > 0;
 
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
       <div className="relative flex-1 max-w-[240px]">
-        <svg
-          className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
-          style={{ color: 'var(--color-text-muted)' }}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
+        <Icon
+          name="search"
+          className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none text-[var(--color-text-muted)]"
+        />
         <input
           type="text"
-          placeholder="Search events..."
+          placeholder="Search events…"
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
-          className="w-full pl-7 pr-2 py-1 text-xs rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent)]"
+          className="w-full pl-7 pr-2 py-1 text-xs rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
         />
       </div>
       <MultiSelect
@@ -58,6 +53,7 @@ export function PreviewFilterBar({
         options={allFields}
         selected={selectedFields}
         onChange={onFieldsChange}
+        searchable
       />
       <MultiSelect
         label="Status"
@@ -67,15 +63,16 @@ export function PreviewFilterBar({
       />
       <MultiSelect
         label="Changes"
-        options={MODIFICATION_OPTIONS}
-        selected={selectedModification}
-        onChange={onModificationChange}
+        options={CHANGE_STATE_OPTIONS}
+        selected={selectedChangeState}
+        onChange={onChangeStateChange}
       />
-      {hasFilters && (
-        <span className="text-[10px] text-[var(--color-text-muted)] whitespace-nowrap">
-          {filteredCount}/{totalCount}
-        </span>
-      )}
+      <span
+        className="text-xs whitespace-nowrap ml-auto tabular-nums"
+        style={{ color: hasFilters ? 'var(--color-accent)' : 'var(--color-text-muted)' }}
+      >
+        {hasFilters ? `${filteredCount} / ${totalCount}` : `${totalCount} event${totalCount !== 1 ? 's' : ''}`}
+      </span>
     </div>
   );
 }

@@ -11,6 +11,7 @@ interface AppState {
 
   metadata: EventMetadata;
   setMetadataField: (field: keyof EventMetadata, value: string) => void;
+  setMetadata: (meta: EventMetadata) => void;
 
   propsConf: string;
   setPropsConf: (text: string) => void;
@@ -60,6 +61,7 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => ({
       metadata: { ...state.metadata, [field]: value },
     })),
+  setMetadata: (meta) => set({ metadata: meta }),
 
   propsConf: '',
   setPropsConf: (text) => set({ propsConf: text }),
