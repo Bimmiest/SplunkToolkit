@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { Tooltip } from '../ui/Tooltip';
 
 interface CopyButtonProps {
   getText: () => string;
@@ -28,12 +29,12 @@ export function CopyButton({ getText }: CopyButtonProps) {
   }, [getText]);
 
   return (
+    <Tooltip content={copied ? 'Copied!' : 'Copy to clipboard'} side="bottom">
     <button
       onClick={handleCopy}
       className="flex items-center gap-1 px-2 py-1 text-xs rounded
         bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]
         hover:bg-[var(--color-accent)] hover:text-white transition-colors"
-      title="Copy to clipboard"
       aria-label={copied ? 'Copied!' : 'Copy to clipboard'}
     >
       {copied ? (
@@ -52,5 +53,6 @@ export function CopyButton({ getText }: CopyButtonProps) {
         </>
       )}
     </button>
+    </Tooltip>
   );
 }

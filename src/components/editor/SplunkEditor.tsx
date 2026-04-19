@@ -86,7 +86,7 @@ export function SplunkEditor({ value, onChange, fileType = 'props.conf', languag
         lineNumbers: 'on',
         folding: true,
         scrollBeyondLastLine: false,
-        fontSize: 13,
+        fontSize: 14,
         fontFamily: "'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace",
         tabSize: 4,
         renderWhitespace: 'selection',
@@ -348,33 +348,34 @@ function registerSplunkConfLanguage(monaco: typeof import('monaco-editor')) {
     base: 'vs',
     inherit: true,
     rules: [
-      { token: 'comment', foreground: '6a737d', fontStyle: 'italic' },
-      { token: 'tag', foreground: '6f42c1' },
-      { token: 'tag.bracket', foreground: '6f42c1' },
-      { token: 'keyword', foreground: '005cc5' },
-      { token: 'keyword.other', foreground: '005cc5' },
-      { token: 'variable.name', foreground: 'e36209' },
-      { token: 'delimiter', foreground: '24292e' },
-      { token: 'string', foreground: '032f62' },
-      { token: 'number', foreground: '005cc5' },
-      { token: 'constant.language', foreground: '005cc5' },
-      { token: 'regexp', foreground: '22863a' },
-      { token: 'regexp.escape', foreground: '22863a', fontStyle: 'bold' },
-      { token: 'type', foreground: 'd73a49' },
-      { token: 'variable.value', foreground: 'e36209' },
-      { token: 'identifier', foreground: '6f42c1' },
-      { token: 'support.function', foreground: '795e26' },
-      { token: 'operator', foreground: '24292e' },
-      { token: 'variable', foreground: 'e36209' },
-      { token: 'escape', foreground: '6a737d', fontStyle: 'bold' },
+      { token: 'comment', foreground: '71717a', fontStyle: 'italic' },   /* zinc-500 */
+      { token: 'tag', foreground: '7c3aed' },                            /* violet-700 */
+      { token: 'tag.bracket', foreground: '7c3aed' },
+      { token: 'keyword', foreground: '4f46e5' },                        /* indigo-600 */
+      { token: 'keyword.other', foreground: '4f46e5' },
+      { token: 'variable.name', foreground: 'c2410c' },                  /* orange-700 */
+      { token: 'delimiter', foreground: '27272a' },
+      { token: 'string', foreground: '3730a3' },                         /* indigo-800 */
+      { token: 'number', foreground: '047857' },                         /* emerald-700 */
+      { token: 'constant.language', foreground: '4f46e5' },
+      { token: 'regexp', foreground: 'b91c1c' },                         /* red-700 */
+      { token: 'regexp.escape', foreground: 'b91c1c', fontStyle: 'bold' },
+      { token: 'type', foreground: '0f766e' },                           /* teal-700 */
+      { token: 'variable.value', foreground: 'c2410c' },
+      { token: 'identifier', foreground: '6d28d9' },                     /* violet-700 */
+      { token: 'support.function', foreground: '92400e' },               /* amber-800 */
+      { token: 'operator', foreground: '27272a' },
+      { token: 'variable', foreground: 'c2410c' },
+      { token: 'escape', foreground: '71717a', fontStyle: 'bold' },
     ],
     colors: {
-      'editor.background': '#ffffff',
-      'editor.foreground': '#24292e',
-      'editorLineNumber.foreground': '#babbbc',
-      'editorLineNumber.activeForeground': '#24292e',
-      'editor.selectionBackground': '#0366d625',
-      'editor.lineHighlightBackground': '#f6f8fa',
+      'editor.background': '#ffffff',        /* --color-bg-elevated */
+      'editor.foreground': '#27272a',
+      'editorLineNumber.foreground': '#a1a1aa',
+      'editorLineNumber.activeForeground': '#27272a',
+      'editor.selectionBackground': '#6366f130',
+      'editor.lineHighlightBackground': '#f4f4f5',  /* --color-bg-secondary */
+      'editorCursor.foreground': '#6366f1',
     },
   });
 
@@ -386,32 +387,33 @@ function registerSplunkConfLanguage(monaco: typeof import('monaco-editor')) {
       { token: 'comment', foreground: '6a9955', fontStyle: 'italic' },
       { token: 'tag', foreground: 'c586c0' },
       { token: 'tag.bracket', foreground: 'c586c0' },
-      { token: 'keyword', foreground: '569cd6' },
-      { token: 'keyword.other', foreground: '569cd6' },
-      { token: 'variable.name', foreground: 'ce9178' },
-      { token: 'delimiter', foreground: 'd4d4d4' },
-      { token: 'string', foreground: 'ce9178' },
-      { token: 'number', foreground: 'b5cea8' },
-      { token: 'constant.language', foreground: '569cd6' },
-      { token: 'regexp', foreground: 'd16969' },
-      { token: 'regexp.escape', foreground: 'd16969', fontStyle: 'bold' },
-      { token: 'type', foreground: '4ec9b0' },
-      { token: 'variable.value', foreground: 'dcdcaa' },
-      { token: 'identifier', foreground: '9cdcfe' },
-      { token: 'support.function', foreground: 'dcdcaa' },
-      { token: 'operator', foreground: 'd4d4d4' },
-      { token: 'variable', foreground: '9cdcfe' },
+      { token: 'keyword', foreground: '818cf8' },      /* indigo-400 */
+      { token: 'keyword.other', foreground: '818cf8' },
+      { token: 'variable.name', foreground: 'fb923c' }, /* orange-400 */
+      { token: 'delimiter', foreground: 'e4e4e7' },
+      { token: 'string', foreground: 'a5b4fc' },        /* indigo-300 */
+      { token: 'number', foreground: '34d399' },        /* emerald-400 */
+      { token: 'constant.language', foreground: '818cf8' },
+      { token: 'regexp', foreground: 'f87171' },        /* red-400 */
+      { token: 'regexp.escape', foreground: 'f87171', fontStyle: 'bold' },
+      { token: 'type', foreground: '2dd4bf' },          /* teal-400 */
+      { token: 'variable.value', foreground: 'fbbf24' },
+      { token: 'identifier', foreground: '93c5fd' },
+      { token: 'support.function', foreground: 'fbbf24' },
+      { token: 'operator', foreground: 'e4e4e7' },
+      { token: 'variable', foreground: '93c5fd' },
       { token: 'escape', foreground: '6a9955', fontStyle: 'bold' },
     ],
     colors: {
-      'editor.background': '#1e293b',
-      'editor.foreground': '#e2e8f0',
-      'editorLineNumber.foreground': '#64748b',
-      'editorLineNumber.activeForeground': '#e2e8f0',
-      'editor.selectionBackground': '#3b82f650',
-      'editor.inactiveSelectionBackground': '#3b82f630',
-      'editor.selectionHighlightBackground': '#3b82f625',
-      'editor.lineHighlightBackground': '#334155',
+      'editor.background': '#303036',        /* --color-bg-elevated */
+      'editor.foreground': '#f4f4f5',
+      'editorLineNumber.foreground': '#71717a',
+      'editorLineNumber.activeForeground': '#f4f4f5',
+      'editor.selectionBackground': '#818cf850',
+      'editor.inactiveSelectionBackground': '#818cf830',
+      'editor.selectionHighlightBackground': '#818cf825',
+      'editor.lineHighlightBackground': '#27272a',  /* --color-bg-secondary */
+      'editorCursor.foreground': '#818cf8',
     },
   });
 }

@@ -223,7 +223,7 @@ export function FieldsTab() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)]">
         <div className="relative flex-1 max-w-[240px]">
           <svg
             className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
@@ -237,7 +237,7 @@ export function FieldsTab() {
             placeholder="Search fields..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-7 pr-2 py-1 text-xs rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent)]"
+            className="w-full pl-7 pr-2 py-1.5 text-xs rounded border border-[var(--color-border)] bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent)] transition-colors"
           />
         </div>
         <span className="text-xs text-[var(--color-text-muted)]">{fieldSummary.length} fields</span>
@@ -257,7 +257,7 @@ export function FieldsTab() {
       <div className="flex-1 overflow-auto">
         <table className="w-full text-xs border-collapse" style={{ minWidth: Object.values(columnWidths).reduce((a, b) => a + b, 0) }}>
           <thead className="sticky top-0 z-10 bg-[var(--color-bg-secondary)]">
-            <tr className="text-left text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
+            <tr className="text-left text-[var(--color-text-muted)] border-b border-[var(--color-border-subtle)]">
               {COLUMNS.map((col) => (
                 <ResizableHeader
                   key={col.key}
@@ -290,7 +290,7 @@ export function FieldsTab() {
                   ? fieldSummary.filter((f) => f.parentName === field.name).length
                   : 0;
                 return (
-              <tr key={field.name} className="border-b border-[var(--color-border)] hover:bg-[var(--color-bg-tertiary)]">
+              <tr key={field.name} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-secondary)] transition-colors">
                 <td className="py-1.5 px-3 font-mono font-medium" style={{ width: columnWidths.name }}>
                   <FieldNameCell
                     name={field.name}

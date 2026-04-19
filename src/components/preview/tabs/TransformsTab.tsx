@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
 import { useAppStore } from '../../../store/useAppStore';
+import { Icon } from '../../ui/Icon';
+import { Tooltip } from '../../ui/Tooltip';
 
 interface StepSummary {
   processor: string;
@@ -75,19 +77,29 @@ export function TransformsTab() {
   );
 }
 
+const PHASE_HINTS: Record<string, string> = {
+  'Index-Time Processing': 'Runs at ingest time — LINE_BREAKER, timestamps, SEDCMD, TRANSFORMS, INGEST_EVAL. Results are stored in the index.',
+  'Search-Time Processing': 'Runs at query time — EXTRACT, KV_MODE, REPORT, FIELDALIAS, EVAL. Results are computed fresh for each search.',
+};
+
 function StepSection({ title, steps, phaseColor }: { title: string; steps: StepSummary[]; phaseColor: string }) {
   if (steps.length === 0) return null;
 
   return (
     <div>
-      <h3 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: phaseColor }}>
+      <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: phaseColor }}>
         {title} ({steps.length} step{steps.length !== 1 ? 's' : ''})
+        <Tooltip content={PHASE_HINTS[title]} side="right">
+          <button type="button" className="text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors p-0 border-none bg-transparent cursor-default opacity-70 hover:opacity-100">
+            <Icon name="info" className="w-3 h-3" />
+          </button>
+        </Tooltip>
       </h3>
       <div className="space-y-1">
         {steps.map((step, idx) => (
           <div
             key={idx}
-            className="flex items-start gap-3 px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)]"
+            className="flex items-start gap-3 px-3 py-2.5 rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-bg-elevated)] hover:border-[var(--color-border)] transition-colors"
           >
             <div className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ backgroundColor: phaseColor + '20', color: phaseColor }}>
               {idx + 1}

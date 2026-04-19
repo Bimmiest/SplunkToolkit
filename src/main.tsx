@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { loader } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+import * as RadixTooltip from '@radix-ui/react-tooltip'
 import './index.css'
 import App from './App.tsx'
 
@@ -16,6 +17,8 @@ loader.config({ monaco })
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <RadixTooltip.Provider delayDuration={400} skipDelayDuration={100}>
+      <App />
+    </RadixTooltip.Provider>
   </StrictMode>,
 )

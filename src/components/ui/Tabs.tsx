@@ -15,9 +15,10 @@ interface TabsProps {
   onTabChange: (id: string) => void;
   ariaLabel?: string;
   size?: 'sm' | 'md';
+  variant?: 'underline' | 'secondary';
 }
 
-export function Tabs({ tabs, activeTab, onTabChange, ariaLabel, size = 'md' }: TabsProps) {
+export function Tabs({ tabs, activeTab, onTabChange, ariaLabel, size = 'md', variant = 'underline' }: TabsProps) {
   const tablistRef = useRef<HTMLDivElement>(null);
 
   const handleKeyDown = useCallback(
@@ -50,11 +51,25 @@ export function Tabs({ tabs, activeTab, onTabChange, ariaLabel, size = 'md' }: T
       ref={tablistRef}
       role="tablist"
       aria-label={ariaLabel}
-      className="flex gap-1"
+      className={variant === 'secondary' ? 'flex gap-0.5 p-1' : 'flex gap-1'}
       onKeyDown={handleKeyDown}
     >
       {tabs.map((tab) => {
         const isActive = tab.id === activeTab;
+        const underlineClasses = [
+          'relative flex items-center gap-1.5 font-medium cursor-pointer outline-none focus-visible:ring-2 border-b-2 -mb-px',
+          size === 'sm' ? 'px-2.5 py-1.5 text-xs' : 'px-3 py-1.5 text-sm',
+          isActive
+            ? 'text-[var(--color-accent)] border-b-[var(--color-accent)]'
+            : 'text-[var(--color-text-muted)] border-b-transparent hover:text-[var(--color-text-secondary)]',
+        ].join(' ');
+        const secondaryClasses = [
+          'relative flex items-center gap-1.5 font-medium cursor-pointer outline-none focus-visible:ring-1 rounded transition-colors',
+          size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm',
+          isActive
+            ? 'bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] border border-[var(--color-border)] shadow-sm'
+            : 'text-[var(--color-text-muted)] border border-transparent hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]',
+        ].join(' ');
         return (
           <button
             key={tab.id}
@@ -64,13 +79,7 @@ export function Tabs({ tabs, activeTab, onTabChange, ariaLabel, size = 'md' }: T
             id={`tab-${tab.id}`}
             tabIndex={isActive ? 0 : -1}
             onClick={() => onTabChange(tab.id)}
-            className={[
-              'relative flex items-center gap-1.5 font-medium cursor-pointer outline-none focus-visible:ring-2 border-b-2 -mb-px',
-              size === 'sm' ? 'px-2.5 py-1.5 text-xs' : 'px-3 py-1.5 text-sm',
-              isActive
-                ? 'text-[var(--color-accent)] border-b-[var(--color-accent)]'
-                : 'text-[var(--color-text-muted)] border-b-transparent hover:text-[var(--color-text-secondary)]',
-            ].join(' ')}
+            className={variant === 'secondary' ? secondaryClasses : underlineClasses}
           >
             {tab.icon && <span className="flex-shrink-0">{tab.icon}</span>}
             <span>{tab.label}</span>

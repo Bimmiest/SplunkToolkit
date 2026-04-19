@@ -1,12 +1,16 @@
 import { Panel, Group, Separator } from 'react-resizable-panels';
 import { Header } from './Header';
+import { StatusBar } from './StatusBar';
 import { RawPanel } from '../raw/RawPanel';
 import { PropsConfEditor } from '../editor/PropsConfEditor';
 import { TransformsConfEditor } from '../editor/TransformsConfEditor';
 import { PreviewPanel } from '../preview/PreviewPanel';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
+import { HelpPanel } from '../help/HelpPanel';
+import { FirstRunBanner } from '../onboarding/FirstRunBanner';
 import { useProcessingPipeline } from '../../hooks/useProcessingPipeline';
 import { useAppStore } from '../../store/useAppStore';
+import { CommandPalette } from '../ui/CommandPalette';
 
 function ResizeHandle({ direction = 'vertical' }: { direction?: 'horizontal' | 'vertical' }) {
   return (
@@ -40,6 +44,9 @@ export function AppShell() {
   return (
     <div className="h-full flex flex-col">
       <Header />
+      <FirstRunBanner />
+      <HelpPanel />
+      <CommandPalette />
       <main id="main-content" className="flex-1 min-h-0">
         <Group orientation="horizontal" id="main-horizontal">
           {/* Left side: Raw, Props, Transforms */}
@@ -99,6 +106,7 @@ export function AppShell() {
           </Panel>
         </Group>
       </main>
+      <StatusBar />
     </div>
   );
 }

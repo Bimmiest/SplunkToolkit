@@ -40,6 +40,15 @@ interface AppState {
   collapsedPanels: Record<string, boolean>;
   togglePanelCollapse: (panelId: string) => void;
 
+  helpOpen: boolean;
+  toggleHelp: () => void;
+
+  commandPaletteOpen: boolean;
+  toggleCommandPalette: () => void;
+
+  lastProcessingMs: number | null;
+  setLastProcessingMs: (ms: number | null) => void;
+
   editorInstances: Record<string, editor.IStandaloneCodeEditor>;
   registerEditor: (file: string, instance: editor.IStandaloneCodeEditor) => void;
 }
@@ -96,6 +105,15 @@ export const useAppStore = create<AppState>((set) => ({
         [panelId]: !state.collapsedPanels[panelId],
       },
     })),
+
+  helpOpen: false,
+  toggleHelp: () => set((state) => ({ helpOpen: !state.helpOpen })),
+
+  commandPaletteOpen: false,
+  toggleCommandPalette: () => set((state) => ({ commandPaletteOpen: !state.commandPaletteOpen })),
+
+  lastProcessingMs: null,
+  setLastProcessingMs: (ms) => set({ lastProcessingMs: ms }),
 
   editorInstances: {},
   registerEditor: (file, instance) =>

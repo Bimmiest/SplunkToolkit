@@ -1,19 +1,22 @@
 import { useMemo } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { ThemeToggle } from '../ui/ThemeToggle';
-import { Badge } from '../ui/Badge';
 import { ProgressBar } from '../ui/ProgressBar';
 import { Icon } from '../ui/Icon';
 import { ClearButton } from '../editor/ClearButton';
+import { Tooltip } from '../ui/Tooltip';
 
 export function Header() {
-  const result = useAppStore((s) => s.processingResult);
   const diagnostics = useAppStore((s) => s.validationDiagnostics);
   const isProcessing = useAppStore((s) => s.isProcessing);
+  const result = useAppStore((s) => s.processingResult);
   const setRawData = useAppStore((s) => s.setRawData);
   const setPropsConf = useAppStore((s) => s.setPropsConf);
   const setTransformsConf = useAppStore((s) => s.setTransformsConf);
   const setMetadata = useAppStore((s) => s.setMetadata);
+  const toggleHelp = useAppStore((s) => s.toggleHelp);
+  const helpOpen = useAppStore((s) => s.helpOpen);
+  const toggleCommandPalette = useAppStore((s) => s.toggleCommandPalette);
 
   const resetAll = () => {
     setRawData('');
@@ -23,17 +26,6 @@ export function Header() {
   };
 
   const hasAnyContent = !!useAppStore((s) => s.rawData || s.propsConf || s.transformsConf);
-
-  const fieldCount = useMemo(() => {
-    if (!result) return 0;
-    const fieldSet = new Set<string>();
-    for (const event of result.events) {
-      for (const key of Object.keys(event.fields)) {
-        fieldSet.add(key);
-      }
-    }
-    return fieldSet.size;
-  }, [result]);
 
   const errorCount = useMemo(() => diagnostics.filter((d) => d.level === 'error').length, [diagnostics]);
   const warningCount = useMemo(() => diagnostics.filter((d) => d.level === 'warning').length, [diagnostics]);
@@ -47,58 +39,62 @@ export function Header() {
         borderBottom: '1px solid var(--color-border)',
       }}
     >
-    <div className="flex items-center justify-between px-4 h-12">
-      <div className="flex items-center gap-2">
-        <Icon name="settings" className="w-5 h-5 shrink-0 text-[var(--color-accent)]" />
-        <h1
-          className="text-sm font-bold tracking-wide"
-          style={{ color: 'var(--color-text-primary)' }}
-        >
-          Splunk Toolkit
-        </h1>
+      <div className="flex items-center justify-between px-4 h-12">
+        <div className="flex items-center gap-2">
+          <Icon name="settings" className="w-5 h-5 shrink-0 text-[var(--color-accent)]" />
+          <h1
+            className="text-sm font-bold tracking-wide"
+            style={{ color: 'var(--color-text-primary)' }}
+          >
+            Splunk Toolkit
+          </h1>
+        </div>
+        <div className="flex items-center gap-2">
+          <Tooltip content="Command palette (Ctrl+K)" side="bottom">
+            <button
+              onClick={toggleCommandPalette}
+              aria-label="Open command palette"
+              className="flex items-center gap-1.5 px-2 h-7 rounded-md text-[11px] border border-[var(--color-border)] cursor-pointer
+                text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+            >
+              <Icon name="search" className="w-3.5 h-3.5" />
+              <span>Commands</span>
+              <kbd className="ml-1 px-1 rounded text-[10px] font-mono bg-[var(--color-bg-tertiary)]">⌘K</kbd>
+            </button>
+          </Tooltip>
+          {hasAnyContent && (
+            <ClearButton onClear={resetAll} label="Clear All" />
+          )}
+          <Tooltip content="Pipeline reference" side="bottom">
+            <button
+              onClick={toggleHelp}
+              aria-label="Open pipeline reference"
+              aria-expanded={helpOpen}
+              className={[
+                'flex items-center justify-center w-8 h-8 rounded-md border-none outline-none',
+                'focus-visible:ring-2 transition-colors cursor-pointer',
+                helpOpen
+                  ? 'bg-[var(--color-accent)] text-white'
+                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]',
+              ].join(' ')}
+            >
+              <Icon name="info" className="w-[18px] h-[18px]" />
+            </button>
+          </Tooltip>
+          <ThemeToggle />
+        </div>
       </div>
-      <div className="flex items-center gap-3">
-        {result && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-              {result.eventCount} event{result.eventCount !== 1 ? 's' : ''}
-            </span>
-            <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-              {fieldCount} field{fieldCount !== 1 ? 's' : ''}
-            </span>
-          </div>
-        )}
-        {(errorCount > 0 || warningCount > 0) && (
-          <div className="flex items-center gap-1.5">
-            {errorCount > 0 && <Badge variant="error">{errorCount} error{errorCount !== 1 ? 's' : ''}</Badge>}
-            {warningCount > 0 && <Badge variant="warning">{warningCount} warning{warningCount !== 1 ? 's' : ''}</Badge>}
-          </div>
-        )}
-        {result && errorCount === 0 && warningCount === 0 && (
-          <Badge variant="success">Valid</Badge>
-        )}
-        {hasAnyContent && (
-          <ClearButton onClear={resetAll} label="Clear All" />
-        )}
-        <ThemeToggle />
+      {isProcessing && <ProgressBar />}
+      {/* Screen-reader live region */}
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {errorCount > 0
+          ? `${errorCount} error${errorCount !== 1 ? 's' : ''}, ${warningCount} warning${warningCount !== 1 ? 's' : ''}`
+          : warningCount > 0
+            ? `${warningCount} warning${warningCount !== 1 ? 's' : ''}`
+            : result
+              ? 'Configuration valid'
+              : ''}
       </div>
-    </div>
-    {isProcessing && <ProgressBar />}
-    {/* Screen-reader live region — announces diagnostic changes */}
-    <div
-      role="status"
-      aria-live="polite"
-      aria-atomic="true"
-      className="sr-only"
-    >
-      {errorCount > 0
-        ? `${errorCount} error${errorCount !== 1 ? 's' : ''}, ${warningCount} warning${warningCount !== 1 ? 's' : ''}`
-        : warningCount > 0
-          ? `${warningCount} warning${warningCount !== 1 ? 's' : ''}`
-          : result
-            ? 'Configuration valid'
-            : ''}
-    </div>
     </header>
   );
 }

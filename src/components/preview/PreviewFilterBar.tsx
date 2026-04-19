@@ -67,12 +67,14 @@ export function PreviewFilterBar({
         selected={selectedChangeState}
         onChange={onChangeStateChange}
       />
-      <span
-        className="text-xs whitespace-nowrap ml-auto tabular-nums"
-        style={{ color: hasFilters ? 'var(--color-accent)' : 'var(--color-text-muted)' }}
-      >
-        {hasFilters ? `${filteredCount} / ${totalCount}` : `${totalCount} event${totalCount !== 1 ? 's' : ''}`}
-      </span>
+      {hasFilters && (
+        <span
+          className="text-xs whitespace-nowrap ml-auto tabular-nums"
+          style={{ color: 'var(--color-accent)' }}
+        >
+          {filteredCount} / {totalCount}
+        </span>
+      )}
     </div>
   );
 }

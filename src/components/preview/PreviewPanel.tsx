@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import type React from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { Tabs } from '../ui/Tabs';
 import { Icon } from '../ui/Icon';
@@ -7,7 +8,6 @@ import { SAMPLE_CONFIGS } from '../../engine/sampleData';
 import { RawTab } from './tabs/RawTab';
 import { HighlightedTab } from './tabs/HighlightedTab';
 import { DiffTab } from './tabs/DiffTab';
-import { CalculatedFieldsTab } from './tabs/CalculatedFieldsTab';
 import { TimestampTab } from './tabs/TimestampTab';
 import { RegexTab } from './tabs/RegexTab';
 import { CimModelsTab } from './tabs/CimModelsTab';
@@ -39,7 +39,6 @@ const PREVIEW_SUB_TABS: { id: PreviewSubTabId; label: string }[] = [
   { id: 'raw', label: 'Raw' },
   { id: 'highlighted', label: 'Extractions' },
   { id: 'timestamp', label: 'Timestamp' },
-  { id: 'calculated', label: 'Calc Fields' },
   { id: 'diff', label: 'Diff' },
   { id: 'regex', label: 'Regex' },
 ];
@@ -59,10 +58,10 @@ export function PreviewPanel() {
 
   return (
     <div className="h-full flex flex-col bg-[var(--color-bg-primary)]">
-      <div className="flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
+      <div className="flex items-center justify-between border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)]">
         <div className="flex items-center gap-2 px-3">
-          <Icon name="eye" className="w-4 h-4 text-[var(--color-accent)]" />
-          <span className="text-sm font-medium text-[var(--color-text-primary)]">Output</span>
+          <Icon name="eye" className="w-3.5 h-3.5 text-[var(--color-accent)]" />
+          <span className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">Output</span>
         </div>
         <Tabs
           tabs={tabs}
@@ -109,6 +108,11 @@ function TabContent({ tab, hasData }: { tab: OutputTabId; hasData: boolean }) {
   }
 }
 
+const SAMPLE_ICONS: Record<string, React.ComponentProps<typeof Icon>['name']> = {
+  'Apache Access Log': 'terminal',
+  'Palo Alto Firewall': 'shield',
+};
+
 function EmptyState() {
   const setRawData = useAppStore((s) => s.setRawData);
   const setPropsConf = useAppStore((s) => s.setPropsConf);
@@ -124,27 +128,58 @@ function EmptyState() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-6 px-6 text-center">
-      <div className="flex flex-col items-center gap-2">
-        <Icon name="eye" className="w-10 h-10 text-[var(--color-border)]" />
-        <p className="text-sm font-medium text-[var(--color-text-secondary)]">No data to preview</p>
-        <p className="text-xs text-[var(--color-text-muted)] max-w-xs">
-          Paste raw log data in the left panel and add a sourcetype stanza in props.conf to simulate the Splunk processing pipeline.
-        </p>
+    <div className="flex flex-col items-center justify-center h-full gap-8 px-8 text-center">
+      <div className="flex flex-col items-center gap-3">
+        <div
+          className="w-14 h-14 rounded-2xl flex items-center justify-center"
+          style={{ backgroundColor: 'var(--color-bg-secondary)' }}
+        >
+          <Icon name="eye" className="w-7 h-7 text-[var(--color-text-muted)]" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-[var(--color-text-primary)]">No data yet</p>
+          <p className="text-xs text-[var(--color-text-muted)] max-w-xs mt-1">
+            Paste raw log data on the left, then write a sourcetype stanza in props.conf to simulate the pipeline.
+          </p>
+        </div>
       </div>
-      <div className="flex flex-col items-center gap-2 w-full max-w-xs">
-        <p className="text-xs font-medium text-[var(--color-text-muted)]">Load an example</p>
-        <div className="flex flex-col gap-1.5 w-full">
-          {SAMPLE_CONFIGS.map((sample, idx) => (
-            <button
-              key={sample.name}
-              onClick={() => loadExample(idx)}
-              className="w-full text-left px-3 py-2 rounded-md text-xs bg-[var(--color-bg-secondary)] border border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
-            >
-              <span className="font-medium block">{sample.name}</span>
-              <span className="text-[var(--color-text-muted)]">{sample.description}</span>
-            </button>
-          ))}
+
+      <div className="w-full max-w-sm">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-3">
+          Or load an example
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          {SAMPLE_CONFIGS.map((sample, idx) => {
+            const iconName = SAMPLE_ICONS[sample.name] ?? 'document';
+            return (
+              <button
+                key={sample.name}
+                onClick={() => loadExample(idx)}
+                className="group flex flex-col items-start gap-2 p-4 rounded-xl text-left
+                  bg-[var(--color-bg-elevated)] border border-[var(--color-border)]
+                  hover:border-[var(--color-accent)] hover:shadow-md hover:-translate-y-0.5
+                  transition-all duration-150 outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+              >
+                <div
+                  className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+                  style={{ backgroundColor: 'var(--color-bg-secondary)' }}
+                >
+                  <Icon
+                    name={iconName}
+                    className="w-4 h-4 text-[var(--color-accent)] group-hover:text-[var(--color-accent)]"
+                  />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-[var(--color-text-primary)] group-hover:text-[var(--color-accent)] transition-colors">
+                    {sample.name}
+                  </p>
+                  <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5 leading-relaxed">
+                    {sample.description}
+                  </p>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -226,14 +261,15 @@ function PreviewSubTab() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Sub-tab bar — uses shared Tabs for keyboard nav + ARIA */}
-      <div className="flex-shrink-0 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2">
+      {/* Sub-tab bar */}
+      <div className="flex-shrink-0 border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)]">
         <Tabs
           tabs={PREVIEW_SUB_TABS}
           activeTab={subTab}
           onTabChange={(id) => setSubTab(id as PreviewSubTabId)}
           ariaLabel="Event preview sub-tabs"
           size="sm"
+          variant="secondary"
         />
       </div>
 
@@ -256,7 +292,6 @@ function PreviewSubTab() {
       <div className="flex-1 min-h-0 overflow-auto">
         {subTab === 'raw' && <RawTab items={paginatedItems} currentPage={currentPage} eventsPerPage={eventsPerPage} search={search} />}
         {subTab === 'highlighted' && <HighlightedTab items={paginatedItems} allEvents={filteredEvents} currentPage={currentPage} eventsPerPage={eventsPerPage} />}
-        {subTab === 'calculated' && <CalculatedFieldsTab items={paginatedItems} allEvents={filteredEvents} currentPage={currentPage} eventsPerPage={eventsPerPage} />}
         {subTab === 'diff' && <DiffTab items={paginatedItems} currentPage={currentPage} eventsPerPage={eventsPerPage} />}
         {subTab === 'timestamp' && <TimestampTab items={paginatedItems} currentPage={currentPage} eventsPerPage={eventsPerPage} />}
         {subTab === 'regex' && <RegexTab items={paginatedItems} currentPage={currentPage} eventsPerPage={eventsPerPage} />}
