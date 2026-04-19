@@ -19,6 +19,8 @@ interface HighlightedRawProps {
   titleFor: (field: string, value: string) => string;
   onFieldHover: (field: string | null) => void;
   onFieldClick: (field: string) => void;
+  /** Maps stripped field name → original raw key (e.g. "GID" → "_GID") for context matching */
+  fieldSourceKeys?: Record<string, string>;
 }
 
 export function HighlightedRaw({
@@ -29,6 +31,7 @@ export function HighlightedRaw({
   titleFor,
   onFieldHover,
   onFieldClick,
+  fieldSourceKeys,
 }: HighlightedRawProps) {
   const focused = isAnyFocused(activeFields);
 
@@ -38,9 +41,10 @@ export function HighlightedRaw({
     const rawValue = fieldValues.get(field);
     if (rawValue === undefined) continue;
     const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+    const originalKey = fieldSourceKeys?.[field];
     for (const v of values) {
-      if (!v || v.length < 2) continue;
-      const positions = findFieldValuePositions(raw, field, v);
+      if (!v) continue;
+      const positions = findFieldValuePositions(raw, field, v, originalKey);
       for (const idx of positions) {
         highlights.push({ start: idx, end: idx + v.length, field, color });
       }

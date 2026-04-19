@@ -20,6 +20,13 @@ export interface SplunkEvent {
   _time: Date | null;
   _meta: Record<string, string>;
   fields: Record<string, string | string[]>;
+  /**
+   * Maps stripped field name → original raw key when underscore-stripping occurred
+   * during INDEXED_EXTRACTIONS. Used by the highlighter to locate the value in _raw
+   * using the un-stripped key for context-aware matching.
+   * e.g. { 'GID': '_GID', 'AUDIT_SESSION': '_AUDIT_SESSION' }
+   */
+  fieldSourceKeys?: Record<string, string>;
   metadata: EventMetadata;
   lineNumbers: { start: number; end: number };
   processingTrace: ProcessingStep[];

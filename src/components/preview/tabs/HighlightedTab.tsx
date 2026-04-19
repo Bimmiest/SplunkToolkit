@@ -314,6 +314,7 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
                 fieldColorMap={highlightColorMap}
                 fieldValues={fieldValues}
                 activeFields={activeFields}
+                fieldSourceKeys={item.event.fieldSourceKeys}
                 titleFor={(field, value) => {
                   const tag = manualFields.has(field) ? 'manual' : calcFields.has(field) ? 'calc' : 'auto';
                   return `${field} (${tag}): ${value}`;

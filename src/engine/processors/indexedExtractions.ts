@@ -31,11 +31,13 @@ function extractJsonFields(events: SplunkEvent[]): SplunkEvent[] {
 
       const fields = { ...event.fields };
       const added: string[] = [];
-      const depthTruncated = flattenJson(obj, fields, added, '', 0, { stripLeadingUnderscore: true });
+      const sourceKeys: Record<string, string> = {};
+      const depthTruncated = flattenJson(obj, fields, added, '', 0, { stripLeadingUnderscore: true, sourceKeys });
 
       return {
         ...event,
         fields,
+        fieldSourceKeys: { ...event.fieldSourceKeys, ...sourceKeys },
         processingTrace: [
           ...event.processingTrace,
           {

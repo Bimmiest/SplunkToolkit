@@ -43,6 +43,29 @@ describe('applyIndexedExtractions — JSON', () => {
     const events = applyIndexedExtractions([event('not json')], [dir('json')]);
     expect(events[0].fields).toEqual({});
   });
+
+  it('populates fieldSourceKeys for underscore-stripped JSON keys', () => {
+    const events = applyIndexedExtractions(
+      [event('{"_GID":"100","_UID":"1000","normalKey":"value"}')],
+      [dir('json')]
+    );
+    const sourceKeys = events[0].fieldSourceKeys ?? {};
+    expect(sourceKeys['GID']).toBe('_GID');
+    expect(sourceKeys['UID']).toBe('_UID');
+    // Keys that were not stripped should not appear in fieldSourceKeys
+    expect(sourceKeys['normalKey']).toBeUndefined();
+  });
+
+  it('fieldSourceKeys maps all _AUDIT_FIELD_* variants correctly', () => {
+    const events = applyIndexedExtractions(
+      [event('{"_AUDIT_SESSION":"3","_AUDIT_FIELD_EXIT":"0","_AUDIT_TYPE_NAME":"SYSCALL"}')],
+      [dir('json')]
+    );
+    const sourceKeys = events[0].fieldSourceKeys ?? {};
+    expect(sourceKeys['AUDIT_SESSION']).toBe('_AUDIT_SESSION');
+    expect(sourceKeys['AUDIT_FIELD_EXIT']).toBe('_AUDIT_FIELD_EXIT');
+    expect(sourceKeys['AUDIT_TYPE_NAME']).toBe('_AUDIT_TYPE_NAME');
+  });
 });
 
 describe('applyIndexedExtractions — CSV', () => {

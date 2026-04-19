@@ -13,6 +13,8 @@ interface FieldEventCardProps {
   titleFor: (field: string, value: string) => string;
   onFieldHover: (field: string | null) => void;
   onFieldClick: (field: string) => void;
+  /** Maps stripped field name → original raw key for context-aware highlighting */
+  fieldSourceKeys?: Record<string, string>;
   /** Optional footer content (e.g. key=value summary, Eval Expressions) */
   children?: ReactNode;
 }
@@ -27,6 +29,7 @@ export function FieldEventCard({
   titleFor,
   onFieldHover,
   onFieldClick,
+  fieldSourceKeys,
   children,
 }: FieldEventCardProps) {
   return (
@@ -44,6 +47,7 @@ export function FieldEventCard({
           titleFor={titleFor}
           onFieldHover={onFieldHover}
           onFieldClick={onFieldClick}
+          fieldSourceKeys={fieldSourceKeys}
         />
       </pre>
       {children}

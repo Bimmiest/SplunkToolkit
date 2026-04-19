@@ -15,6 +15,13 @@ export interface FlattenOptions {
    * so INDEXED_EXTRACTIONS drops them from extracted JSON field names.
    */
   stripLeadingUnderscore?: boolean;
+  /**
+   * If provided, records originalRawKey → strippedFieldName mappings whenever stripping
+   * changes a key. Used by the highlighter so it can find values using the original JSON
+   * key (e.g. `"_GID":"100"`) rather than the stripped name (`GID`).
+   * Key = stripped field path, value = original raw key at that level.
+   */
+  sourceKeys?: Record<string, string>;
 }
 
 export function flattenJson(
@@ -32,6 +39,10 @@ export function flattenJson(
     const key = options.stripLeadingUnderscore ? rawKey.replace(/^_+/, '') : rawKey;
     if (!key) continue;
     const fieldName = prefix ? `${prefix}.${key}` : key;
+
+    if (options.sourceKeys && key !== rawKey) {
+      options.sourceKeys[fieldName] = rawKey;
+    }
 
     if (value === null || value === undefined) {
       fields[fieldName] = '';
