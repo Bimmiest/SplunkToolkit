@@ -206,10 +206,11 @@ function PreviewSubTab() {
       const startIdx = Math.max(0, event.lineNumbers.start - 1);
       const endIdx = event.lineNumbers.end;
       const origSlice = origLines.slice(startIdx, endIdx).join('\n');
+      const normalise = (s: string) => s.replace(/\r\n/g, '\n').replace(/\s+$/, '');
       return {
         event,
         originalRaw: origSlice,
-        hasChanges: origSlice !== event._raw,
+        hasChanges: normalise(origSlice) !== normalise(event._raw),
         hasMetadataChanges: hasMetadataDiff(event.metadata, originalMetadata),
         isDropped: event._meta._queue === 'nullQueue',
       };

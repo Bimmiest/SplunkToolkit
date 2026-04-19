@@ -74,6 +74,8 @@ function EventRow({ item, globalIdx, originalMetadata, search }: { item: Enriche
   const truncateTrace = event.processingTrace.find((t) => t.processor === 'truncator');
   const truncatedByDefault = truncateTrace?.description.includes('TRUNCATE default') ?? false;
 
+  const [metaExpanded, setMetaExpanded] = useState(false);
+
   const preRef = useRef<HTMLPreElement>(null);
   const [overflows, setOverflows] = useState(false);
   useLayoutEffect(() => {
@@ -158,43 +160,61 @@ function EventRow({ item, globalIdx, originalMetadata, search }: { item: Enriche
         </button>
       )}
 
-      {/* Metadata bar */}
-      <div className="px-3 py-1.5 border-t border-[var(--color-border)] bg-[var(--color-bg-tertiary)]">
-        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs font-mono">
-          <MetadataField label="index" value={event.metadata.index} original={originalMetadata.index} />
-          <MetadataField label="host" value={event.metadata.host} original={originalMetadata.host} />
-          <MetadataField label="source" value={event.metadata.source} original={originalMetadata.source} />
-          <MetadataField label="sourcetype" value={event.metadata.sourcetype} original={originalMetadata.sourcetype} />
-        </div>
-      </div>
+      {/* Metadata bar (collapsible) */}
+      <button
+        type="button"
+        onClick={() => setMetaExpanded((v) => !v)}
+        className="w-full flex items-center gap-2 px-3 py-1 border-t border-[var(--color-border)] bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-secondary)] transition-colors"
+      >
+        <svg
+          className={`w-3 h-3 flex-shrink-0 transition-transform ${metaExpanded ? 'rotate-90' : ''}`}
+          style={{ color: 'var(--color-text-muted)' }}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        <span className="text-xs text-[var(--color-text-muted)]">Metadata</span>
+      </button>
 
-      {/* Metadata change details */}
-      {hasMetadataChanges && (
-        <div className="px-3 py-1.5 border-t border-[var(--color-border)] bg-[var(--color-warning)]/5">
-          <div className="space-y-1">
-            {metadataChanges.map((change) => (
-              <div key={change.field} className="flex items-center gap-2 text-xs">
-                <span className="font-mono font-medium text-[var(--color-warning)]">
-                  {DEST_KEY_LABELS[change.field]}
-                </span>
-                <span className="font-mono text-[var(--color-text-muted)] line-through">
-                  {change.from}
-                </span>
-                <svg className="w-3 h-3 text-[var(--color-text-muted)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                </svg>
-                <span className="font-mono font-semibold text-[var(--color-warning)]">
-                  {change.to}
-                </span>
-                {change.transform && (
-                  <span className="text-[var(--color-text-muted)]">
-                    via <span className="font-mono text-[var(--color-accent)]">[{change.transform}]</span>
-                  </span>
-                )}
-              </div>
-            ))}
+      {metaExpanded && (
+        <>
+          <div className="px-3 py-1.5 border-t border-[var(--color-border)] bg-[var(--color-bg-tertiary)]">
+            <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs font-mono">
+              <MetadataField label="index" value={event.metadata.index} original={originalMetadata.index} />
+              <MetadataField label="host" value={event.metadata.host} original={originalMetadata.host} />
+              <MetadataField label="source" value={event.metadata.source} original={originalMetadata.source} />
+              <MetadataField label="sourcetype" value={event.metadata.sourcetype} original={originalMetadata.sourcetype} />
+            </div>
           </div>
-        </div>
+
+          {hasMetadataChanges && (
+            <div className="px-3 py-1.5 border-t border-[var(--color-border)] bg-[var(--color-warning)]/5">
+              <div className="space-y-1">
+                {metadataChanges.map((change) => (
+                  <div key={change.field} className="flex items-center gap-2 text-xs">
+                    <span className="font-mono font-medium text-[var(--color-warning)]">
+                      {DEST_KEY_LABELS[change.field]}
+                    </span>
+                    <span className="font-mono text-[var(--color-text-muted)] line-through">
+                      {change.from}
+                    </span>
+                    <svg className="w-3 h-3 text-[var(--color-text-muted)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    </svg>
+                    <span className="font-mono font-semibold text-[var(--color-warning)]">
+                      {change.to}
+                    </span>
+                    {change.transform && (
+                      <span className="text-[var(--color-text-muted)]">
+                        via <span className="font-mono text-[var(--color-accent)]">[{change.transform}]</span>
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

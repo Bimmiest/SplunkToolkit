@@ -28,12 +28,12 @@ export function RawPanel() {
           language="plaintext"
           value={rawData}
           onChange={(val) => setRawData(val ?? '')}
-          theme={theme === 'dark' ? 'vs-dark' : 'vs'}
+          theme={theme === 'dark' ? 'splunk-dark' : 'splunk-light'}
           options={{
             minimap: { enabled: false },
             wordWrap: 'on',
             lineNumbers: 'on',
-            fontSize: 13,
+            fontSize: 14,
             fontFamily: "'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace",
             scrollBeyondLastLine: false,
             contextmenu: false,
