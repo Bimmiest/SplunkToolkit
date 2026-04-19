@@ -114,3 +114,61 @@ describe('applyRegexTransform — no match', () => {
     expect(result.matched).toBe(false);
   });
 });
+
+describe('applyRegexTransform — DEST_KEY single-value metadata slots', () => {
+  it('MetaData:Sourcetype uses first match only even when regex matches many times', () => {
+    // Permissive regex like "." matches every character — without the fix this
+    // produces "sourcetype::auditd\nsourcetype::auditd\n…" × N.
+    const s = stanza('set_sourcetype', {
+      REGEX: '.',
+      FORMAT: 'sourcetype::auditd',
+      DEST_KEY: 'MetaData:Sourcetype',
+    });
+    const result = applyRegexTransform(event('{"type":"SYSCALL","pid":"100"}'), s);
+    expect(result.matched).toBe(true);
+    expect(result.destKey).toBe('MetaData:Sourcetype');
+    expect(result.destValue).toBe('sourcetype::auditd');
+  });
+
+  it('MetaData:Sourcetype works with _MetaData:Sourcetype alias', () => {
+    const s = stanza('set_sourcetype', {
+      REGEX: '.',
+      FORMAT: 'sourcetype::auditd',
+      DEST_KEY: '_MetaData:Sourcetype',
+    });
+    const result = applyRegexTransform(event('raw log line'), s);
+    expect(result.destValue).toBe('sourcetype::auditd');
+  });
+
+  it('MetaData:Host uses first match only', () => {
+    const s = stanza('set_host', {
+      REGEX: 'host=(\\w+)',
+      FORMAT: 'host::$1',
+      DEST_KEY: 'MetaData:Host',
+    });
+    const result = applyRegexTransform(event('host=web01 host=web02'), s);
+    expect(result.destValue).toBe('host::web01');
+  });
+
+  it('queue=nullQueue not broken by multi-match regex', () => {
+    const s = stanza('drop', {
+      REGEX: '.',
+      FORMAT: 'nullQueue',
+      DEST_KEY: 'queue',
+    });
+    const result = applyRegexTransform(event('drop me'), s);
+    expect(result.destValue).toBe('nullQueue');
+  });
+
+  it('arbitrary field DEST_KEY still accumulates multi-values', () => {
+    const s = stanza('extract_words', {
+      REGEX: '(\\w+)',
+      FORMAT: '$1',
+      DEST_KEY: 'words',
+    });
+    const result = applyRegexTransform(event('foo bar baz'), s);
+    expect(result.destKey).toBe('words');
+    // Should accumulate all three matches
+    expect(result.destValue).toBe('foo\nbar\nbaz');
+  });
+});

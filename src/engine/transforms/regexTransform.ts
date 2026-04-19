@@ -17,6 +17,20 @@ const NAMED_REF_PATTERN = /\$\{(\w+)\}/g;
 // WeakMap so entries are GC'd when stanza objects are collected.
 const regexCache = new WeakMap<ConfStanza, { plain: RegExp; global: RegExp } | null>();
 
+// These DEST_KEY targets are single-valued slots in Splunk's pipeline.
+// FORMAT is applied to the first match only — multi-value accumulation would
+// produce a mangled string (e.g. "auditd\nsourcetype::auditd\n…") that the
+// router cannot correctly parse.
+const SINGLE_VALUE_DEST_KEYS = new Set([
+  'MetaData:Host',
+  'MetaData:Index',
+  'MetaData:Source',
+  'MetaData:Sourcetype',
+  '_meta',
+  '_time',
+  'queue',
+]);
+
 function getCompiledRegex(transformStanza: ConfStanza, jsPattern: string): { plain: RegExp; global: RegExp } | null {
   if (regexCache.has(transformStanza)) return regexCache.get(transformStanza)!;
   const plain = safeRegex(jsPattern);
@@ -100,23 +114,35 @@ export function applyRegexTransform(
         return formatted;
       });
     } else if (destKey) {
-      // DEST_KEY=<field>: accumulate one value per match as a multi-value field.
-      const { global } = compiled;
-      global.lastIndex = 0;
-      let m: RegExpExecArray | null;
-      let firstValue: string | undefined;
-      const extraValues: string[] = [];
-      while ((m = global.exec(sourceValue)) !== null) {
-        const formatted = expandFormat(format, m);
-        if (firstValue === undefined) {
-          firstValue = formatted;
-        } else {
-          extraValues.push(formatted);
+      // Normalise _MetaData:X alias so lookup works for both forms.
+      const normalisedDestKey = destKey.replace(/^_(?=MetaData:)/i, '');
+
+      if (SINGLE_VALUE_DEST_KEYS.has(normalisedDestKey)) {
+        // Single-valued metadata slot: FORMAT applies to the first match only.
+        const m = compiled.plain.exec(sourceValue);
+        if (m) {
+          result.destKey = destKey;
+          result.destValue = expandFormat(format, m);
         }
-      }
-      if (firstValue !== undefined) {
-        result.destKey = destKey;
-        result.destValue = extraValues.length === 0 ? firstValue : [firstValue, ...extraValues].join('\n');
+      } else {
+        // DEST_KEY=<field>: accumulate one value per match as a multi-value field.
+        const { global } = compiled;
+        global.lastIndex = 0;
+        let m: RegExpExecArray | null;
+        let firstValue: string | undefined;
+        const extraValues: string[] = [];
+        while ((m = global.exec(sourceValue)) !== null) {
+          const formatted = expandFormat(format, m);
+          if (firstValue === undefined) {
+            firstValue = formatted;
+          } else {
+            extraValues.push(formatted);
+          }
+        }
+        if (firstValue !== undefined) {
+          result.destKey = destKey;
+          result.destValue = extraValues.length === 0 ? firstValue : [firstValue, ...extraValues].join('\n');
+        }
       }
     } else {
       // No DEST_KEY: parse FORMAT as "field1::$1 field2::$2" — iterate all matches.
