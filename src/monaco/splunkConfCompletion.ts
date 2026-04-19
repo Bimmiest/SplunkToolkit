@@ -144,12 +144,12 @@ function directiveToCompletionItem(
         '',
         dir.description,
         '',
-        `**Default:** \`${dir.defaultValue || '(none)'}\``,
+        `**Default:** \`${dir.defaultValue || '(none)'}\` &nbsp; **Phase:** ${dir.phase} &nbsp; **Type:** ${dir.valueType}`,
         '',
-        `**Example:** \`${dir.example}\``,
-        '',
-        `**Phase:** ${dir.phase}`,
-        `**Type:** ${dir.valueType}`,
+        '**Example:**',
+        '```',
+        dir.example,
+        '```',
       ].join('\n'),
       // isTrusted enables command: links in markdown. Safe here because the content
       // is built entirely from the static directiveRegistry — never from user input.

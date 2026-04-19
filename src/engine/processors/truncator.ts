@@ -5,6 +5,7 @@ const decoder = new TextDecoder('utf-8', { fatal: false });
 
 export function truncateEvents(events: SplunkEvent[], directives: ConfDirective[]): SplunkEvent[] {
   const truncateDir = directives.find((d) => d.key === 'TRUNCATE');
+  const isDefault = !truncateDir;
   const maxBytes = truncateDir ? parseInt(truncateDir.value.trim(), 10) : 10000;
 
   if (maxBytes <= 0) return events;
@@ -14,6 +15,7 @@ export function truncateEvents(events: SplunkEvent[], directives: ConfDirective[
     if (bytes.length <= maxBytes) return event;
 
     const truncated = decoder.decode(bytes.slice(0, maxBytes));
+    const suffix = isDefault ? ' (TRUNCATE default)' : ` (TRUNCATE=${maxBytes})`;
     return {
       ...event,
       _raw: truncated,
@@ -22,7 +24,7 @@ export function truncateEvents(events: SplunkEvent[], directives: ConfDirective[
         {
           processor: 'truncator',
           phase: 'index-time' as const,
-          description: `Truncated event from ${bytes.length} to ${maxBytes} bytes`,
+          description: `Truncated event from ${bytes.length} to ${maxBytes} bytes${suffix}`,
           inputSnapshot: event._raw.substring(0, 100) + '...',
         },
       ],

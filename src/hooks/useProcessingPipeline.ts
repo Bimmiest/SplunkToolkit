@@ -17,11 +17,13 @@ export function useProcessingPipeline() {
   const setProcessingResult = useAppStore((s) => s.setProcessingResult);
   const setValidationDiagnostics = useAppStore((s) => s.setValidationDiagnostics);
   const setIsProcessing = useAppStore((s) => s.setIsProcessing);
+  const setLastProcessingMs = useAppStore((s) => s.setLastProcessingMs);
 
   const workerRef = useRef<Worker | null>(null);
   const requestIdRef = useRef(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRequestRef = useRef<PipelineWorkerRequest | null>(null);
+  const requestStartRef = useRef<number>(0);
   // Stable ref to initWorker so it can be called from the send effect and the timeout
   const initWorkerRef = useRef<() => void>(() => {});
 
@@ -45,6 +47,7 @@ export function useProcessingPipeline() {
 
         clearWatchdog();
         setIsProcessing(false);
+        setLastProcessingMs(performance.now() - requestStartRef.current);
 
         if (error || !result) {
           setProcessingResult(null);
@@ -99,7 +102,7 @@ export function useProcessingPipeline() {
       workerRef.current?.terminate();
       workerRef.current = null;
     };
-  }, [setIsProcessing, setProcessingResult, setValidationDiagnostics]);
+  }, [setIsProcessing, setProcessingResult, setValidationDiagnostics, setLastProcessingMs]);
 
   const inputs = useMemo(
     () => ({ rawData, metadata, propsConf, transformsConf }),
@@ -112,6 +115,7 @@ export function useProcessingPipeline() {
     if (!workerRef.current) return;
 
     const id = ++requestIdRef.current;
+    requestStartRef.current = performance.now();
     setIsProcessing(true);
 
     // Cancel any previous watchdog before arming a new one

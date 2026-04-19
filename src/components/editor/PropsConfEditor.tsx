@@ -36,7 +36,7 @@ export function PropsConfEditor() {
 
   return (
     <div className="h-full flex flex-col bg-[var(--color-bg-primary)]">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)]">
         <button
           type="button"
           onClick={() => toggleCollapse('props.conf')}
@@ -44,8 +44,8 @@ export function PropsConfEditor() {
           title="Collapse props.conf"
         >
           <Icon name="chevron-down" className="w-3.5 h-3.5 text-[var(--color-text-muted)] transition-transform" />
-          <Icon name="settings" className="w-4 h-4 text-[var(--color-accent)]" />
-          <span className="text-sm font-medium text-[var(--color-text-primary)]">props.conf</span>
+          <Icon name="settings" className="w-3.5 h-3.5 text-[var(--color-accent)]" />
+          <span className="text-xs font-semibold tracking-wide text-[var(--color-text-secondary)]">props.conf</span>
         </button>
         <div className="flex items-center gap-1">
           <ClearButton onClear={() => setPropsConf('')} label="Clear" />

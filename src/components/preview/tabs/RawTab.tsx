@@ -1,7 +1,9 @@
-import { useMemo } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../../store/useAppStore';
 import type { EnrichedEvent } from '../PreviewPanel';
 import type { EventMetadata, SplunkEvent } from '../../../engine/types';
+
+const MAX_COLLAPSED_HEIGHT = 300;
 
 interface RawTabProps {
   items: EnrichedEvent[];
@@ -57,6 +59,7 @@ export function RawTab({ items, currentPage, eventsPerPage, search }: RawTabProp
 
 function EventRow({ item, globalIdx, originalMetadata, search }: { item: EnrichedEvent; globalIdx: number; originalMetadata: EventMetadata; search: string }) {
   const { event, isDropped } = item;
+  const [expanded, setExpanded] = useState(false);
 
   const metadataChanges = useMemo(
     () => getMetadataChanges(event, originalMetadata),
@@ -67,6 +70,18 @@ function EventRow({ item, globalIdx, originalMetadata, search }: { item: Enriche
 
   const lineCount = event._raw.split('\n').length;
   const charCount = event._raw.length;
+
+  const truncateTrace = event.processingTrace.find((t) => t.processor === 'truncator');
+  const truncatedByDefault = truncateTrace?.description.includes('TRUNCATE default') ?? false;
+
+  const preRef = useRef<HTMLPreElement>(null);
+  const [overflows, setOverflows] = useState(false);
+  useLayoutEffect(() => {
+    if (expanded) return;
+    const el = preRef.current;
+    if (!el) return;
+    setOverflows(el.scrollHeight > el.clientHeight + 1);
+  }, [event._raw, search, expanded]);
 
   return (
     <div
@@ -90,6 +105,14 @@ function EventRow({ item, globalIdx, originalMetadata, search }: { item: Enriche
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {truncateTrace && (
+            <span
+              className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-warning)]/20 text-[var(--color-warning)] font-medium"
+              title={truncateTrace.description}
+            >
+              Truncated{truncatedByDefault ? ' (default)' : ''}
+            </span>
+          )}
           {hasMetadataChanges && (
             <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-warning)]/20 text-[var(--color-warning)] font-medium">
               Metadata modified
@@ -107,9 +130,33 @@ function EventRow({ item, globalIdx, originalMetadata, search }: { item: Enriche
         </div>
       </div>
 
-      <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-all text-[var(--color-text-primary)] overflow-x-auto">
+      <pre
+        ref={preRef}
+        className="p-3 text-xs font-mono whitespace-pre-wrap break-all text-[var(--color-text-primary)] overflow-x-auto"
+        style={{ maxHeight: expanded ? undefined : MAX_COLLAPSED_HEIGHT }}
+      >
         <SearchHighlightedRaw raw={event._raw} search={search} />
       </pre>
+      {overflows && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="w-full flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium border-t border-[var(--color-border)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+          style={{ color: 'var(--color-accent)' }}
+        >
+          {expanded ? (
+            <>
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" /></svg>
+              Show less
+            </>
+          ) : (
+            <>
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+              Show full event
+            </>
+          )}
+        </button>
+      )}
 
       {/* Metadata bar */}
       <div className="px-3 py-1.5 border-t border-[var(--color-border)] bg-[var(--color-bg-tertiary)]">

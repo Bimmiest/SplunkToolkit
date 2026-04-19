@@ -13,12 +13,16 @@ type IconName =
   | 'warning'
   | 'error-circle'
   | 'info-circle'
+  | 'info'
   | 'search'
   | 'sun'
   | 'moon'
   | 'arrow-right'
   | 'check'
-  | 'x';
+  | 'x'
+  | 'terminal'
+  | 'shield'
+  | 'clipboard';
 
 const PATHS: Record<IconName, React.ReactNode> = {
   'chevron-down': <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />,
@@ -61,6 +65,20 @@ const PATHS: Record<IconName, React.ReactNode> = {
   'arrow-right': <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />,
   'check': <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />,
   'x': <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />,
+  'info': <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />,
+  'terminal': (
+    <>
+      <polyline points="4 17 10 11 4 5" />
+      <line x1="12" y1="19" x2="20" y2="19" />
+    </>
+  ),
+  'shield': <path strokeLinecap="round" strokeLinejoin="round" d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />,
+  'clipboard': (
+    <>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2" />
+      <rect x="9" y="3" width="6" height="4" rx="1" ry="1" />
+    </>
+  ),
 };
 
 interface IconProps {
