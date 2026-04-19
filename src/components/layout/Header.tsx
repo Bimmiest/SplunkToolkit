@@ -17,6 +17,8 @@ export function Header() {
   const toggleHelp = useAppStore((s) => s.toggleHelp);
   const helpOpen = useAppStore((s) => s.helpOpen);
   const toggleCommandPalette = useAppStore((s) => s.toggleCommandPalette);
+  const toggleSettings = useAppStore((s) => s.toggleSettings);
+  const settingsOpen = useAppStore((s) => s.settingsOpen);
 
   const resetAll = () => {
     setRawData('');
@@ -65,6 +67,22 @@ export function Header() {
           {hasAnyContent && (
             <ClearButton onClear={resetAll} label="Clear All" />
           )}
+          <Tooltip content="Settings" side="bottom">
+            <button
+              onClick={toggleSettings}
+              aria-label="Open settings"
+              aria-expanded={settingsOpen}
+              className={[
+                'flex items-center justify-center w-8 h-8 rounded-md border-none outline-none',
+                'focus-visible:ring-2 transition-colors cursor-pointer',
+                settingsOpen
+                  ? 'bg-[var(--color-accent)] text-white'
+                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]',
+              ].join(' ')}
+            >
+              <Icon name="settings" className="w-[18px] h-[18px]" />
+            </button>
+          </Tooltip>
           <Tooltip content="Pipeline reference" side="bottom">
             <button
               onClick={toggleHelp}

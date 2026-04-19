@@ -49,6 +49,19 @@ interface AppState {
   lastProcessingMs: number | null;
   setLastProcessingMs: (ms: number | null) => void;
 
+  settings: { perEventPipeline: boolean; manualApply: boolean };
+  togglePerEventPipeline: () => void;
+  toggleManualApply: () => void;
+
+  pipelineDirty: boolean;
+  setPipelineDirty: (v: boolean) => void;
+
+  manualRunTick: number;
+  triggerManualRun: () => void;
+
+  settingsOpen: boolean;
+  toggleSettings: () => void;
+
   editorInstances: Record<string, editor.IStandaloneCodeEditor>;
   registerEditor: (file: string, instance: editor.IStandaloneCodeEditor) => void;
 }
@@ -114,6 +127,37 @@ export const useAppStore = create<AppState>((set) => ({
 
   lastProcessingMs: null,
   setLastProcessingMs: (ms) => set({ lastProcessingMs: ms }),
+
+  settings: (() => {
+    try {
+      const saved = localStorage.getItem('splunk-toolkit:settings');
+      if (saved) return JSON.parse(saved) as { perEventPipeline: boolean; manualApply: boolean };
+    } catch { /* ignore */ }
+    return { perEventPipeline: false, manualApply: false };
+  })(),
+  togglePerEventPipeline: () =>
+    set((state) => {
+      const perEventPipeline = !state.settings.perEventPipeline;
+      const manualApply = perEventPipeline ? true : state.settings.manualApply;
+      const next = { ...state.settings, perEventPipeline, manualApply };
+      try { localStorage.setItem('splunk-toolkit:settings', JSON.stringify(next)); } catch { /* ignore */ }
+      return { settings: next };
+    }),
+  toggleManualApply: () =>
+    set((state) => {
+      const next = { ...state.settings, manualApply: !state.settings.manualApply };
+      try { localStorage.setItem('splunk-toolkit:settings', JSON.stringify(next)); } catch { /* ignore */ }
+      return { settings: next };
+    }),
+
+  pipelineDirty: false,
+  setPipelineDirty: (v) => set({ pipelineDirty: v }),
+
+  manualRunTick: 0,
+  triggerManualRun: () => set((state) => ({ manualRunTick: state.manualRunTick + 1, pipelineDirty: false })),
+
+  settingsOpen: false,
+  toggleSettings: () => set((state) => ({ settingsOpen: !state.settingsOpen })),
 
   editorInstances: {},
   registerEditor: (file, instance) =>

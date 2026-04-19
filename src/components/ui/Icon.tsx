@@ -22,7 +22,8 @@ type IconName =
   | 'x'
   | 'terminal'
   | 'shield'
-  | 'clipboard';
+  | 'clipboard'
+  | 'play';
 
 const PATHS: Record<IconName, React.ReactNode> = {
   'chevron-down': <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />,
@@ -79,6 +80,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <rect x="9" y="3" width="6" height="4" rx="1" ry="1" />
     </>
   ),
+  'play': <polygon points="5 3 19 12 5 21 5 3" />,
 };
 
 interface IconProps {

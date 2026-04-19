@@ -10,7 +10,7 @@
  */
 
 import { runPipeline } from './pipeline';
-import type { EventMetadata } from './types';
+import type { EventMetadata, PipelineOptions } from './types';
 
 export interface PipelineWorkerRequest {
   id: number;
@@ -18,6 +18,7 @@ export interface PipelineWorkerRequest {
   metadata: EventMetadata;
   propsConfText: string;
   transformsConfText: string;
+  options?: PipelineOptions;
 }
 
 export interface PipelineWorkerResponse {
@@ -27,9 +28,9 @@ export interface PipelineWorkerResponse {
 }
 
 self.onmessage = (e: MessageEvent<PipelineWorkerRequest>) => {
-  const { id, rawData, metadata, propsConfText, transformsConfText } = e.data;
+  const { id, rawData, metadata, propsConfText, transformsConfText, options } = e.data;
   try {
-    const output = runPipeline(rawData, metadata, propsConfText, transformsConfText);
+    const output = runPipeline(rawData, metadata, propsConfText, transformsConfText, options);
     const response: PipelineWorkerResponse = { id, result: output };
     self.postMessage(response);
   } catch (err) {

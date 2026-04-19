@@ -7,6 +7,7 @@ import { TransformsConfEditor } from '../editor/TransformsConfEditor';
 import { PreviewPanel } from '../preview/PreviewPanel';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { HelpPanel } from '../help/HelpPanel';
+import { SettingsPanel } from '../settings/SettingsPanel';
 import { FirstRunBanner } from '../onboarding/FirstRunBanner';
 import { useProcessingPipeline } from '../../hooks/useProcessingPipeline';
 import { useAppStore } from '../../store/useAppStore';
@@ -46,6 +47,7 @@ export function AppShell() {
       <Header />
       <FirstRunBanner />
       <HelpPanel />
+      <SettingsPanel />
       <CommandPalette />
       <main id="main-content" className="flex-1 min-h-0">
         <Group orientation="horizontal" id="main-horizontal">

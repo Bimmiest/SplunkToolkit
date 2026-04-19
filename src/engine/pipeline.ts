@@ -1,4 +1,4 @@
-import type { EventMetadata, ProcessingResult, ValidationDiagnostic, ConfDirective, SplunkEvent } from './types';
+import type { EventMetadata, PipelineOptions, ProcessingResult, ValidationDiagnostic, ConfDirective, SplunkEvent } from './types';
 import { parseConf } from './parser/confParser';
 import { matchStanzas, mergeDirectives } from './parser/stanzaMatcher';
 import { breakLines } from './processors/lineBreaker';
@@ -36,7 +36,8 @@ export function runPipeline(
   rawData: string,
   metadata: EventMetadata,
   propsConfText: string,
-  transformsConfText: string
+  transformsConfText: string,
+  options?: PipelineOptions
 ): { result: ProcessingResult; diagnostics: ValidationDiagnostic[] } {
   const diagnostics: ValidationDiagnostic[] = [];
 
@@ -185,20 +186,82 @@ export function runPipeline(
 
   // ── Search-time processing ────────────────────────────
 
-  // Step 8: EXTRACT (inline field extraction)
-  events = safeProcessor('EXTRACT', events, () => extractFields(events, directives, diagnostics), diagnostics);
+  const metaKey = (m: EventMetadata) => `${m.sourcetype}|${m.host}|${m.source}`;
+  const originalMetaKey = metaKey(metadata);
 
-  // Step 9: KV_MODE
-  events = safeProcessor('KV_MODE', events, () => applyKvMode(events, directives), diagnostics);
+  if (options?.perEventPipeline) {
+    // Resolve per-event directives; re-match stanzas for events whose metadata changed at index-time.
+    const directivesCache = new Map<string, ConfDirective[]>();
+    directivesCache.set(originalMetaKey, directives);
 
-  // Step 10: Search-time REPORT transforms
-  events = safeProcessor('REPORT', events, () => applyTransforms(events, directives, transformsConf, 'search-time'), diagnostics, 'transforms.conf');
+    const eventDirectives = events.map((event) => {
+      const key = metaKey(event.metadata);
+      if (directivesCache.has(key)) return directivesCache.get(key)!;
+      const stanzas = matchStanzas(propsConf.stanzas, event.metadata);
+      const resolved = mergeDirectives(stanzas);
+      directivesCache.set(key, resolved);
+      return resolved;
+    });
 
-  // Step 11: FIELDALIAS
-  events = safeProcessor('FIELDALIAS', events, () => applyFieldAliases(events, directives, diagnostics), diagnostics);
+    // Annotate events whose metadata was rewritten so the trace shows the re-match.
+    events = events.map((event, i) => {
+      if (metaKey(event.metadata) === originalMetaKey) return event;
+      return {
+        ...event,
+        processingTrace: [
+          ...event.processingTrace,
+          {
+            processor: 'StanzaRematch',
+            phase: 'search-time' as const,
+            description: `Metadata rewritten at index-time (sourcetype → "${event.metadata.sourcetype}"); stanzas re-matched for search-time using ${eventDirectives[i].length} directives`,
+          },
+        ],
+      };
+    });
 
-  // Step 12: EVAL (calculated fields)
-  events = safeProcessor('EVAL', events, () => applyEvalExpressions(events, directives, diagnostics), diagnostics);
+    // Run search-time steps per-event with their resolved directives.
+    const processed: SplunkEvent[] = [];
+    for (let i = 0; i < events.length; i++) {
+      const evDirs = eventDirectives[i];
+      let ev: SplunkEvent[] = [events[i]];
+      ev = safeProcessor('EXTRACT', ev, () => extractFields(ev, evDirs, diagnostics), diagnostics);
+      ev = safeProcessor('KV_MODE', ev, () => applyKvMode(ev, evDirs), diagnostics);
+      ev = safeProcessor('REPORT', ev, () => applyTransforms(ev, evDirs, transformsConf, 'search-time'), diagnostics, 'transforms.conf');
+      ev = safeProcessor('FIELDALIAS', ev, () => applyFieldAliases(ev, evDirs, diagnostics), diagnostics);
+      ev = safeProcessor('EVAL', ev, () => applyEvalExpressions(ev, evDirs, diagnostics), diagnostics);
+      processed.push(...ev);
+    }
+    events = processed;
+  } else {
+    // Warn if any event had its routing metadata rewritten at index-time — search-time directives
+    // are still resolved from the original metadata in batch mode.
+    const rewroteMetadata = events.some((e) => metaKey(e.metadata) !== originalMetaKey);
+    if (rewroteMetadata) {
+      diagnostics.push({
+        level: 'warning',
+        message:
+          'One or more events had their sourcetype/host/source rewritten by a DEST_KEY = MetaData:* transform at index-time. ' +
+          'In batch mode, search-time processors (EXTRACT, REPORT, FIELDALIAS, EVAL) still use the original stanza match and will not apply directives from the new sourcetype. ' +
+          'Enable "Re-match stanzas after metadata rewrites" in Settings to simulate this correctly.',
+        file: 'transforms.conf',
+      });
+    }
+
+    // Step 8: EXTRACT (inline field extraction)
+    events = safeProcessor('EXTRACT', events, () => extractFields(events, directives, diagnostics), diagnostics);
+
+    // Step 9: KV_MODE
+    events = safeProcessor('KV_MODE', events, () => applyKvMode(events, directives), diagnostics);
+
+    // Step 10: Search-time REPORT transforms
+    events = safeProcessor('REPORT', events, () => applyTransforms(events, directives, transformsConf, 'search-time'), diagnostics, 'transforms.conf');
+
+    // Step 11: FIELDALIAS
+    events = safeProcessor('FIELDALIAS', events, () => applyFieldAliases(events, directives, diagnostics), diagnostics);
+
+    // Step 12: EVAL (calculated fields)
+    events = safeProcessor('EVAL', events, () => applyEvalExpressions(events, directives, diagnostics), diagnostics);
+  }
 
   // Collect all processing steps
   const processingSteps = events.flatMap((e) => e.processingTrace);

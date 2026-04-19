@@ -14,18 +14,63 @@ export function useProcessingPipeline() {
   const metadata = useAppStore((s) => s.metadata);
   const propsConf = useAppStore((s) => s.propsConf);
   const transformsConf = useAppStore((s) => s.transformsConf);
+  const settings = useAppStore((s) => s.settings);
+  const manualRunTick = useAppStore((s) => s.manualRunTick);
   const setProcessingResult = useAppStore((s) => s.setProcessingResult);
   const setValidationDiagnostics = useAppStore((s) => s.setValidationDiagnostics);
   const setIsProcessing = useAppStore((s) => s.setIsProcessing);
   const setLastProcessingMs = useAppStore((s) => s.setLastProcessingMs);
+  const setPipelineDirty = useAppStore((s) => s.setPipelineDirty);
 
   const workerRef = useRef<Worker | null>(null);
   const requestIdRef = useRef(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRequestRef = useRef<PipelineWorkerRequest | null>(null);
   const requestStartRef = useRef<number>(0);
-  // Stable ref to initWorker so it can be called from the send effect and the timeout
   const initWorkerRef = useRef<() => void>(() => {});
+
+  // Capture live inputs in a ref so the manual-run effect can read them without being a dependency.
+  const liveInputsRef = useRef({ rawData, metadata, propsConf, transformsConf });
+  liveInputsRef.current = { rawData, metadata, propsConf, transformsConf };
+
+  const sendRequest = useRef((
+    inputs: { rawData: string; metadata: typeof metadata; propsConf: string; transformsConf: string },
+    opts: typeof settings,
+  ) => {
+    if (!workerRef.current) return;
+
+    const id = ++requestIdRef.current;
+    requestStartRef.current = performance.now();
+    setIsProcessing(true);
+
+    if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => {
+      if (id !== requestIdRef.current) return;
+      timeoutRef.current = null;
+      setIsProcessing(false);
+      setProcessingResult(null);
+      setValidationDiagnostics([{
+        level: 'error',
+        message: `Pipeline timed out after ${WORKER_TIMEOUT_MS / 1000} s — the input may contain a regex prone to catastrophic backtracking (ReDoS). Try simplifying your EXTRACT or TRANSFORMS pattern.`,
+        file: 'props.conf',
+      }]);
+      workerRef.current?.terminate();
+      workerRef.current = null;
+      initWorkerRef.current();
+    }, WORKER_TIMEOUT_MS);
+
+    const request: PipelineWorkerRequest = {
+      id,
+      rawData: inputs.rawData,
+      metadata: inputs.metadata,
+      propsConfText: inputs.propsConf,
+      transformsConfText: inputs.transformsConf,
+      options: { perEventPipeline: opts.perEventPipeline },
+    };
+
+    lastRequestRef.current = request;
+    workerRef.current.postMessage(request);
+  }).current;
 
   // Initialise the worker once, with auto-restart on crash
   useEffect(() => {
@@ -42,7 +87,6 @@ export function useProcessingPipeline() {
 
       worker.onmessage = (e: MessageEvent<PipelineWorkerResponse>) => {
         const { id, result, error } = e.data;
-        // Ignore stale responses from superseded requests
         if (id !== requestIdRef.current) return;
 
         clearWatchdog();
@@ -51,13 +95,11 @@ export function useProcessingPipeline() {
 
         if (error || !result) {
           setProcessingResult(null);
-          setValidationDiagnostics([
-            {
-              level: 'error',
-              message: `Pipeline error: ${error ?? 'Unknown error'}`,
-              file: 'props.conf',
-            },
-          ]);
+          setValidationDiagnostics([{
+            level: 'error',
+            message: `Pipeline error: ${error ?? 'Unknown error'}`,
+            file: 'props.conf',
+          }]);
           return;
         }
 
@@ -69,15 +111,11 @@ export function useProcessingPipeline() {
         clearWatchdog();
         setIsProcessing(false);
         setProcessingResult(null);
-        setValidationDiagnostics([
-          {
-            level: 'error',
-            message: `Worker error: ${e.message}`,
-            file: 'props.conf',
-          },
-        ]);
-        // Restart so subsequent inputs can still be processed, then replay the
-        // last in-flight request so the user doesn't need to manually re-trigger.
+        setValidationDiagnostics([{
+          level: 'error',
+          message: `Worker error: ${e.message}`,
+          file: 'props.conf',
+        }]);
         workerRef.current?.terminate();
         workerRef.current = null;
         const restartedWorker = initWorker();
@@ -111,43 +149,20 @@ export function useProcessingPipeline() {
 
   const debouncedInputs = useDebounce(inputs, 300);
 
+  // Auto-run effect: fires on debounced input changes when manual apply is OFF.
   useEffect(() => {
-    if (!workerRef.current) return;
-
-    const id = ++requestIdRef.current;
-    requestStartRef.current = performance.now();
-    setIsProcessing(true);
-
-    // Cancel any previous watchdog before arming a new one
-    if (timeoutRef.current !== null) {
-      clearTimeout(timeoutRef.current);
+    if (settings.manualApply) {
+      setPipelineDirty(true);
+      return;
     }
-    timeoutRef.current = setTimeout(() => {
-      if (id !== requestIdRef.current) return;
-      timeoutRef.current = null;
-      setIsProcessing(false);
-      setProcessingResult(null);
-      setValidationDiagnostics([
-        {
-          level: 'error',
-          message: `Pipeline timed out after ${WORKER_TIMEOUT_MS / 1000} s — the input may contain a regex prone to catastrophic backtracking (ReDoS). Try simplifying your EXTRACT or TRANSFORMS pattern.`,
-          file: 'props.conf',
-        },
-      ]);
-      workerRef.current?.terminate();
-      workerRef.current = null;
-      initWorkerRef.current();
-    }, WORKER_TIMEOUT_MS);
+    sendRequest(debouncedInputs, settings);
+  }, [debouncedInputs, settings, sendRequest, setPipelineDirty]);
 
-    const request: PipelineWorkerRequest = {
-      id,
-      rawData: debouncedInputs.rawData,
-      metadata: debouncedInputs.metadata,
-      propsConfText: debouncedInputs.propsConf,
-      transformsConfText: debouncedInputs.transformsConf,
-    };
-
-    lastRequestRef.current = request;
-    workerRef.current.postMessage(request);
-  }, [debouncedInputs, setIsProcessing, setProcessingResult, setValidationDiagnostics]);
+  // Manual-run effect: fires when the user clicks "Run pipeline".
+  // manualRunTick is only incremented by triggerManualRun() in the store.
+  useEffect(() => {
+    if (manualRunTick === 0) return; // skip the initial mount
+    sendRequest(liveInputsRef.current, settings);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manualRunTick]);
 }

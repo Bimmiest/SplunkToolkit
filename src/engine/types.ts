@@ -66,6 +66,10 @@ export interface ParsedConf {
   errors: ValidationDiagnostic[];
 }
 
+export interface PipelineOptions {
+  perEventPipeline: boolean;
+}
+
 export type OutputTabId = 'preview' | 'cim' | 'fields' | 'transforms' | 'architecture';
 
 export type PreviewSubTabId = 'raw' | 'highlighted' | 'diff' | 'timestamp' | 'regex';

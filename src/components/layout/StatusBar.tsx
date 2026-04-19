@@ -1,11 +1,16 @@
 import { useMemo } from 'react';
 import { useAppStore } from '../../store/useAppStore';
+import { Icon } from '../ui/Icon';
+import { Tooltip } from '../ui/Tooltip';
 
 export function StatusBar() {
   const result = useAppStore((s) => s.processingResult);
   const diagnostics = useAppStore((s) => s.validationDiagnostics);
   const isProcessing = useAppStore((s) => s.isProcessing);
   const lastProcessingMs = useAppStore((s) => s.lastProcessingMs);
+  const settings = useAppStore((s) => s.settings);
+  const pipelineDirty = useAppStore((s) => s.pipelineDirty);
+  const triggerManualRun = useAppStore((s) => s.triggerManualRun);
 
   const fieldCount = useMemo(() => {
     if (!result) return 0;
@@ -34,7 +39,7 @@ export function StatusBar() {
         color: 'var(--color-text-muted)',
       }}
     >
-      {/* Left: worker + timing */}
+      {/* Left: worker status + timing + manual-run controls */}
       <div className="flex items-center gap-3">
         <span className="flex items-center gap-1.5">
           <span
@@ -51,6 +56,31 @@ export function StatusBar() {
         </span>
         {timingLabel && !isProcessing && (
           <span>{timingLabel}</span>
+        )}
+        {settings.manualApply && (
+          <span className="flex items-center gap-1.5">
+            {pipelineDirty && !isProcessing && (
+              <span style={{ color: '#fb923c' }}>● Out of date</span>
+            )}
+            <Tooltip content="Run pipeline (applies current config)" side="top">
+              <button
+                onClick={triggerManualRun}
+                disabled={isProcessing}
+                aria-label="Run pipeline"
+                className={[
+                  'flex items-center gap-1 px-2 h-5 rounded text-[10px] font-medium border transition-colors cursor-pointer',
+                  isProcessing
+                    ? 'opacity-40 cursor-not-allowed border-[var(--color-border)] text-[var(--color-text-muted)]'
+                    : pipelineDirty
+                      ? 'border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-white'
+                      : 'border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]',
+                ].join(' ')}
+              >
+                <Icon name="play" className="w-2.5 h-2.5" />
+                Run
+              </button>
+            </Tooltip>
+          </span>
         )}
       </div>
 
