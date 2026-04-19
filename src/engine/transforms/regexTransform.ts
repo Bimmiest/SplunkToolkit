@@ -1,5 +1,6 @@
 import type { SplunkEvent, ConfStanza } from '../types';
 import { safeRegex, convertSplunkToJsRegex } from '../../utils/splunkRegex';
+import { stripLeadingUnderscoreForField } from '../utils/internalFields';
 
 export interface TransformResult {
   fields: Record<string, string | string[]>;
@@ -57,6 +58,8 @@ export function applyRegexTransform(
   const formatDir = transformStanza.directives.find((d) => d.key === 'FORMAT');
   const sourceKeyDir = transformStanza.directives.find((d) => d.key === 'SOURCE_KEY');
   const destKeyDir = transformStanza.directives.find((d) => d.key === 'DEST_KEY');
+  const writeMetaDir = transformStanza.directives.find((d) => d.key === 'WRITE_META');
+  const writeMeta = writeMetaDir?.value.trim().toLowerCase() === 'true';
 
   const result: TransformResult = { fields: {}, matched: false };
 
@@ -127,7 +130,8 @@ export function applyRegexTransform(
         PAIR_RE.lastIndex = 0;
         let p: RegExpExecArray | null;
         while ((p = PAIR_RE.exec(formatted)) !== null) {
-          const field = p[1];
+          const field = writeMeta ? stripLeadingUnderscoreForField(p[1]) : p[1];
+          if (!field) continue;
           const value = p[2] !== undefined ? p[2] : p[3];
           addMultiValue(result.fields, field, value);
         }
@@ -139,7 +143,9 @@ export function applyRegexTransform(
     if (match?.groups) {
       for (const [name, value] of Object.entries(match.groups)) {
         if (value !== undefined) {
-          result.fields[name] = value;
+          const fieldName = writeMeta ? stripLeadingUnderscoreForField(name) : name;
+          if (!fieldName) continue;
+          result.fields[fieldName] = value;
         }
       }
     }

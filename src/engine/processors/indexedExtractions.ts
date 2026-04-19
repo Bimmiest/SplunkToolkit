@@ -31,7 +31,7 @@ function extractJsonFields(events: SplunkEvent[]): SplunkEvent[] {
 
       const fields = { ...event.fields };
       const added: string[] = [];
-      const depthTruncated = flattenJson(obj, fields, added);
+      const depthTruncated = flattenJson(obj, fields, added, '', 0, { stripLeadingUnderscore: true });
 
       return {
         ...event,
@@ -58,7 +58,7 @@ function extractDelimited(events: SplunkEvent[], delimiter: string, mode: string
   // The first event is the header row (produced by LINE_BREAKER splitting the file).
   // All subsequent events are data rows. This matches Splunk's INDEXED_EXTRACTIONS
   // behaviour: headers are read once from the first line and applied to every data event.
-  const headers = parseDelimitedLine(events[0]._raw, delimiter);
+  const headers = parseDelimitedLine(events[0]._raw, delimiter).map(stripLeadingUnderscore);
 
   if (headers.length === 0) return events;
 
@@ -101,7 +101,7 @@ function extractW3c(events: SplunkEvent[]): SplunkEvent[] {
   for (const event of events) {
     const fieldsMatch = event._raw.match(/^#Fields:\s*(.+)$/m);
     if (fieldsMatch) {
-      headers = fieldsMatch[1].split(/\s+/);
+      headers = fieldsMatch[1].split(/\s+/).map(stripLeadingUnderscore);
       break;
     }
   }
@@ -136,6 +136,10 @@ function extractW3c(events: SplunkEvent[]): SplunkEvent[] {
       ],
     };
   });
+}
+
+function stripLeadingUnderscore(name: string): string {
+  return name.replace(/^_+/, '');
 }
 
 function parseDelimitedLine(line: string, delimiter: string): string[] {

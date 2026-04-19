@@ -84,6 +84,56 @@ describe('applyIndexedExtractions — TSV', () => {
   });
 });
 
+describe('applyIndexedExtractions — leading underscore stripping', () => {
+  it('strips leading _ from top-level JSON keys', () => {
+    const events = applyIndexedExtractions(
+      [event('{"_AUDIT_TYPE_NAME":"SYSCALL","user":"alice"}')],
+      [dir('json')]
+    );
+    expect(events[0].fields['AUDIT_TYPE_NAME']).toBe('SYSCALL');
+    expect(events[0].fields['_AUDIT_TYPE_NAME']).toBeUndefined();
+    expect(events[0].fields['user']).toBe('alice');
+  });
+
+  it('strips leading _ from nested JSON keys at every depth', () => {
+    const events = applyIndexedExtractions(
+      [event('{"outer":{"_inner":"value","normal":"v2"}}')],
+      [dir('json')]
+    );
+    expect(events[0].fields['outer.inner']).toBe('value');
+    expect(events[0].fields['outer.normal']).toBe('v2');
+    expect(events[0].fields['outer._inner']).toBeUndefined();
+  });
+
+  it('strips multiple leading underscores', () => {
+    const events = applyIndexedExtractions(
+      [event('{"__double":"v"}')],
+      [dir('json')]
+    );
+    expect(events[0].fields['double']).toBe('v');
+  });
+
+  it('strips leading _ from CSV headers', () => {
+    const header = event('_ts,_user,action');
+    const row = event('2024-01-15,alice,login');
+    const events = applyIndexedExtractions([header, row], [dir('csv')]);
+    expect(events[1].fields['ts']).toBe('2024-01-15');
+    expect(events[1].fields['user']).toBe('alice');
+    expect(events[1].fields['action']).toBe('login');
+    expect(events[1].fields['_ts']).toBeUndefined();
+  });
+
+  it('strips leading _ from W3C #Fields headers', () => {
+    const header = event('#Fields: _cs-method uri status');
+    const row = event('GET /api 200');
+    const events = applyIndexedExtractions([header, row], [dir('w3c')]);
+    expect(events[1].fields['cs-method']).toBe('GET');
+    expect(events[1].fields['uri']).toBe('/api');
+    expect(events[1].fields['status']).toBe('200');
+    expect(events[1].fields['_cs-method']).toBeUndefined();
+  });
+});
+
 describe('applyIndexedExtractions — no directive', () => {
   it('returns events unchanged when no INDEXED_EXTRACTIONS directive', () => {
     const ev = event('some raw data');

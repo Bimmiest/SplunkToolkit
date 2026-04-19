@@ -1,15 +1,24 @@
-import type { SplunkEvent, ConfDirective } from '../types';
+import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
+import { isInternalField } from '../utils/internalFields';
 
-export function applyFieldAliases(events: SplunkEvent[], directives: ConfDirective[]): SplunkEvent[] {
+export function applyFieldAliases(
+  events: SplunkEvent[],
+  directives: ConfDirective[],
+  diagnostics?: ValidationDiagnostic[],
+): SplunkEvent[] {
   const aliasDirectives = directives
     .filter((d) => d.directiveType === 'FIELDALIAS')
     .sort((a, b) => (a.className ?? '').localeCompare(b.className ?? ''));
 
   if (aliasDirectives.length === 0) return events;
 
-  const aliases = aliasDirectives.flatMap((dir) => parseAliases(dir.value));
+  const aliases = aliasDirectives.flatMap((dir) =>
+    parseAliases(dir.value).map((alias) => ({ ...alias, directive: dir })),
+  );
 
   if (aliases.length === 0) return events;
+
+  const reportedStrippedRefs = new Set<string>();
 
   return events.map((event) => {
     const newFields = { ...event.fields };
@@ -17,7 +26,28 @@ export function applyFieldAliases(events: SplunkEvent[], directives: ConfDirecti
 
     for (const alias of aliases) {
       const sourceValue = event.fields[alias.source];
-      if (sourceValue === undefined) continue;
+      if (sourceValue === undefined) {
+        if (
+          diagnostics &&
+          alias.source.startsWith('_') &&
+          !isInternalField(alias.source) &&
+          !reportedStrippedRefs.has(alias.source)
+        ) {
+          const stripped = alias.source.replace(/^_+/, '');
+          if (stripped && event.fields[stripped] !== undefined) {
+            reportedStrippedRefs.add(alias.source);
+            diagnostics.push({
+              level: 'warning',
+              message: `FIELDALIAS references "${alias.source}", but index-time extractions strip leading underscores — Splunk will resolve this as "${stripped}". Update the alias to use "${stripped}".`,
+              file: 'props.conf',
+              line: alias.directive.line,
+              directiveKey: alias.directive.key,
+              suggestion: `Replace "${alias.source}" with "${stripped}"`,
+            });
+          }
+        }
+        continue;
+      }
 
       if (alias.mode === 'ASNEW' && newFields[alias.target] !== undefined) {
         continue;

@@ -8,17 +8,29 @@ const MAX_DEPTH = 10;
  * - Arrays of objects are indexed (e.g. `items.0.id`, `items.1.id`)
  * - Returns true if the depth limit was hit (caller can surface a diagnostic).
  */
+export interface FlattenOptions {
+  /**
+   * When true, strip leading underscores from each key at every nesting level.
+   * Splunk reserves leading `_` for internal fields (`_raw`, `_time`, `_meta`, `_indextime`),
+   * so INDEXED_EXTRACTIONS drops them from extracted JSON field names.
+   */
+  stripLeadingUnderscore?: boolean;
+}
+
 export function flattenJson(
   obj: Record<string, unknown>,
   fields: Record<string, string | string[]>,
   added: string[],
   prefix = '',
   depth = 0,
+  options: FlattenOptions = {},
 ): boolean {
   if (depth > MAX_DEPTH) return true;
 
-  for (const [key, value] of Object.entries(obj)) {
-    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+  for (const [rawKey, value] of Object.entries(obj)) {
+    if (rawKey === '__proto__' || rawKey === 'constructor' || rawKey === 'prototype') continue;
+    const key = options.stripLeadingUnderscore ? rawKey.replace(/^_+/, '') : rawKey;
+    if (!key) continue;
     const fieldName = prefix ? `${prefix}.${key}` : key;
 
     if (value === null || value === undefined) {
@@ -39,7 +51,7 @@ export function flattenJson(
         for (let i = 0; i < value.length; i++) {
           const item = value[i];
           if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
-            if (flattenJson(item as Record<string, unknown>, fields, added, `${fieldName}.${i}`, depth + 1)) return true;
+            if (flattenJson(item as Record<string, unknown>, fields, added, `${fieldName}.${i}`, depth + 1, options)) return true;
           } else if (item !== null && item !== undefined) {
             fields[`${fieldName}.${i}`] = String(item);
             added.push(`${fieldName}.${i}`);
@@ -50,7 +62,7 @@ export function flattenJson(
       // Nested object — store stringified parent + recurse children
       fields[fieldName] = JSON.stringify(value);
       added.push(fieldName);
-      if (flattenJson(value as Record<string, unknown>, fields, added, fieldName, depth + 1)) return true;
+      if (flattenJson(value as Record<string, unknown>, fields, added, fieldName, depth + 1, options)) return true;
     } else {
       fields[fieldName] = String(value);
       added.push(fieldName);

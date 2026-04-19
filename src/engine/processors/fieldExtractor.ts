@@ -1,7 +1,12 @@
-import type { SplunkEvent, ConfDirective } from '../types';
+import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 import { safeRegex, convertSplunkToJsRegex } from '../../utils/splunkRegex';
+import { isInternalField } from '../utils/internalFields';
 
-export function extractFields(events: SplunkEvent[], directives: ConfDirective[]): SplunkEvent[] {
+export function extractFields(
+  events: SplunkEvent[],
+  directives: ConfDirective[],
+  diagnostics?: ValidationDiagnostic[],
+): SplunkEvent[] {
   const extractDirectives = directives
     .filter((d) => d.directiveType === 'EXTRACT')
     .sort((a, b) => (a.className ?? '').localeCompare(b.className ?? ''));
@@ -16,6 +21,8 @@ export function extractFields(events: SplunkEvent[], directives: ConfDirective[]
     return { directive: dir, regex, sourceField };
   });
 
+  const reportedStrippedRefs = new Set<string>();
+
   return events.map((event) => {
     const newFields = { ...event.fields };
     const traces: SplunkEvent['processingTrace'] = [];
@@ -27,7 +34,29 @@ export function extractFields(events: SplunkEvent[], directives: ConfDirective[]
         ? getFieldValue(event, extraction.sourceField)
         : event._raw;
 
-      if (!sourceValue) continue;
+      if (!sourceValue) {
+        if (
+          diagnostics &&
+          extraction.sourceField &&
+          extraction.sourceField.startsWith('_') &&
+          !isInternalField(extraction.sourceField) &&
+          !reportedStrippedRefs.has(extraction.sourceField)
+        ) {
+          const stripped = extraction.sourceField.replace(/^_+/, '');
+          if (stripped && event.fields[stripped] !== undefined) {
+            reportedStrippedRefs.add(extraction.sourceField);
+            diagnostics.push({
+              level: 'warning',
+              message: `EXTRACT-${extraction.directive.className ?? ''} references source field "${extraction.sourceField}", but index-time extractions strip leading underscores — Splunk will resolve this as "${stripped}".`,
+              file: 'props.conf',
+              line: extraction.directive.line,
+              directiveKey: extraction.directive.key,
+              suggestion: `Replace "in ${extraction.sourceField}" with "in ${stripped}"`,
+            });
+          }
+        }
+        continue;
+      }
 
       // Collect all matches; named groups captured more than once become arrays.
       const groupValues: Record<string, string[]> = {};

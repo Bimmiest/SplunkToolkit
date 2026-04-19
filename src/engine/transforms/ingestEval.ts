@@ -1,5 +1,6 @@
 import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 import { evaluateExpression } from '../processors/evalProcessor';
+import { stripLeadingUnderscoreForField } from '../utils/internalFields';
 
 // Split "field=expr, field2=fn(a,b)" on top-level commas only (not inside parens).
 function splitAssignments(s: string): string[] {
@@ -42,7 +43,7 @@ export function applyIngestEval(
         const eqIdx = expr.indexOf('=');
         if (eqIdx <= 0) continue;
 
-        const fieldName = expr.substring(0, eqIdx).trim();
+        const fieldName = stripLeadingUnderscoreForField(expr.substring(0, eqIdx).trim());
         const evalExpr = expr.substring(eqIdx + 1).trim();
 
         try {

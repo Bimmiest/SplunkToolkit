@@ -186,7 +186,7 @@ export function runPipeline(
   // ── Search-time processing ────────────────────────────
 
   // Step 8: EXTRACT (inline field extraction)
-  events = safeProcessor('EXTRACT', events, () => extractFields(events, directives), diagnostics);
+  events = safeProcessor('EXTRACT', events, () => extractFields(events, directives, diagnostics), diagnostics);
 
   // Step 9: KV_MODE
   events = safeProcessor('KV_MODE', events, () => applyKvMode(events, directives), diagnostics);
@@ -195,7 +195,7 @@ export function runPipeline(
   events = safeProcessor('REPORT', events, () => applyTransforms(events, directives, transformsConf, 'search-time'), diagnostics, 'transforms.conf');
 
   // Step 11: FIELDALIAS
-  events = safeProcessor('FIELDALIAS', events, () => applyFieldAliases(events, directives), diagnostics);
+  events = safeProcessor('FIELDALIAS', events, () => applyFieldAliases(events, directives, diagnostics), diagnostics);
 
   // Step 12: EVAL (calculated fields)
   events = safeProcessor('EVAL', events, () => applyEvalExpressions(events, directives, diagnostics), diagnostics);
