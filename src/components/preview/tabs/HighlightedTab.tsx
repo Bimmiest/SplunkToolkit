@@ -285,7 +285,7 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
             // Per-category counts — calc uses the strip length so null/empty fields don't inflate the badge.
             let autoCount = 0;
             let manualCount = 0;
-            let calcCount = eventCalcFields.length;
+            const calcCount = eventCalcFields.length;
             if (fieldFilter === 'auto') {
               autoCount = eventFields.length;
             } else if (fieldFilter === 'manual') {
