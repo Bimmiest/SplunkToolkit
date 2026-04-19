@@ -37,8 +37,8 @@ function hasMetadataDiff(eventMeta: EventMetadata, originalMeta: EventMetadata):
 
 const PREVIEW_SUB_TABS: { id: PreviewSubTabId; label: string }[] = [
   { id: 'raw', label: 'Raw' },
-  { id: 'highlighted', label: 'Extractions' },
   { id: 'timestamp', label: 'Timestamp' },
+  { id: 'highlighted', label: 'Extractions' },
   { id: 'diff', label: 'Diff' },
   { id: 'regex', label: 'Regex' },
 ];

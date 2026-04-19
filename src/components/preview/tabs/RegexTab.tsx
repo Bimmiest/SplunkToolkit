@@ -334,11 +334,7 @@ export function RegexTab({ items, currentPage, eventsPerPage }: RegexTabProps) {
 
       {/* Event cards */}
       <div className="flex-1 overflow-auto p-3 space-y-3">
-        {!pattern ? (
-          <div className="flex items-center justify-center py-12 text-[var(--color-text-muted)] text-sm">
-            Enter a regex pattern above to begin matching
-          </div>
-        ) : validationError ? (
+        {validationError ? (
           <div className="flex items-center justify-center py-12 text-[var(--color-error)] text-sm">
             Fix the regex error above to see matches
           </div>
@@ -350,6 +346,7 @@ export function RegexTab({ items, currentPage, eventsPerPage }: RegexTabProps) {
                 key={idx}
                 raw={item.event._raw}
                 globalIdx={globalIdx}
+                hasPattern={!!pattern}
                 jsPattern={jsPattern}
                 groupColorMap={groupColorMap}
               />
@@ -404,11 +401,13 @@ function RegexCategoryRows({ category, onInsert, onReplace }: { category: RegexC
 function RegexEventCard({
   raw,
   globalIdx,
+  hasPattern,
   jsPattern,
   groupColorMap,
 }: {
   raw: string;
   globalIdx: number;
+  hasPattern: boolean;
   jsPattern: string;
   groupColorMap: Map<string, string>;
 }) {
@@ -430,11 +429,12 @@ function RegexEventCard({
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-[var(--color-border)] bg-[var(--color-bg-tertiary)]">
         <span className="text-xs font-medium text-[var(--color-text-muted)]">Event #{globalIdx}</span>
         <div className="flex items-center gap-2">
-          {matchResult ? (
+          {hasPattern && matchResult && (
             <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-success)]/20 text-[var(--color-success)] font-medium">
               Matched{capturedFields.length > 0 && ` \u2013 ${capturedFields.length} group${capturedFields.length !== 1 ? 's' : ''}`}
             </span>
-          ) : (
+          )}
+          {hasPattern && !matchResult && (
             <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-error)]/20 text-[var(--color-error)] font-medium">
               No match
             </span>

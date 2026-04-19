@@ -99,8 +99,8 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
         const isManual = manualFields.has(key);
         const isCalc = calcFields.has(key);
         if (!isAuto && !isManual && !isCalc) continue;
-        // Classify by most specific: manual overrides auto; calc is independent
-        const effectiveCategory: FieldFilter = isManual ? 'manual' : isCalc ? 'calc' : 'auto';
+        // EVAL wins over earlier extractors: calc > manual > auto
+        const effectiveCategory: FieldFilter = isCalc ? 'calc' : isManual ? 'manual' : 'auto';
         if (effectiveCategory === 'auto' && !includeAuto) continue;
         if (effectiveCategory === 'manual' && !includeManual) continue;
         if (effectiveCategory === 'calc' && !includeCalc) continue;
@@ -227,8 +227,15 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
           </div>
 
           {pinnedFields.size > 0 && (
-            <span className="text-[10px] text-[var(--color-text-muted)]">
+            <span className="text-[10px] text-[var(--color-text-muted)] flex items-center gap-1.5">
               {filteredItems.length}/{items.length} events match {pinnedFields.size} pinned field{pinnedFields.size > 1 ? 's' : ''}
+              <button
+                type="button"
+                onClick={() => { for (const f of pinnedFields) togglePin(f); }}
+                className="text-[10px] text-[var(--color-accent)] hover:underline bg-transparent border-none p-0 cursor-pointer"
+              >
+                Clear
+              </button>
             </span>
           )}
 
@@ -263,20 +270,32 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
             const globalIdx = (currentPage - 1) * eventsPerPage + idx + 1;
             const eventFields = Object.keys(item.event.fields).filter((f) => highlightColorMap.has(f));
 
-            // Per-category counts for this event
+            // Compute calc strip first so badge count matches what's actually rendered.
+            const evalTrace = item.event.processingTrace.find((t) => t.processor === 'EVAL');
+            const eventCalcFields = showCalcStrip
+              ? Array.from(evalDirectives.entries()).flatMap(([fieldName, expression]) => {
+                  const wasComputed = evalTrace?.fieldsAdded?.includes(fieldName) ?? false;
+                  if (!wasComputed) return [];
+                  const value = item.event.fields[fieldName];
+                  if (value === undefined || value === null || value === 'null' || value === '') return [];
+                  return [{ name: fieldName, expression, value }];
+                })
+              : [];
+
+            // Per-category counts — calc uses the strip length so null/empty fields don't inflate the badge.
             let autoCount = 0;
             let manualCount = 0;
-            let calcCount = 0;
+            let calcCount = eventCalcFields.length;
             if (fieldFilter === 'auto') {
               autoCount = eventFields.length;
             } else if (fieldFilter === 'manual') {
               manualCount = eventFields.length;
-            } else if (fieldFilter === 'calc') {
-              calcCount = eventFields.length;
-            } else {
+            } else if (fieldFilter !== 'calc') {
+              autoCount = 0;
+              manualCount = 0;
               for (const f of eventFields) {
-                if (manualFields.has(f)) manualCount++;
-                else if (calcFields.has(f)) calcCount++;
+                if (calcFields.has(f)) { /* already counted above */ }
+                else if (manualFields.has(f)) manualCount++;
                 else autoCount++;
               }
             }
@@ -284,17 +303,6 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
             const fieldValues = new Map<string, string | string[]>(
               Object.entries(item.event.fields).filter(([k]) => highlightColorMap.has(k))
             );
-
-            // Calc fields for this event (only when strip is shown)
-            const eventCalcFields = showCalcStrip
-              ? Array.from(evalDirectives.entries()).flatMap(([fieldName, expression]) => {
-                  const value = item.event.fields[fieldName];
-                  const evalTrace = item.event.processingTrace.find((t) => t.processor === 'EVAL');
-                  const wasComputed = evalTrace?.fieldsAdded?.includes(fieldName) ?? false;
-                  if (!wasComputed && value === undefined) return [];
-                  return [{ name: fieldName, expression, value: value ?? 'null' }];
-                })
-              : [];
 
             const focused = isAnyFocused(activeFields);
 

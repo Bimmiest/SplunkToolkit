@@ -97,14 +97,14 @@ function EventRow({ item, globalIdx, originalMetadata, search }: { item: Enriche
               {event._time.toISOString()}
             </span>
           )}
+        </div>
+        <div className="flex items-center gap-2">
           <span className="text-xs text-[var(--color-text-muted)] font-mono">
             {lineCount} line{lineCount !== 1 ? 's' : ''} &middot; {charCount.toLocaleString()} char{charCount !== 1 ? 's' : ''}
           </span>
           <span className="text-xs text-[var(--color-text-muted)]">
             Lines {event.lineNumbers.start}–{event.lineNumbers.end}
           </span>
-        </div>
-        <div className="flex items-center gap-2">
           {truncateTrace && (
             <span
               className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-warning)]/20 text-[var(--color-warning)] font-medium"
