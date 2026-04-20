@@ -85,13 +85,13 @@ function DiagnosticRow({ diagnostic, onNavigate }: { diagnostic: ValidationDiagn
       <div className="flex-shrink-0">
         <StatusIcon level={diagnostic.level} />
       </div>
-      <div className="flex-1 min-w-0 truncate">
-        <span className="text-xs text-[var(--color-text-primary)]">{diagnostic.message}</span>
+      <div className="flex-1 min-w-0">
+        <span className="text-xs text-[var(--color-text-primary)]" style={{ whiteSpace: 'normal', overflowWrap: 'anywhere' }}>{diagnostic.message}</span>
         {diagnostic.line !== undefined && (
           <span className="ml-2 text-xs text-[var(--color-text-muted)]">line {diagnostic.line}</span>
         )}
         {diagnostic.suggestion && (
-          <div className="text-xs text-[var(--color-success)] truncate">{diagnostic.suggestion}</div>
+          <div className="text-xs text-[var(--color-success)]" style={{ overflowWrap: 'anywhere' }}>{diagnostic.suggestion}</div>
         )}
       </div>
     </div>

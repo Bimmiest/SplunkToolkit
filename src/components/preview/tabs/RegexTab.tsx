@@ -166,15 +166,16 @@ export function RegexTab({ items, currentPage, eventsPerPage }: RegexTabProps) {
     })).filter((cat) => cat.directives.length > 0);
   }, [refSearch]);
 
-  const matchStats = useMemo(() => {
-    if (!pattern || validationError) return { matched: 0, total: items.length };
-    let matched = 0;
-    for (const item of items) {
-      const re = safeRegex(jsPattern);
-      if (re && re.test(item.event._raw)) matched++;
-    }
-    return { matched, total: items.length };
+  const matchedItems = useMemo(() => {
+    if (!pattern || validationError) return [];
+    const re = safeRegex(jsPattern);
+    if (!re) return [];
+    return items.filter((item) => re.test(item.event._raw));
   }, [pattern, validationError, items, jsPattern]);
+
+  const matchStats = useMemo(() => {
+    return { matched: matchedItems.length, total: items.length };
+  }, [matchedItems, items]);
 
   const handleCopy = () => {
     if (extractDirective) {
@@ -338,9 +339,18 @@ export function RegexTab({ items, currentPage, eventsPerPage }: RegexTabProps) {
           <div className="flex items-center justify-center py-12 text-[var(--color-error)] text-sm">
             Fix the regex error above to see matches
           </div>
+        ) : !pattern ? (
+          <div className="flex items-center justify-center py-12 text-[var(--color-text-muted)] text-sm">
+            Enter a pattern above to test matches against your events
+          </div>
+        ) : matchedItems.length === 0 ? (
+          <div className="flex items-center justify-center py-12 text-[var(--color-text-muted)] text-sm">
+            No events matched
+          </div>
         ) : (
-          items.map((item, idx) => {
-            const globalIdx = (currentPage - 1) * eventsPerPage + idx + 1;
+          matchedItems.map((item, idx) => {
+            const originalIdx = items.indexOf(item);
+            const globalIdx = (currentPage - 1) * eventsPerPage + originalIdx + 1;
             return (
               <RegexEventCard
                 key={idx}

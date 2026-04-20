@@ -54,12 +54,9 @@ export function findFieldValuePositions(
   // Fallback: plain indexOf — only for values of length >= 2 to avoid false-positive noise.
   // Short values that couldn't be context-matched (e.g. "0", "3") are skipped here; they
   // will only highlight when context matching succeeds above.
+  // Only return the first occurrence to prevent double-highlighting of coincidental matches
+  // (e.g. a regex-extracted field value that also appears elsewhere in unstructured raw text).
   if (value.length < 2) return [];
-  const positions: number[] = [];
-  let idx = raw.indexOf(value);
-  while (idx !== -1) {
-    positions.push(idx);
-    idx = raw.indexOf(value, idx + 1);
-  }
-  return positions;
+  const idx = raw.indexOf(value);
+  return idx !== -1 ? [idx] : [];
 }
