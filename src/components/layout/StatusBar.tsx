@@ -11,6 +11,7 @@ export function StatusBar() {
   const settings = useAppStore((s) => s.settings);
   const pipelineDirty = useAppStore((s) => s.pipelineDirty);
   const triggerManualRun = useAppStore((s) => s.triggerManualRun);
+  const toggleSettings = useAppStore((s) => s.toggleSettings);
 
   const fieldCount = useMemo(() => {
     if (!result) return 0;
@@ -56,6 +57,19 @@ export function StatusBar() {
         </span>
         {timingLabel && !isProcessing && (
           <span>{timingLabel}</span>
+        )}
+        {settings.perEventPipeline && (
+          <Tooltip
+            content="Per-event pipeline is on — events that rewrite metadata via DEST_KEY = MetaData:* will re-match stanzas and may use different search-time directives. Click to open Settings."
+            side="top"
+          >
+            <button
+              onClick={toggleSettings}
+              className="flex items-center gap-1 px-1.5 h-4 rounded text-[10px] font-medium border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-white transition-colors cursor-pointer bg-transparent"
+            >
+              Per-event pipeline
+            </button>
+          </Tooltip>
         )}
         {settings.manualApply && (
           <span className="flex items-center gap-1.5">

@@ -16,7 +16,7 @@ const COLUMNS: ColumnDef[] = [
   { key: 'aliases', label: 'Aliases', defaultWidth: 140, minWidth: 20 },
   { key: 'count', label: 'Events', defaultWidth: 80, minWidth: 20 },
   { key: 'distinct', label: 'Distinct Values', defaultWidth: 100, minWidth: 20 },
-  { key: 'source', label: 'Source', defaultWidth: 150, minWidth: 20 },
+  { key: 'source', label: 'Phase', defaultWidth: 150, minWidth: 20 },
   { key: 'values', label: 'Sample Values', defaultWidth: 300, minWidth: 20 },
 ];
 
@@ -27,6 +27,7 @@ export function FieldsTab() {
   const [sortKey, setSortKey] = useState<SortKey>('count');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [collapsedParents, setCollapsedParents] = useState<Set<string> | null>(null);
+  const [phaseFilter, setPhaseFilter] = useState<'all' | 'index-time' | 'search-time'>('all');
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(
     () => Object.fromEntries(COLUMNS.map((c) => [c.key, c.defaultWidth]))
   );
@@ -71,13 +72,14 @@ export function FieldsTab() {
       values: Set<string>;
       count: number;
       sources: Set<string>;
+      phases: Set<'index-time' | 'search-time'>;
       aliases: string[];
     }>();
 
     for (const event of events) {
       for (const [key, value] of Object.entries(event.fields)) {
         if (!fields.has(key)) {
-          fields.set(key, { name: key, values: new Set(), count: 0, sources: new Set(), aliases: [] });
+          fields.set(key, { name: key, values: new Set(), count: 0, sources: new Set(), phases: new Set(), aliases: [] });
         }
         const entry = fields.get(key)!;
         entry.count++;
@@ -87,6 +89,7 @@ export function FieldsTab() {
         for (const trace of event.processingTrace) {
           if (trace.fieldsAdded?.includes(key)) {
             entry.sources.add(trace.processor);
+            entry.phases.add(trace.phase);
           }
         }
       }
@@ -109,6 +112,10 @@ export function FieldsTab() {
         f.name.toLowerCase().includes(lower) ||
         f.aliases.some((a) => a.toLowerCase().includes(lower))
       );
+    }
+
+    if (phaseFilter !== 'all') {
+      entries = entries.filter((f) => f.phases.has(phaseFilter as 'index-time' | 'search-time'));
     }
 
     // Identify all parent fields: any field that has at least one child (another field prefixed with "field.")
@@ -204,7 +211,7 @@ export function FieldsTab() {
     }
 
     return result;
-  }, [events, search, sortKey, sortDir, aliasMap]);
+  }, [events, search, sortKey, sortDir, aliasMap, phaseFilter]);
 
   // Auto-collapse all parents on initial load
   const allParentNames = useMemo(
@@ -241,6 +248,22 @@ export function FieldsTab() {
           />
         </div>
         <span className="text-xs text-[var(--color-text-muted)]">{fieldSummary.length} fields</span>
+        <div className="flex items-center gap-0.5 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-px">
+          {(['all', 'index-time', 'search-time'] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setPhaseFilter(f)}
+              className={[
+                'px-1.5 py-0.5 text-[10px] rounded transition-colors cursor-pointer border-none',
+                phaseFilter === f
+                  ? 'bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] font-medium shadow-sm'
+                  : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] bg-transparent',
+              ].join(' ')}
+            >
+              {f === 'all' ? 'All' : f === 'index-time' ? 'Index-time' : 'Search-time'}
+            </button>
+          ))}
+        </div>
         {fieldSummary.some((f) => f.isParent) && (() => {
           const allParents = fieldSummary.filter((f) => f.isParent).map((f) => f.name);
           const allCollapsed = allParents.length > 0 && allParents.every((p) => effectiveCollapsed.has(p));
@@ -324,11 +347,22 @@ export function FieldsTab() {
                   {field.values.size}
                 </td>
                 <td className="py-1.5 px-3" style={{ width: columnWidths.source }}>
-                  {Array.from(field.sources).map((s) => (
-                    <span key={s} className="inline-block mr-1 px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
-                      {s}
-                    </span>
-                  ))}
+                  <div className="flex flex-wrap gap-1">
+                    {Array.from(field.phases).map((phase) => (
+                      <span
+                        key={phase}
+                        className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium"
+                        style={
+                          phase === 'index-time'
+                            ? { backgroundColor: 'var(--color-accent)', color: '#fff', opacity: 0.85 }
+                            : { backgroundColor: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }
+                        }
+                        title={Array.from(field.sources).join(', ')}
+                      >
+                        {phase}
+                      </span>
+                    ))}
+                  </div>
                 </td>
                 <td className="py-1.5 px-3 font-mono text-[var(--color-text-secondary)] truncate" style={{ width: columnWidths.values, maxWidth: columnWidths.values }}>
                   {Array.from(field.values).slice(0, 3).join(', ')}

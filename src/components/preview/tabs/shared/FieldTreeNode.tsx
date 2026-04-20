@@ -69,11 +69,6 @@ export function FieldTreeNode({
         {hasChildren && (
           <span className="text-[9px] text-[var(--color-text-muted)] flex-shrink-0">({node.children.length})</span>
         )}
-        {node.processor && !hasChildren && (
-          <span className="text-[9px] text-[var(--color-text-muted)] italic flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-            {node.processor.replace(/-.*$/, '')}
-          </span>
-        )}
         {pinned && (
           <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 ml-auto" style={{ backgroundColor: node.color }} />
         )}
