@@ -60,8 +60,8 @@ const DIRECTIVES: DirectiveInfo[] = [
       'The maximum number of characters into an event that Splunk looks for a timestamp. ' +
       'After finding TIME_PREFIX, Splunk will look this many characters ahead for the timestamp. ' +
       'Setting this too low may cause timestamps to be missed; setting it too high may cause false matches.',
-    example: 'MAX_TIMESTAMP_LOOKAHEAD = 128',
-    defaultValue: '128',
+    example: 'MAX_TIMESTAMP_LOOKAHEAD = 150',
+    defaultValue: '150',
     category: 'Time Configuration',
     appliesTo: 'props.conf',
     valueType: 'number',

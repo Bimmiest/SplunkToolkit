@@ -11,7 +11,7 @@ export function extractTimestamps(events: SplunkEvent[], directives: ConfDirecti
   if (!timeFormatDir) return events;
 
   const timeFormat = timeFormatDir.value.trim();
-  const maxLookahead = maxLookaheadDir ? parseInt(maxLookaheadDir.value.trim(), 10) : 128;
+  const maxLookahead = maxLookaheadDir ? parseInt(maxLookaheadDir.value.trim(), 10) : 150;
   const tz = tzDir?.value.trim();
 
   const timePrefixRegex = timePrefixDir ? safeRegex(timePrefixDir.value.trim()) : null;
