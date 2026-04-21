@@ -15,6 +15,8 @@ interface FieldEventCardProps {
   onFieldClick: (field: string) => void;
   /** Maps stripped field name → original raw key for context-aware highlighting */
   fieldSourceKeys?: Record<string, string>;
+  /** Authoritative offsets per field from positional extraction */
+  fieldOffsets?: Record<string, Array<[number, number]>>;
   /** Optional footer content (e.g. key=value summary, Eval Expressions) */
   children?: ReactNode;
 }
@@ -30,6 +32,7 @@ export function FieldEventCard({
   onFieldHover,
   onFieldClick,
   fieldSourceKeys,
+  fieldOffsets,
   children,
 }: FieldEventCardProps) {
   return (
@@ -48,6 +51,7 @@ export function FieldEventCard({
           onFieldHover={onFieldHover}
           onFieldClick={onFieldClick}
           fieldSourceKeys={fieldSourceKeys}
+          fieldOffsets={fieldOffsets}
         />
       </pre>
       {children}

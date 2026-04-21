@@ -27,6 +27,14 @@ export interface SplunkEvent {
    * e.g. { 'GID': '_GID', 'AUDIT_SESSION': '_AUDIT_SESSION' }
    */
   fieldSourceKeys?: Record<string, string>;
+  /**
+   * Authoritative start/end offsets in `_raw` for fields extracted by position.
+   * Populated by EXTRACT-* against `_raw`. When present, the highlighter uses
+   * these offsets directly instead of searching `_raw` with context patterns,
+   * preventing double-highlight / wrong-occurrence bugs for positional captures
+   * against unstructured text (e.g. access logs).
+   */
+  fieldOffsets?: Record<string, Array<[number, number]>>;
   metadata: EventMetadata;
   lineNumbers: { start: number; end: number };
   processingTrace: ProcessingStep[];

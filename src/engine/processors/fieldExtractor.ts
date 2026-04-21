@@ -16,8 +16,8 @@ export function extractFields(
   const extractions = extractDirectives.map((dir) => {
     const { pattern, sourceField } = parseExtractValue(dir.value);
     const jsPattern = pattern ? convertSplunkToJsRegex(pattern) : null;
-    // Use global flag so matchAll finds all occurrences (multivalue support).
-    const regex = jsPattern ? safeRegex(jsPattern, 'g') : null;
+    // 'g' for matchAll, 'd' so match.indices records capture offsets for positional extractions.
+    const regex = jsPattern ? safeRegex(jsPattern, 'gd') : null;
     return { directive: dir, regex, sourceField };
   });
 
@@ -25,6 +25,8 @@ export function extractFields(
 
   return events.map((event) => {
     const newFields = { ...event.fields };
+    const newOffsets: Record<string, Array<[number, number]>> = { ...(event.fieldOffsets ?? {}) };
+    let offsetsChanged = false;
     const traces: SplunkEvent['processingTrace'] = [];
 
     for (const extraction of extractions) {
@@ -33,6 +35,9 @@ export function extractFields(
       const sourceValue = extraction.sourceField
         ? getFieldValue(event, extraction.sourceField)
         : event._raw;
+      // Offsets only authoritative when extracting from _raw — a captured position in a
+      // derived source field cannot be translated back to _raw coordinates reliably.
+      const isPositional = !extraction.sourceField;
 
       if (!sourceValue) {
         if (
@@ -60,11 +65,17 @@ export function extractFields(
 
       // Collect all matches; named groups captured more than once become arrays.
       const groupValues: Record<string, string[]> = {};
+      const groupOffsets: Record<string, Array<[number, number]>> = {};
       for (const m of sourceValue.matchAll(extraction.regex)) {
         if (!m.groups) continue;
+        const indices = isPositional
+          ? (m as RegExpMatchArray & { indices?: { groups?: Record<string, [number, number] | undefined> } }).indices?.groups
+          : undefined;
         for (const [name, value] of Object.entries(m.groups)) {
           if (value !== undefined) {
             (groupValues[name] ??= []).push(value);
+            const span = indices?.[name];
+            if (span) (groupOffsets[name] ??= []).push([span[0], span[1]]);
           }
         }
       }
@@ -73,6 +84,11 @@ export function extractFields(
       for (const [name, values] of Object.entries(groupValues)) {
         newFields[name] = values.length === 1 ? values[0] : values;
         added.push(name);
+        const offsets = groupOffsets[name];
+        if (offsets && offsets.length > 0) {
+          newOffsets[name] = offsets;
+          offsetsChanged = true;
+        }
       }
 
       if (added.length > 0) {
@@ -88,6 +104,7 @@ export function extractFields(
     return {
       ...event,
       fields: newFields,
+      ...(offsetsChanged ? { fieldOffsets: newOffsets } : {}),
       processingTrace: [...event.processingTrace, ...traces],
     };
   });

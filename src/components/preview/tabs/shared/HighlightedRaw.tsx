@@ -21,6 +21,11 @@ interface HighlightedRawProps {
   onFieldClick: (field: string) => void;
   /** Maps stripped field name → original raw key (e.g. "GID" → "_GID") for context matching */
   fieldSourceKeys?: Record<string, string>;
+  /**
+   * Authoritative start/end offsets in `raw` per field (from positional extractions).
+   * When present for a field, these offsets are used directly and context matching is skipped.
+   */
+  fieldOffsets?: Record<string, Array<[number, number]>>;
 }
 
 export function HighlightedRaw({
@@ -32,6 +37,7 @@ export function HighlightedRaw({
   onFieldHover,
   onFieldClick,
   fieldSourceKeys,
+  fieldOffsets,
 }: HighlightedRawProps) {
   const focused = isAnyFocused(activeFields);
 
@@ -41,6 +47,24 @@ export function HighlightedRaw({
     const rawValue = fieldValues.get(field);
     if (rawValue === undefined) continue;
     const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+
+    // Prefer authoritative offsets from positional extraction. Verify each offset
+    // still matches one of the current field values — guards against later processors
+    // that mutate _raw or the field value after EXTRACT runs.
+    const offsetList = fieldOffsets?.[field];
+    if (offsetList && offsetList.length > 0) {
+      const valueSet = new Set(values.filter(Boolean));
+      let usedAny = false;
+      for (const [s, e] of offsetList) {
+        if (s < 0 || e > raw.length || s >= e) continue;
+        if (valueSet.has(raw.substring(s, e))) {
+          highlights.push({ start: s, end: e, field, color });
+          usedAny = true;
+        }
+      }
+      if (usedAny) continue;
+    }
+
     const originalKey = fieldSourceKeys?.[field];
     for (const v of values) {
       if (!v) continue;
