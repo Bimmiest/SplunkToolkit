@@ -25,8 +25,8 @@ export function PropsConfEditor() {
             title="Expand props.conf"
           >
             <Icon name="chevron-down" className="w-3.5 h-3.5 text-[var(--color-text-muted)] -rotate-90" />
-            <Icon name="settings" className="w-4 h-4 text-[var(--color-accent)]" />
-            <span className="text-sm font-medium text-[var(--color-text-primary)]">props.conf</span>
+            <Icon name="settings" className="w-3.5 h-3.5 text-[var(--color-accent)]" />
+            <span className="text-xs font-semibold tracking-wide text-[var(--color-text-secondary)]">props.conf</span>
           </button>
         </div>
         <EditorValidationList file="props.conf" />

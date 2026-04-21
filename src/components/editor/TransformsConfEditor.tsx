@@ -25,8 +25,8 @@ export function TransformsConfEditor() {
             title="Expand transforms.conf"
           >
             <Icon name="chevron-down" className="w-3.5 h-3.5 text-[var(--color-text-muted)] -rotate-90" />
-            <Icon name="refresh" className="w-4 h-4 text-[var(--color-accent)]" />
-            <span className="text-sm font-medium text-[var(--color-text-primary)]">transforms.conf</span>
+            <Icon name="refresh" className="w-3.5 h-3.5 text-[var(--color-accent)]" />
+            <span className="text-xs font-semibold tracking-wide text-[var(--color-text-secondary)]">transforms.conf</span>
           </button>
         </div>
         <EditorValidationList file="transforms.conf" />

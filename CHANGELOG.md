@@ -8,6 +8,7 @@ All notable changes to Splunk Toolkit are documented here, newest first.
 
 ### Fixed
 
+- **Collapsed editor header styling inconsistent with expanded state** — icon size (`w-4 h-4` → `w-3.5 h-3.5`) and label typography (`text-sm font-medium text-primary` → `text-xs font-semibold tracking-wide text-secondary`) in `PropsConfEditor` and `TransformsConfEditor` collapsed branches now match the expanded header exactly.
 - **Azure SWA workflow: `actions/checkout@v3` bumped to `@v4`** in `build_and_deploy_job` — was inconsistent with the `test` job which already used `@v4`.
 - **Azure SWA workflow: `actions/github-script@v6` bumped to `@v7`** — aligns with current release.
 - **Azure SWA workflow: indentation normalised** — `permissions` sub-keys and `github-script` `with:` block were using 7/11 spaces; corrected to standard 2-space nesting.
