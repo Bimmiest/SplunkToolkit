@@ -1,3 +1,21 @@
+const _patternCache = new Map<string, RegExp[]>();
+
+function buildContextPatterns(key: string, value: string): RegExp[] {
+  const cacheKey = `${key}\x1f${value}`;
+  const cached = _patternCache.get(cacheKey);
+  if (cached) return cached;
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escapedVal = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const patterns = [
+    new RegExp(`"${escapedKey}"\\s*:\\s*"${escapedVal}"`, 'g'),           // "key":"value"
+    new RegExp(`"${escapedKey}"\\s*:\\s*${escapedVal}(?=[,}\\s])`, 'g'),  // "key":numvalue
+    new RegExp(`(?:^|[\\s,;])${escapedKey}="${escapedVal}"`, 'gm'),       // key="value"
+    new RegExp(`(?:^|[\\s,;])${escapedKey}=${escapedVal}(?=[,;\\s]|$)`, 'gm'), // key=value
+  ];
+  _patternCache.set(cacheKey, patterns);
+  return patterns;
+}
+
 /**
  * Find positions of a field's value in raw text, preferring context-aware matches.
  * For JSON/KV data, matches value only where it appears next to its field key,
@@ -18,18 +36,6 @@ export function findFieldValuePositions(
     ? (originalKey.includes('.') ? originalKey.split('.').pop()! : originalKey)
     : undefined;
 
-  const escapedVal = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-  const buildContextPatterns = (key: string) => {
-    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return [
-      new RegExp(`"${escapedKey}"\\s*:\\s*"${escapedVal}"`, 'g'),           // "key":"value"
-      new RegExp(`"${escapedKey}"\\s*:\\s*${escapedVal}(?=[,}\\s])`, 'g'),  // "key":numvalue
-      new RegExp(`(?:^|[\\s,;])${escapedKey}="${escapedVal}"`, 'gm'),       // key="value"
-      new RegExp(`(?:^|[\\s,;])${escapedKey}=${escapedVal}(?=[,;\\s]|$)`, 'gm'), // key=value
-    ];
-  };
-
   // Collect unique keys to try. Prefer original (un-stripped) key so `_GID` matches before `GID`.
   const keysToTry = originalLeaf && originalLeaf !== leafName
     ? [originalLeaf, leafName]
@@ -37,7 +43,7 @@ export function findFieldValuePositions(
 
   const contextPositions: number[] = [];
   for (const key of keysToTry) {
-    for (const pattern of buildContextPatterns(key)) {
+    for (const pattern of buildContextPatterns(key, value)) {
       let match: RegExpExecArray | null;
       while ((match = pattern.exec(raw)) !== null) {
         const valIdx = raw.indexOf(value, match.index);

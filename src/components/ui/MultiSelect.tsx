@@ -57,7 +57,7 @@ export function MultiSelect({ label, options, selected, onChange, searchable }: 
         className="flex items-center gap-1 px-2 py-1 text-xs rounded border cursor-pointer"
         style={{
           backgroundColor: activeCount > 0 ? 'var(--color-accent)' : 'var(--color-bg-primary)',
-          color: activeCount > 0 ? '#fff' : 'var(--color-text-secondary)',
+          color: activeCount > 0 ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
           borderColor: activeCount > 0 ? 'var(--color-accent)' : 'var(--color-border)',
         }}
       >

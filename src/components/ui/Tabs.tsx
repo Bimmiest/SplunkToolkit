@@ -88,7 +88,7 @@ export function Tabs({ tabs, activeTab, onTabChange, ariaLabel, size = 'md', var
                 className="ml-1 text-[10px] font-semibold rounded-full px-1.5 py-0 leading-4"
                 style={{
                   backgroundColor: tab.badgeVariant === 'error' ? 'var(--color-error)' : tab.badgeVariant === 'warning' ? 'var(--color-warning)' : 'var(--color-accent)',
-                  color: '#fff',
+                  color: 'var(--color-text-on-accent)',
                 }}
               >
                 {tab.badge}

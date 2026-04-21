@@ -249,7 +249,7 @@ function SearchHighlightedRaw({ raw, search }: { raw: string; search: string }) 
                 className="rounded-sm px-0.5"
                 style={{
                   backgroundColor: 'var(--color-accent)',
-                  color: '#fff',
+                  color: 'var(--color-text-on-accent)',
                 }}
               >
                 {line.substring(searchIdx, searchIdx + trimmed.length)}

@@ -120,7 +120,7 @@ export function SettingsPanel() {
                 correctly. After any index-time transform rewrites the sourcetype, host, or source, stanzas are re-matched and search-time processors (EXTRACT, REPORT, FIELDALIAS, EVAL) apply directives from the new sourcetype.
               </p>
               {settings.perEventPipeline && (
-                <p className="text-xs font-medium" style={{ color: '#fb923c' }}>
+                <p className="text-xs font-medium" style={{ color: 'var(--color-warning)' }}>
                   Pipeline runs per-event — may be slower on large inputs. Manual apply is enabled automatically.
                 </p>
               )}

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import type { ValidationDiagnostic } from '../../engine/types';
 import { Icon } from '../ui/Icon';
+import { getEditor } from './editorRegistry';
 
 interface EditorValidationListProps {
   file: 'props.conf' | 'transforms.conf';
@@ -61,7 +62,7 @@ export function EditorValidationList({ file }: EditorValidationListProps) {
         <div className="max-h-32 overflow-auto divide-y divide-[var(--color-border)]">
           {filtered.map((diag, idx) => (
             <DiagnosticRow key={idx} diagnostic={diag} onNavigate={diag.line !== undefined ? () => {
-              const ed = useAppStore.getState().editorInstances[file];
+              const ed = getEditor(file);
               if (!ed || diag.line === undefined) return;
               ed.focus();
               requestAnimationFrame(() => {

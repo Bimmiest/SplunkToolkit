@@ -160,6 +160,38 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
 
   const showCalcStrip = fieldFilter === 'calc' || fieldFilter === 'all';
 
+  const eventBadgeCounts = useMemo(() =>
+    filteredItems.map((item) => {
+      const eventFields = Object.keys(item.event.fields).filter((f) => highlightColorMap.has(f));
+      const evalTrace = item.event.processingTrace.find((t) => t.processor === 'EVAL');
+      const eventCalcFields = showCalcStrip
+        ? Array.from(evalDirectives.entries()).flatMap(([fieldName, expression]) => {
+            const wasComputed = evalTrace?.fieldsAdded?.includes(fieldName) ?? false;
+            if (!wasComputed) return [];
+            const value = item.event.fields[fieldName];
+            if (value === undefined || value === null || value === 'null' || value === '') return [];
+            return [{ name: fieldName, expression, value }];
+          })
+        : [];
+      let autoCount = 0;
+      let manualCount = 0;
+      const calcCount = eventCalcFields.length;
+      if (fieldFilter === 'auto') {
+        autoCount = eventFields.length;
+      } else if (fieldFilter === 'manual') {
+        manualCount = eventFields.length;
+      } else if (fieldFilter !== 'calc') {
+        for (const f of eventFields) {
+          if (calcFields.has(f)) { /* counted above */ }
+          else if (manualFields.has(f)) manualCount++;
+          else autoCount++;
+        }
+      }
+      return { eventCalcFields, autoCount, manualCount, calcCount };
+    }),
+    [filteredItems, fieldFilter, highlightColorMap, evalDirectives, showCalcStrip, manualFields, calcFields]
+  );
+
   const sidebar = (
     <FieldSidebar
       fieldCount={fieldColorMap.size}
@@ -217,7 +249,7 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
                 className="px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer"
                 style={{
                   backgroundColor: fieldFilter === id ? 'var(--color-accent)' : 'transparent',
-                  color: fieldFilter === id ? '#fff' : 'var(--color-text-muted)',
+                  color: fieldFilter === id ? 'var(--color-text-on-accent)' : 'var(--color-text-muted)',
                 }}
               >
                 {label}
@@ -268,37 +300,7 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
         >
           {filteredItems.map((item, idx) => {
             const globalIdx = (currentPage - 1) * eventsPerPage + idx + 1;
-            const eventFields = Object.keys(item.event.fields).filter((f) => highlightColorMap.has(f));
-
-            // Compute calc strip first so badge count matches what's actually rendered.
-            const evalTrace = item.event.processingTrace.find((t) => t.processor === 'EVAL');
-            const eventCalcFields = showCalcStrip
-              ? Array.from(evalDirectives.entries()).flatMap(([fieldName, expression]) => {
-                  const wasComputed = evalTrace?.fieldsAdded?.includes(fieldName) ?? false;
-                  if (!wasComputed) return [];
-                  const value = item.event.fields[fieldName];
-                  if (value === undefined || value === null || value === 'null' || value === '') return [];
-                  return [{ name: fieldName, expression, value }];
-                })
-              : [];
-
-            // Per-category counts — calc uses the strip length so null/empty fields don't inflate the badge.
-            let autoCount = 0;
-            let manualCount = 0;
-            const calcCount = eventCalcFields.length;
-            if (fieldFilter === 'auto') {
-              autoCount = eventFields.length;
-            } else if (fieldFilter === 'manual') {
-              manualCount = eventFields.length;
-            } else if (fieldFilter !== 'calc') {
-              autoCount = 0;
-              manualCount = 0;
-              for (const f of eventFields) {
-                if (calcFields.has(f)) { /* already counted above */ }
-                else if (manualFields.has(f)) manualCount++;
-                else autoCount++;
-              }
-            }
+            const { eventCalcFields, autoCount, manualCount, calcCount } = eventBadgeCounts[idx];
 
             const fieldValues = new Map<string, string | string[]>(
               Object.entries(item.event.fields).filter(([k]) => highlightColorMap.has(k))

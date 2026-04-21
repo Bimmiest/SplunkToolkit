@@ -354,7 +354,7 @@ export function FieldsTab() {
                         className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium"
                         style={
                           phase === 'index-time'
-                            ? { backgroundColor: 'var(--color-accent)', color: '#fff', opacity: 0.85 }
+                            ? { backgroundColor: 'var(--color-accent)', color: 'var(--color-text-on-accent)', opacity: 0.85 }
                             : { backgroundColor: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }
                         }
                         title={Array.from(field.sources).join(', ')}
@@ -416,7 +416,7 @@ function FieldNameCell({
         {isParent && (
           <span
             className="text-[9px] px-1 py-px rounded"
-            style={{ backgroundColor: 'var(--color-accent)', color: '#fff', opacity: 0.7 }}
+            style={{ backgroundColor: 'var(--color-accent)', color: 'var(--color-text-on-accent)', opacity: 0.7 }}
           >
             JSON
           </span>

@@ -23,10 +23,12 @@ describe('findFieldValuePositions — basic context matching', () => {
     expect(pos).toHaveLength(1);
   });
 
-  it('falls back to plain indexOf for uncontextualised values (length >= 2)', () => {
+  it('falls back to plain indexOf (first occurrence only) for uncontextualised values (length >= 2)', () => {
     const raw = 'some event containing foobar twice: foobar';
     const pos = findFieldValuePositions(raw, 'myfield', 'foobar');
-    expect(pos).toHaveLength(2);
+    // Returns only the first occurrence to prevent double-highlighting coincidental matches.
+    expect(pos).toHaveLength(1);
+    expect(pos[0]).toBe(raw.indexOf('foobar'));
   });
 
   it('fallback skips values shorter than 2 chars to avoid false-positive noise', () => {

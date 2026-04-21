@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import type { editor } from 'monaco-editor';
 import type { EventMetadata, OutputTabId, ProcessingResult, ValidationDiagnostic } from '../engine/types';
 
 interface AppState {
@@ -61,9 +60,6 @@ interface AppState {
 
   settingsOpen: boolean;
   toggleSettings: () => void;
-
-  editorInstances: Record<string, editor.IStandaloneCodeEditor>;
-  registerEditor: (file: string, instance: editor.IStandaloneCodeEditor) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -158,10 +154,4 @@ export const useAppStore = create<AppState>((set) => ({
 
   settingsOpen: false,
   toggleSettings: () => set((state) => ({ settingsOpen: !state.settingsOpen })),
-
-  editorInstances: {},
-  registerEditor: (file, instance) =>
-    set((state) => ({
-      editorInstances: { ...state.editorInstances, [file]: instance },
-    })),
 }));

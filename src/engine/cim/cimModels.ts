@@ -15,10 +15,18 @@ export function validateCimCompliance(
   options?: { includeAll?: boolean }
 ): CimValidationResult[] {
   const results = CIM_MODELS.map((model) => {
-    const requiredPresent = model.requiredFields.filter((f) => extractedFields.has(f));
-    const requiredMissing = model.requiredFields.filter((f) => !extractedFields.has(f));
-    const recommendedPresent = model.recommendedFields.filter((f) => extractedFields.has(f));
-    const recommendedMissing = model.recommendedFields.filter((f) => !extractedFields.has(f));
+    const requiredPresent: string[] = [];
+    const requiredMissing: string[] = [];
+    for (const f of model.requiredFields) {
+      if (extractedFields.has(f)) requiredPresent.push(f);
+      else requiredMissing.push(f);
+    }
+    const recommendedPresent: string[] = [];
+    const recommendedMissing: string[] = [];
+    for (const f of model.recommendedFields) {
+      if (extractedFields.has(f)) recommendedPresent.push(f);
+      else recommendedMissing.push(f);
+    }
 
     const totalFields = model.requiredFields.length + model.recommendedFields.length;
     const totalPresent = requiredPresent.length + recommendedPresent.length;

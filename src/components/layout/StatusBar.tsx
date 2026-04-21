@@ -49,7 +49,7 @@ export function StatusBar() {
               backgroundColor: isProcessing
                 ? 'var(--color-accent)'
                 : result
-                  ? '#22c55e'
+                  ? 'var(--color-success)'
                   : 'var(--color-text-muted)',
             }}
           />
@@ -74,7 +74,7 @@ export function StatusBar() {
         {settings.manualApply && (
           <span className="flex items-center gap-1.5">
             {pipelineDirty && !isProcessing && (
-              <span style={{ color: '#fb923c' }}>● Out of date</span>
+              <span style={{ color: 'var(--color-warning)' }}>● Out of date</span>
             )}
             <Tooltip content="Run pipeline (applies current config)" side="top">
               <button
@@ -107,13 +107,13 @@ export function StatusBar() {
           </>
         )}
         {errorCount > 0 && (
-          <span style={{ color: '#f87171' }}>{errorCount} error{errorCount !== 1 ? 's' : ''}</span>
+          <span style={{ color: 'var(--color-error)' }}>{errorCount} error{errorCount !== 1 ? 's' : ''}</span>
         )}
         {warningCount > 0 && (
-          <span style={{ color: '#fb923c' }}>{warningCount} warning{warningCount !== 1 ? 's' : ''}</span>
+          <span style={{ color: 'var(--color-warning)' }}>{warningCount} warning{warningCount !== 1 ? 's' : ''}</span>
         )}
         {result && errorCount === 0 && warningCount === 0 && (
-          <span style={{ color: '#4ade80' }}>✓ Valid</span>
+          <span style={{ color: 'var(--color-success)' }}>✓ Valid</span>
         )}
       </div>
     </div>

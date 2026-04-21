@@ -2,6 +2,7 @@ import { useRef, useEffect, useCallback } from 'react';
 import Editor, { type OnMount, type OnChange } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { useAppStore } from '../../store/useAppStore';
+import { registerEditor } from './editorRegistry';
 import { createCompletionProvider } from '../../monaco/splunkConfCompletion';
 import { createHoverProvider } from '../../monaco/splunkConfHover';
 import { createFoldingRangeProvider } from '../../monaco/splunkConfFolding';
@@ -27,14 +28,12 @@ export function SplunkEditor({ value, onChange, fileType = 'props.conf', languag
     const model = editorRef.current.getModel();
     if (!model) return;
 
-    const monacoInstance = (window as unknown as { monaco?: typeof import('monaco-editor') }).monaco;
+    const monacoInstance = window.monaco;
     if (!monacoInstance) return;
 
     const markers = computeDiagnostics(model, fileType);
     monacoInstance.editor.setModelMarkers(model, 'splunk-linter', markers);
   }, [fileType]);
-
-  const registerEditor = useAppStore((s) => s.registerEditor);
 
   const handleMount: OnMount = (editorInstance) => {
     editorRef.current = editorInstance;
@@ -111,7 +110,7 @@ export function SplunkEditor({ value, onChange, fileType = 'props.conf', languag
           registerSplunkConfLanguage(monaco);
         }
         // Store monaco on window for diagnostics
-        (window as unknown as { monaco: typeof import('monaco-editor') }).monaco = monaco;
+        window.monaco = monaco;
       }}
     />
   );

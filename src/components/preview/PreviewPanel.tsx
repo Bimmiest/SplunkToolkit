@@ -1,4 +1,6 @@
 import { useState, useMemo } from 'react';
+
+const normalise = (s: string) => s.replace(/\r\n/g, '\n').replace(/\s+$/, '');
 import type React from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { Tabs } from '../ui/Tabs';
@@ -206,7 +208,6 @@ function PreviewSubTab() {
       const startIdx = Math.max(0, event.lineNumbers.start - 1);
       const endIdx = event.lineNumbers.end;
       const origSlice = origLines.slice(startIdx, endIdx).join('\n');
-      const normalise = (s: string) => s.replace(/\r\n/g, '\n').replace(/\s+$/, '');
       return {
         event,
         originalRaw: origSlice,
