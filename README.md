@@ -2,7 +2,7 @@
 
 Browser-based simulator for Splunk's `props.conf` and `transforms.conf` processing pipeline. All simulation runs in the browser; no backend, no network calls, no persisted user data.
 
-## Commands
+## Build
 
 ```bash
 npm install
@@ -185,11 +185,20 @@ Places where the simulator diverges from real Splunk. Verify anything suspicious
 - **Sourcetype stanzas match by strict equality.** This matches real Splunk — sourcetype names are literal, no wildcards — noted here so contributors don't add wildcard support by analogy with `source::` / `host::`.
 - **Monaco find-widget tooltip flicker.** Upstream bug in Monaco's hover service ([microsoft/monaco-editor#5208](https://github.com/microsoft/monaco-editor/issues/5208)); no local fix.
 
-See [CHANGELOG.md](CHANGELOG.md) for fix history; see [CLAUDE.md](CLAUDE.md) (local-only, gitignored) for contributor-facing notes.
+See [CHANGELOG.md](CHANGELOG.md) for fix history
 
 ## Tech stack
 
-React 19, Vite 7, TypeScript 5.9, Tailwind CSS 4 (CSS-first config), Monaco Editor 0.55 via `@monaco-editor/react`, Zustand 5, `react-resizable-panels` 4.6, `diff` 8, `cmdk` (command palette), `@radix-ui/react-tooltip`.
+- React 19, 
+- Vite 7, 
+- TypeScript 5.9, 
+- Tailwind CSS 4 (CSS-first config), 
+- Monaco Editor 0.55 via `@monaco-editor/react`, 
+- Zustand 5, 
+- react-resizable-panels 4.6, 
+- `diff` 8, 
+- `cmdk` (command palette), 
+- `@radix-ui/react-tooltip`.
 
 ## State management
 
