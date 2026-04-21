@@ -6,6 +6,17 @@ All notable changes to Splunk Toolkit are documented here, newest first.
 
 ## 2026-04-21
 
+### Fixed
+
+- **Azure SWA workflow: `actions/checkout@v3` bumped to `@v4`** in `build_and_deploy_job` — was inconsistent with the `test` job which already used `@v4`.
+- **Azure SWA workflow: `actions/github-script@v6` bumped to `@v7`** — aligns with current release.
+- **Azure SWA workflow: indentation normalised** — `permissions` sub-keys and `github-script` `with:` block were using 7/11 spaces; corrected to standard 2-space nesting.
+- **Azure SWA workflow: `close_pull_request_job` removed
+
+---
+
+## 2026-04-21
+
 ### Added
 
 - **React component smoke tests** — `@testing-library/react` + `jsdom` harness added. 20 new tests across `StatusBar` (7), `RegexTab` (4), `FieldsTab` (4), `HighlightedTab` (5). Component tests opt into jsdom via `// @vitest-environment jsdom` pragma; engine tests remain in the `node` environment. `ResizeObserver` polyfilled in `src/test/setup.ts`. Total: 112 tests (up from 92).
