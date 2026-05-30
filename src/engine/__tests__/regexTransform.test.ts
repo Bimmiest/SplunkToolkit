@@ -119,6 +119,67 @@ describe('applyRegexTransform — numbered groups with FORMAT', () => {
   });
 });
 
+describe('applyRegexTransform — DELIMS / FIELDS', () => {
+  it('extracts field/value pairs with two delimiter sets', () => {
+    const s = stanza('pipe_eq', { DELIMS: '"|", "="' });
+    const result = applyRegexTransform(event('user=alice|action=login|status=200'), s);
+    expect(result.matched).toBe(true);
+    expect(result.fields['user']).toBe('alice');
+    expect(result.fields['action']).toBe('login');
+    expect(result.fields['status']).toBe('200');
+  });
+
+  it('treats each character in a set as its own delimiter', () => {
+    const s = stanza('multi', { DELIMS: '"|;", "="' });
+    const result = applyRegexTransform(event('a=1|b=2;c=3'), s);
+    expect(result.fields['a']).toBe('1');
+    expect(result.fields['b']).toBe('2');
+    expect(result.fields['c']).toBe('3');
+  });
+
+  it('splits key/value on the first kv-delimiter occurrence only', () => {
+    const s = stanza('kv', { DELIMS: '" ", "="' });
+    const result = applyRegexTransform(event('url=/path?a=1'), s);
+    expect(result.fields['url']).toBe('/path?a=1');
+  });
+
+  it('names positional values via FIELDS with a single DELIMS set', () => {
+    const s = stanza('csv', { DELIMS: '","', FIELDS: '"ts", "user", "action"' });
+    const result = applyRegexTransform(event('2026-01-01,alice,login'), s);
+    expect(result.fields['ts']).toBe('2026-01-01');
+    expect(result.fields['user']).toBe('alice');
+    expect(result.fields['action']).toBe('login');
+  });
+
+  it('decodes escape sequences in DELIMS (tab/newline)', () => {
+    const s = stanza('tabbed', { DELIMS: '"\\n", ":\\t" ' });
+    const result = applyRegexTransform(event('key1:\tval1\nkey2:\tval2'), s);
+    expect(result.fields['key1']).toBe('val1');
+    expect(result.fields['key2']).toBe('val2');
+  });
+
+  it('accumulates repeated keys into a multivalue field', () => {
+    const s = stanza('rep', { DELIMS: '" ", "="' });
+    const result = applyRegexTransform(event('tag=a tag=b tag=c'), s);
+    expect(result.fields['tag']).toEqual(['a', 'b', 'c']);
+  });
+
+  it('drops empty values and pairs without a kv delimiter', () => {
+    const s = stanza('sparse', { DELIMS: '"|", "="' });
+    const result = applyRegexTransform(event('a=1|justtext|b='), s);
+    expect(result.fields['a']).toBe('1');
+    expect(result.fields['b']).toBeUndefined();
+    expect(result.fields['justtext']).toBeUndefined();
+  });
+
+  it('reads from SOURCE_KEY when set', () => {
+    const s = stanza('fromfield', { DELIMS: '"&", "="', SOURCE_KEY: 'query' });
+    const result = applyRegexTransform(event('ignored', { query: 'x=1&y=2' }), s);
+    expect(result.fields['x']).toBe('1');
+    expect(result.fields['y']).toBe('2');
+  });
+});
+
 describe('applyRegexTransform — no match', () => {
   it('returns matched=false when regex does not match', () => {
     const s = stanza('test', { REGEX: 'NO_MATCH_SENTINEL_XYZ' });

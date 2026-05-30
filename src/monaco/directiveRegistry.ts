@@ -534,6 +534,34 @@ const DIRECTIVES: DirectiveInfo[] = [
     phase: 'both',
   },
   {
+    key: 'DELIMS',
+    description:
+      'Delimiter-based field extraction, used in place of REGEX. Each character in a ' +
+      'quoted set is treated as a separate delimiter. Provide two quoted sets for ' +
+      'field/value pairs (first set splits pairs, second splits field name from value), ' +
+      'or one set plus FIELDS to name positional values. Escapes: \\t \\n \\r \\\\ \\".',
+    example: 'DELIMS = "|", "="',
+    defaultValue: '',
+    category: 'Field Extraction',
+    appliesTo: 'transforms.conf',
+    valueType: 'string',
+    isClassBased: false,
+    phase: 'both',
+  },
+  {
+    key: 'FIELDS',
+    description:
+      'Used with a single-set DELIMS (values only, no field names) to assign field ' +
+      'names to the extracted values positionally, in the order they are extracted.',
+    example: 'FIELDS = "user", "action", "status"',
+    defaultValue: '',
+    category: 'Field Extraction',
+    appliesTo: 'transforms.conf',
+    valueType: 'string',
+    isClassBased: false,
+    phase: 'both',
+  },
+  {
     key: 'SOURCE_KEY',
     description:
       'Specifies the field from which the REGEX extracts values. ' +
