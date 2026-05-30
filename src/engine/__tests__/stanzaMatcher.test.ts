@@ -1,9 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { matchStanzas } from '../parser/stanzaMatcher';
-import type { ConfStanza, EventMetadata } from '../types';
+import { matchStanzas, mergeDirectives } from '../parser/stanzaMatcher';
+import type { ConfDirective, ConfStanza, EventMetadata } from '../types';
 
 function stanza(type: ConfStanza['type'], name: string): ConfStanza {
   return { name, type, directives: [], lineRange: { start: 1, end: 2 } };
+}
+
+function dir(key: string, value: string, line: number): ConfDirective {
+  return { key, value, line, directiveType: key };
 }
 
 const META: EventMetadata = {
@@ -102,5 +106,26 @@ describe('matchStanzas — wildcard patterns', () => {
     };
     const result = matchStanzas([s], META);
     expect(result).toHaveLength(1);
+  });
+});
+
+describe('mergeDirectives — duplicate keys', () => {
+  it('takes the LAST value when a key is repeated within one stanza (Splunk last-wins)', () => {
+    const s = stanza('sourcetype', 'st');
+    s.directives = [dir('TRUNCATE', '100', 1), dir('TRUNCATE', '500', 2)];
+    const merged = mergeDirectives([s]);
+    const truncate = merged.filter((d) => d.key === 'TRUNCATE');
+    expect(truncate).toHaveLength(1);
+    expect(truncate[0].value).toBe('500');
+  });
+
+  it('keeps the higher-precedence stanza when the same key appears across stanzas', () => {
+    const source = stanza('source', '/v');
+    source.directives = [dir('KV_MODE', 'json', 1)];
+    const sourcetype = stanza('sourcetype', 'st');
+    sourcetype.directives = [dir('KV_MODE', 'none', 1)];
+    // matchStanzas would order source before sourcetype; emulate that order here.
+    const merged = mergeDirectives([source, sourcetype]);
+    expect(merged.find((d) => d.key === 'KV_MODE')?.value).toBe('json');
   });
 });

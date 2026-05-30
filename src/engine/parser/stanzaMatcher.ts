@@ -110,11 +110,17 @@ export function getDirectivesByType(stanzas: ConfStanza[], directiveType: string
 
 export function mergeDirectives(stanzas: ConfStanza[]): import('../types').ConfDirective[] {
   const seen = new Map<string, import('../types').ConfDirective>();
-  // Iterate in precedence order (highest first), so first match wins
+  // Stanzas arrive in precedence order (highest first), so across stanzas the
+  // first match wins. WITHIN a single stanza, however, a repeated key takes its
+  // LAST value — Splunk's documented "last definition in the file wins" rule.
   for (const stanza of stanzas) {
+    const stanzaLatest = new Map<string, import('../types').ConfDirective>();
     for (const directive of stanza.directives) {
-      if (!seen.has(directive.key)) {
-        seen.set(directive.key, directive);
+      stanzaLatest.set(directive.key, directive);
+    }
+    for (const [key, directive] of stanzaLatest) {
+      if (!seen.has(key)) {
+        seen.set(key, directive);
       }
     }
   }

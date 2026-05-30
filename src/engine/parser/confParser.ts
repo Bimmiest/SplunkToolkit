@@ -29,8 +29,8 @@ const STANZA_RE = /^\[(.+)\]\s*$/;
  */
 const DIRECTIVE_RE = /^([^\s=][^=]*?)\s*=\s*(.*)$/;
 
-/** Matches a comment line (leading `#` or `;`). */
-const COMMENT_RE = /^[#;]/;
+/** Matches a comment line. Splunk .conf uses `#` only — `;` is not a comment. */
+const COMMENT_RE = /^#/;
 
 /** Matches a blank / whitespace-only line. */
 const BLANK_RE = /^\s*$/;
