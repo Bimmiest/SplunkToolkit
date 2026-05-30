@@ -49,10 +49,11 @@ describe('applyRegexTransform — named capture groups', () => {
   });
 });
 
-describe('applyRegexTransform — DEST_KEY = _raw with named groups', () => {
-  it('replaces _raw using numbered back-references without polluting with offset', () => {
-    // Pattern has one named capture group → args = [match, p1, offset, string, namedGroups]
-    // The off-by-one bug would substitute $2 with the numeric offset value.
+describe('applyRegexTransform — DEST_KEY = _raw replaces the whole event', () => {
+  it('replaces the ENTIRE _raw with the FORMAT expansion (uncaptured text is lost)', () => {
+    // The classic footgun: the regex matches only the IP, so everything else
+    // ("connect from", "port 443") is discarded. To keep it you must capture and
+    // reproduce it in FORMAT, or use SEDCMD instead.
     const s = stanza('mask', {
       REGEX: '(?<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)',
       FORMAT: '$1 masked',
@@ -60,28 +61,39 @@ describe('applyRegexTransform — DEST_KEY = _raw with named groups', () => {
     });
     const result = applyRegexTransform(event('connect from 10.0.0.1 port 443'), s);
     expect(result.matched).toBe(true);
-    // $1 should be the IP, not the offset integer
-    expect(result.destValue).toBe('connect from 10.0.0.1 masked port 443');
+    expect(result.destValue).toBe('10.0.0.1 masked');
   });
 
-  it('expands ${name} in FORMAT for DEST_KEY = _raw', () => {
+  it('expands ${name} in FORMAT and discards the rest of the event', () => {
     const s = stanza('mask', {
       REGEX: '(?<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)',
       FORMAT: '${ip} masked',
       DEST_KEY: '_raw',
     });
     const result = applyRegexTransform(event('connect from 10.0.0.1 port 443'), s);
-    expect(result.destValue).toBe('connect from 10.0.0.1 masked port 443');
+    expect(result.destValue).toBe('10.0.0.1 masked');
   });
 
-  it('replaces all occurrences globally for DEST_KEY = _raw', () => {
+  it('uses the FIRST match only — the whole event becomes the FORMAT output', () => {
     const s = stanza('redact', {
       REGEX: '(\\d{3}-\\d{4})',
       FORMAT: 'XXXX',
       DEST_KEY: '_raw',
     });
     const result = applyRegexTransform(event('call 555-1234 or 555-5678'), s);
-    expect(result.destValue).toBe('call XXXX or XXXX');
+    // Not "call XXXX or XXXX" — DEST_KEY=_raw replaces the entire event.
+    expect(result.destValue).toBe('XXXX');
+  });
+
+  it('preserves surrounding text only when the regex captures the whole line', () => {
+    // The correct masking idiom: capture everything, reproduce it in FORMAT.
+    const s = stanza('mask', {
+      REGEX: '(.*?)(\\d+\\.\\d+\\.\\d+\\.\\d+)(.*)',
+      FORMAT: '$1REDACTED$3',
+      DEST_KEY: '_raw',
+    });
+    const result = applyRegexTransform(event('connect from 10.0.0.1 port 443'), s);
+    expect(result.destValue).toBe('connect from REDACTED port 443');
   });
 });
 

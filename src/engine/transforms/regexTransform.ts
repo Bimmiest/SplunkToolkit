@@ -98,21 +98,15 @@ export function applyRegexTransform(
 
   if (format) {
     if (destKey === '_raw') {
-      // DEST_KEY=_raw: global substitution (like sed s/REGEX/FORMAT/g).
-      result.destKey = destKey;
-      result.destValue = sourceValue.replace(compiled.global, (...args) => {
-        const lastArg = args[args.length - 1];
-        const hasNamed = lastArg !== null && typeof lastArg === 'object' && !Array.isArray(lastArg);
-        const namedGroups = hasNamed ? lastArg as Record<string, string> : undefined;
-        const groupCount = args.length - (hasNamed ? 4 : 3);
-        // Build a fake RegExpExecArray-like object for expandFormat
-        const fakeMatch = args.slice(0, groupCount + 1) as RegExpExecArray;
-        let formatted = format.replace(CAPTURE_REF_PATTERN, (_, idx) => fakeMatch[parseInt(idx)] ?? '');
-        if (namedGroups) {
-          formatted = formatted.replace(NAMED_REF_PATTERN, (_, name) => namedGroups[name] ?? '');
-        }
-        return formatted;
-      });
+      // DEST_KEY=_raw replaces the ENTIRE event with the FORMAT expansion of the
+      // first match — it is NOT a sed-style substitution. Anything the regex does
+      // not capture and FORMAT does not reproduce is discarded. (SEDCMD is the
+      // tool for substituting in place while keeping the rest of the event.)
+      const m = compiled.plain.exec(sourceValue);
+      if (m) {
+        result.destKey = destKey;
+        result.destValue = expandFormat(format, m);
+      }
     } else if (destKey) {
       // Normalise _MetaData:X alias so lookup works for both forms.
       const normalisedDestKey = destKey.replace(/^_(?=MetaData:)/i, '');
