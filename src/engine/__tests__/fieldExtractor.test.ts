@@ -31,13 +31,33 @@ describe('extractFields — fieldOffsets provenance', () => {
     expect(s).toBe(raw.indexOf('admin'));
   });
 
-  it('records multiple offsets when a named group matches more than once', () => {
+  it('extracts only the first match (inline EXTRACT defaults to max_match=1)', () => {
     const raw = 'id=1 id=2 id=3';
     const [e] = extractFields([event(raw)], [dir('id', 'id=(?<id>\\d+)')]);
-    expect(e.fields['id']).toEqual(['1', '2', '3']);
+    // Inline EXTRACT is first-match-only — not multivalue. Multivalue requires a
+    // transforms.conf REGEX with MV_ADD, which EXTRACT does not support.
+    expect(e.fields['id']).toBe('1');
     const offsets = e.fieldOffsets?.['id'];
-    expect(offsets).toHaveLength(3);
-    expect(offsets!.map(([s, end]) => raw.substring(s, end))).toEqual(['1', '2', '3']);
+    expect(offsets).toHaveLength(1);
+    expect(raw.substring(offsets![0][0], offsets![0][1])).toBe('1');
+  });
+
+  it('does not overwrite a field already set by an earlier EXTRACT (first wins)', () => {
+    const raw = 'a=first a=second';
+    // Class names sort alphabetically: aaa runs before bbb.
+    const [e] = extractFields(
+      [event(raw)],
+      [dir('bbb', 'a=(?<val>\\w+)\\s'), dir('aaa', 'a=second')],
+    );
+    // Both directives would set different things, but the key check: a field set
+    // by the first-run extraction is not clobbered. Here `val` is set once.
+    expect(e.fields['val']).toBe('first');
+  });
+
+  it('does not overwrite a pre-existing field value', () => {
+    const raw = 'status=500';
+    const [e] = extractFields([event(raw, { status: '200' })], [dir('s', 'status=(?<status>\\d+)')]);
+    expect(e.fields['status']).toBe('200');
   });
 
   it('does not record offsets when EXTRACT targets a non-_raw source field', () => {

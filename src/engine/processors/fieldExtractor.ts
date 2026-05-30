@@ -16,8 +16,10 @@ export function extractFields(
   const extractions = extractDirectives.map((dir) => {
     const { pattern, sourceField } = parseExtractValue(dir.value);
     const jsPattern = pattern ? convertSplunkToJsRegex(pattern) : null;
-    // 'g' for matchAll, 'd' so match.indices records capture offsets for positional extractions.
-    const regex = jsPattern ? safeRegex(jsPattern, 'gd') : null;
+    // 'd' records capture offsets for positional extractions. NOT global: inline
+    // EXTRACT extracts the FIRST match only (max_match defaults to 1); multivalue
+    // extraction requires a transforms.conf REGEX with MV_ADD, which EXTRACT lacks.
+    const regex = jsPattern ? safeRegex(jsPattern, 'd') : null;
     return { directive: dir, regex, sourceField };
   });
 
@@ -28,10 +30,6 @@ export function extractFields(
     const newOffsets: Record<string, Array<[number, number]>> = { ...(event.fieldOffsets ?? {}) };
     let offsetsChanged = false;
     const traces: SplunkEvent['processingTrace'] = [];
-    // Field names produced by an earlier EXTRACT in this pass — a later EXTRACT
-    // that yields the same name merges into a multivalue field (matching Splunk)
-    // rather than overwriting.
-    const producedThisPass = new Set<string>();
 
     for (const extraction of extractions) {
       if (!extraction.regex) continue;
@@ -67,37 +65,24 @@ export function extractFields(
         continue;
       }
 
-      // Collect all matches; named groups captured more than once become arrays.
-      const groupValues: Record<string, string[]> = {};
-      const groupOffsets: Record<string, Array<[number, number]>> = {};
-      for (const m of sourceValue.matchAll(extraction.regex)) {
-        if (!m.groups) continue;
-        const indices = isPositional
-          ? (m as RegExpMatchArray & { indices?: { groups?: Record<string, [number, number] | undefined> } }).indices?.groups
-          : undefined;
-        for (const [name, value] of Object.entries(m.groups)) {
-          if (value !== undefined) {
-            (groupValues[name] ??= []).push(value);
-            const span = indices?.[name];
-            if (span) (groupOffsets[name] ??= []).push([span[0], span[1]]);
-          }
-        }
-      }
+      // Inline EXTRACT takes the first match only.
+      const m = extraction.regex.exec(sourceValue);
+      if (!m || !m.groups) continue;
+      const indices = isPositional
+        ? (m as RegExpExecArray & { indices?: { groups?: Record<string, [number, number] | undefined> } }).indices?.groups
+        : undefined;
 
       const added: string[] = [];
-      for (const [name, values] of Object.entries(groupValues)) {
-        if (producedThisPass.has(name)) {
-          const existing = newFields[name];
-          const existingArr = Array.isArray(existing) ? existing : existing !== undefined ? [existing] : [];
-          newFields[name] = [...existingArr, ...values];
-        } else {
-          newFields[name] = values.length === 1 ? values[0] : values;
-          producedThisPass.add(name);
-        }
+      for (const [name, value] of Object.entries(m.groups)) {
+        if (value === undefined) continue;
+        // First-wins: Splunk does not let an EXTRACT overwrite a field that is
+        // already set (by an earlier EXTRACT, indexed extraction, etc.).
+        if (newFields[name] !== undefined) continue;
+        newFields[name] = value;
         added.push(name);
-        const offsets = groupOffsets[name];
-        if (offsets && offsets.length > 0) {
-          newOffsets[name] = offsets;
+        const span = indices?.[name];
+        if (span) {
+          newOffsets[name] = [[span[0], span[1]]];
           offsetsChanged = true;
         }
       }
