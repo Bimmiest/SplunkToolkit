@@ -369,14 +369,29 @@ const DIRECTIVES: DirectiveInfo[] = [
     key: 'KV_MODE',
     description:
       'Controls the automatic key-value pair extraction mode at search time. ' +
-      '"auto" extracts key=value pairs and JSON. "none" disables automatic extraction. ' +
-      '"json" extracts only JSON fields. "xml" extracts only XML fields. "multi" extracts from multi-value fields.',
+      '"auto" extracts key=value pairs (and JSON, when AUTO_KV_JSON is true). ' +
+      '"auto_escaped" is like "auto" but honours backslash-escaped quotes in values. ' +
+      '"none" disables automatic extraction. "json" extracts only JSON fields. ' +
+      '"xml" extracts only XML fields. "multi" extracts from tabular (multikv) events.',
     example: 'KV_MODE = json',
     defaultValue: 'auto',
     category: 'Field Extraction',
     appliesTo: 'props.conf',
     valueType: 'enum',
-    enumValues: ['auto', 'none', 'json', 'xml', 'multi'],
+    enumValues: ['auto', 'auto_escaped', 'none', 'json', 'xml', 'multi'],
+    isClassBased: false,
+    phase: 'search-time',
+  },
+  {
+    key: 'AUTO_KV_JSON',
+    description:
+      'When KV_MODE is "auto" or "auto_escaped", controls whether JSON-formatted events ' +
+      'are automatically field-extracted. Defaults to true.',
+    example: 'AUTO_KV_JSON = true',
+    defaultValue: 'true',
+    category: 'Field Extraction',
+    appliesTo: 'props.conf',
+    valueType: 'boolean',
     isClassBased: false,
     phase: 'search-time',
   },

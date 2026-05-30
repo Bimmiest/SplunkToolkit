@@ -28,6 +28,10 @@ export function extractFields(
     const newOffsets: Record<string, Array<[number, number]>> = { ...(event.fieldOffsets ?? {}) };
     let offsetsChanged = false;
     const traces: SplunkEvent['processingTrace'] = [];
+    // Field names produced by an earlier EXTRACT in this pass — a later EXTRACT
+    // that yields the same name merges into a multivalue field (matching Splunk)
+    // rather than overwriting.
+    const producedThisPass = new Set<string>();
 
     for (const extraction of extractions) {
       if (!extraction.regex) continue;
@@ -82,7 +86,14 @@ export function extractFields(
 
       const added: string[] = [];
       for (const [name, values] of Object.entries(groupValues)) {
-        newFields[name] = values.length === 1 ? values[0] : values;
+        if (producedThisPass.has(name)) {
+          const existing = newFields[name];
+          const existingArr = Array.isArray(existing) ? existing : existing !== undefined ? [existing] : [];
+          newFields[name] = [...existingArr, ...values];
+        } else {
+          newFields[name] = values.length === 1 ? values[0] : values;
+          producedThisPass.add(name);
+        }
         added.push(name);
         const offsets = groupOffsets[name];
         if (offsets && offsets.length > 0) {

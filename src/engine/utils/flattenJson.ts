@@ -1,11 +1,18 @@
 const MAX_DEPTH = 10;
 
 /**
- * Recursively flattens a JSON object into dot-notation fields.
+ * Flattens parsed JSON into Splunk-style dot/brace notation fields, matching
+ * how Splunk's `spath` / `KV_MODE=json` / `INDEXED_EXTRACTIONS=json` name fields:
  *
- * - Nested objects produce a parent key (stringified) and child keys (e.g. `user.name`)
- * - Arrays of primitives become multi-value fields
- * - Arrays of objects are indexed (e.g. `items.0.id`, `items.1.id`)
+ * - Nested objects produce dotted leaf keys (`user.name`). The container itself
+ *   is **not** emitted as a field — Splunk does not create a `user` field holding
+ *   the stringified object.
+ * - Arrays use the `{}` marker and collapse across elements into a multivalue field:
+ *     `{"tags":["a","b"]}`            → `tags{}`        = [a, b]
+ *     `{"items":[{"id":1},{"id":2}]}` → `items{}.id`    = [1, 2]
+ * - Scalars become strings; JSON `null` yields an empty value.
+ * - Arrays nested directly inside arrays are stringified (Splunk's deeper `{}{}`
+ *   notation is not simulated).
  * - Returns true if the depth limit was hit (caller can surface a diagnostic).
  */
 export interface FlattenOptions {
@@ -16,12 +23,82 @@ export interface FlattenOptions {
    */
   stripLeadingUnderscore?: boolean;
   /**
-   * If provided, records originalRawKey → strippedFieldName mappings whenever stripping
+   * If provided, records strippedFieldName → originalRawKey mappings whenever stripping
    * changes a key. Used by the highlighter so it can find values using the original JSON
    * key (e.g. `"_GID":"100"`) rather than the stripped name (`GID`).
-   * Key = stripped field path, value = original raw key at that level.
    */
   sourceKeys?: Record<string, string>;
+}
+
+/** Append a value to a field, promoting to a multivalue array on repeated keys. */
+function addValue(
+  fields: Record<string, string | string[]>,
+  added: string[],
+  name: string,
+  value: string,
+): void {
+  const existing = fields[name];
+  if (existing === undefined) {
+    fields[name] = value;
+    added.push(name);
+  } else if (Array.isArray(existing)) {
+    existing.push(value);
+  } else {
+    fields[name] = [existing, value];
+  }
+}
+
+/** Dispatch a single JSON value to the right handler. Returns true if depth limit hit. */
+function flattenValue(
+  value: unknown,
+  fields: Record<string, string | string[]>,
+  added: string[],
+  name: string,
+  depth: number,
+  options: FlattenOptions,
+): boolean {
+  if (value === null || value === undefined) {
+    addValue(fields, added, name, '');
+    return false;
+  }
+  if (Array.isArray(value)) {
+    return flattenArray(value, fields, added, name, depth, options);
+  }
+  if (typeof value === 'object') {
+    return flattenJson(value as Record<string, unknown>, fields, added, name, depth + 1, options);
+  }
+  addValue(fields, added, name, String(value));
+  return false;
+}
+
+/**
+ * Flatten a JSON array into `<name>{}` multivalue fields (and `<name>{}.<key>`
+ * for arrays of objects), collapsing every element into the same field.
+ */
+export function flattenArray(
+  arr: unknown[],
+  fields: Record<string, string | string[]>,
+  added: string[],
+  name: string,
+  depth = 0,
+  options: FlattenOptions = {},
+): boolean {
+  if (depth > MAX_DEPTH) return true;
+  const arrayName = `${name}{}`;
+  for (const item of arr) {
+    if (item === null || item === undefined) continue;
+    if (Array.isArray(item)) {
+      // Array-of-arrays: stringify (Splunk's `{}{}` notation is not simulated).
+      addValue(fields, added, arrayName, JSON.stringify(item));
+    } else if (typeof item === 'object') {
+      if (flattenJson(item as Record<string, unknown>, fields, added, arrayName, depth + 1, options)) {
+        return true;
+      }
+    } else {
+      addValue(fields, added, arrayName, String(item));
+    }
+  }
+  return false;
 }
 
 export function flattenJson(
@@ -44,40 +121,7 @@ export function flattenJson(
       options.sourceKeys[fieldName] = rawKey;
     }
 
-    if (value === null || value === undefined) {
-      fields[fieldName] = '';
-      added.push(fieldName);
-    } else if (Array.isArray(value)) {
-      const allPrimitive = value.every(
-        (v) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean',
-      );
-
-      if (allPrimitive) {
-        fields[fieldName] = value.map(String);
-        added.push(fieldName);
-      } else {
-        // Mixed or object array — store stringified parent + recurse indexed children
-        fields[fieldName] = JSON.stringify(value);
-        added.push(fieldName);
-        for (let i = 0; i < value.length; i++) {
-          const item = value[i];
-          if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
-            if (flattenJson(item as Record<string, unknown>, fields, added, `${fieldName}.${i}`, depth + 1, options)) return true;
-          } else if (item !== null && item !== undefined) {
-            fields[`${fieldName}.${i}`] = String(item);
-            added.push(`${fieldName}.${i}`);
-          }
-        }
-      }
-    } else if (typeof value === 'object') {
-      // Nested object — store stringified parent + recurse children
-      fields[fieldName] = JSON.stringify(value);
-      added.push(fieldName);
-      if (flattenJson(value as Record<string, unknown>, fields, added, fieldName, depth + 1, options)) return true;
-    } else {
-      fields[fieldName] = String(value);
-      added.push(fieldName);
-    }
+    if (flattenValue(value, fields, added, fieldName, depth, options)) return true;
   }
   return false;
 }

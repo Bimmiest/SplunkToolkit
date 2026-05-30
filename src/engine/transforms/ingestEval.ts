@@ -59,7 +59,15 @@ export function applyIngestEval(
               });
             }
           });
-          if (result === null) {
+          // INGEST_EVAL can rewrite the event's timestamp and raw text, not just
+          // add indexed fields. Route _time/_raw to the event rather than fields.
+          if (fieldName === '_time') {
+            const epoch = result === null ? NaN : Number(Array.isArray(result) ? result[0] : result);
+            if (!Number.isNaN(epoch)) currentEvent._time = new Date(epoch * 1000);
+          } else if (fieldName === '_raw') {
+            currentEvent._raw =
+              result === null ? '' : Array.isArray(result) ? result.join('\n') : String(result);
+          } else if (result === null) {
             delete currentEvent.fields[fieldName];
           } else if (Array.isArray(result)) {
             currentEvent.fields[fieldName] = result;

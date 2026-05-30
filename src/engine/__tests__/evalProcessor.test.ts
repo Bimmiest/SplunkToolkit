@@ -36,6 +36,32 @@ describe('applyEvalExpressions — arithmetic', () => {
   });
 });
 
+describe('applyEvalExpressions — numeric predicates', () => {
+  it('isnum() is false for non-numeric strings', () => {
+    const [r] = applyEvalExpressions([event({ a: 'abc' })], [evalDir('n', 'isnum(a)')]);
+    expect(r.fields['n']).toBe('false');
+  });
+
+  it('isnum() is true for numeric strings', () => {
+    const [r] = applyEvalExpressions([event({ a: '3.14' })], [evalDir('n', 'isnum(a)')]);
+    expect(r.fields['n']).toBe('true');
+  });
+
+  it('isint() is false for non-numeric and non-integer input', () => {
+    const [r1] = applyEvalExpressions([event({ a: 'abc' })], [evalDir('n', 'isint(a)')]);
+    expect(r1.fields['n']).toBe('false');
+    const [r2] = applyEvalExpressions([event({ a: '5.5' })], [evalDir('n', 'isint(a)')]);
+    expect(r2.fields['n']).toBe('false');
+    const [r3] = applyEvalExpressions([event({ a: '5' })], [evalDir('n', 'isint(a)')]);
+    expect(r3.fields['n']).toBe('true');
+  });
+
+  it('round() rounds halves away from zero', () => {
+    const [r] = applyEvalExpressions([event({ a: '-2.5' })], [evalDir('n', 'round(a)')]);
+    expect(r.fields['n']).toBe('-3');
+  });
+});
+
 describe('applyEvalExpressions — replace() ReDoS guard', () => {
   it('returns original string for a ReDoS-risky pattern', () => {
     // (a+)+ is the classic ReDoS pattern

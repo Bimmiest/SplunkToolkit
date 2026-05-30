@@ -518,8 +518,8 @@ class Parser {
       }
       case 'isnull': return args[0] === null || args[0] === undefined;
       case 'isnotnull': return args[0] !== null && args[0] !== undefined;
-      case 'isint': { const n = toNum(args[0]); return !isNaN(n) && Number.isInteger(n); }
-      case 'isnum': return !isNaN(toNum(args[0]));
+      case 'isint': return isNumericValue(args[0]) && Number.isInteger(Number(args[0]));
+      case 'isnum': return isNumericValue(args[0]);
 
       // Math
       case 'abs': return Math.abs(toNum(args[0]));
@@ -529,7 +529,9 @@ class Parser {
         const val = toNum(args[0]);
         const decimals = args[1] !== undefined ? toNum(args[1]) : 0;
         const factor = Math.pow(10, decimals);
-        return Math.round(val * factor) / factor;
+        // Splunk rounds halves away from zero; JS Math.round rounds toward +∞.
+        const scaled = val * factor;
+        return (Math.sign(scaled) * Math.round(Math.abs(scaled))) / factor;
       }
       case 'sqrt': return Math.sqrt(toNum(args[0]));
       case 'pow': return Math.pow(toNum(args[0]), toNum(args[1]));
@@ -671,6 +673,16 @@ function toMv(v: EvalValue): string[] {
 function isNumericString(v: EvalValue): boolean {
   if (typeof v !== 'string' || v === '') return false;
   return !isNaN(Number(v));
+}
+
+/**
+ * True when the value is genuinely numeric — a number, or a string that parses
+ * cleanly as one. Used by isnum()/isint(); unlike toNum() it does not coerce
+ * non-numeric input to 0 (which made isnum("abc") wrongly return true).
+ */
+function isNumericValue(v: EvalValue): boolean {
+  if (typeof v === 'number') return Number.isFinite(v);
+  return isNumericString(v);
 }
 
 function compare(left: EvalValue, right: EvalValue, op: string): boolean {

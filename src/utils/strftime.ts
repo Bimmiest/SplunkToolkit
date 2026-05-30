@@ -197,6 +197,8 @@ const TZ_OFFSETS: Record<string, number> = {
  */
 function resolveTzOffsetMinutes(tz: string): number {
   const upper = tz.toUpperCase();
+  // ISO-8601 "Z" (Zulu) designates UTC.
+  if (upper === 'Z') return 0;
   if (upper in TZ_OFFSETS) {
     return TZ_OFFSETS[upper];
   }

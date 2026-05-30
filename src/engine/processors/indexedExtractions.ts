@@ -1,5 +1,5 @@
 import type { SplunkEvent, ConfDirective } from '../types';
-import { flattenJson } from '../utils/flattenJson';
+import { flattenJson, flattenArray } from '../utils/flattenJson';
 
 export function applyIndexedExtractions(events: SplunkEvent[], directives: ConfDirective[]): SplunkEvent[] {
   const extractionDir = directives.find((d) => d.key === 'INDEXED_EXTRACTIONS');
@@ -27,12 +27,15 @@ function extractJsonFields(events: SplunkEvent[]): SplunkEvent[] {
   return events.map((event) => {
     try {
       const obj = JSON.parse(event._raw);
-      if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) return event;
+      if (typeof obj !== 'object' || obj === null) return event;
 
       const fields = { ...event.fields };
       const added: string[] = [];
       const sourceKeys: Record<string, string> = {};
-      const depthTruncated = flattenJson(obj, fields, added, '', 0, { stripLeadingUnderscore: true, sourceKeys });
+      const opts = { stripLeadingUnderscore: true, sourceKeys };
+      const depthTruncated = Array.isArray(obj)
+        ? flattenArray(obj, fields, added, '', 0, opts)
+        : flattenJson(obj, fields, added, '', 0, opts);
 
       return {
         ...event,
@@ -64,10 +67,8 @@ function extractDelimited(events: SplunkEvent[], delimiter: string, mode: string
 
   if (headers.length === 0) return events;
 
-  return events.map((event, idx) => {
-    // Skip the header row itself — it has no data fields to extract.
-    if (idx === 0) return event;
-
+  // The header row is consumed as metadata — Splunk does not index it as an event.
+  return events.slice(1).map((event) => {
     const values = parseDelimitedLine(event._raw, delimiter);
 
     const fields = { ...event.fields };
@@ -110,10 +111,12 @@ function extractW3c(events: SplunkEvent[]): SplunkEvent[] {
 
   if (headers.length === 0) return events;
 
-  return events.map((event) => {
-    if (event._raw.startsWith('#')) return event;
-
-    const values = event._raw.split(/\s+/);
+  // Drop W3C directive/comment lines (#Version, #Fields, #Software, …) — they
+  // are not indexed as events.
+  return events
+    .filter((event) => !event._raw.startsWith('#'))
+    .map((event) => {
+    const values = parseW3cLine(event._raw);
     const fields = { ...event.fields };
     const added: string[] = [];
 
@@ -144,10 +147,33 @@ function stripLeadingUnderscore(name: string): string {
   return name.replace(/^_+/, '');
 }
 
+/**
+ * Split a W3C/IIS log line on unquoted whitespace, keeping double-quoted fields
+ * (e.g. a User-Agent containing spaces) intact and stripping the surrounding
+ * quotes. A plain `.split(/\s+/)` would tear quoted values into several columns.
+ */
+function parseW3cLine(line: string): string[] {
+  const tokens: string[] = [];
+  const re = /"([^"]*)"|(\S+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(line)) !== null) {
+    tokens.push(m[1] !== undefined ? m[1] : m[2]);
+  }
+  return tokens;
+}
+
 function parseDelimitedLine(line: string, delimiter: string): string[] {
   const fields: string[] = [];
   let current = '';
   let inQuotes = false;
+  // Quoted fields preserve their interior whitespace; unquoted fields are trimmed.
+  let fieldQuoted = false;
+
+  const pushField = () => {
+    fields.push(fieldQuoted ? current : current.trim());
+    current = '';
+    fieldQuoted = false;
+  };
 
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
@@ -158,15 +184,15 @@ function parseDelimitedLine(line: string, delimiter: string): string[] {
         i++;
       } else {
         inQuotes = !inQuotes;
+        if (inQuotes) fieldQuoted = true;
       }
     } else if (ch === delimiter && !inQuotes) {
-      fields.push(current.trim());
-      current = '';
+      pushField();
     } else {
       current += ch;
     }
   }
 
-  fields.push(current.trim());
+  pushField();
   return fields;
 }

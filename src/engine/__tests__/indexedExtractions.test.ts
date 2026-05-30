@@ -44,6 +44,52 @@ describe('applyIndexedExtractions — JSON', () => {
     expect(events[0].fields).toEqual({});
   });
 
+  it('names array-of-object fields with {} multivalue notation (not positional)', () => {
+    const events = applyIndexedExtractions(
+      [event('{"items":[{"id":1,"n":"a"},{"id":2,"n":"b"}]}')],
+      [dir('json')]
+    );
+    expect(events[0].fields['items{}.id']).toEqual(['1', '2']);
+    expect(events[0].fields['items{}.n']).toEqual(['a', 'b']);
+    // Positional and stringified-parent forms must NOT appear.
+    expect(events[0].fields['items.0.id']).toBeUndefined();
+    expect(events[0].fields['items']).toBeUndefined();
+  });
+
+  it('names primitive arrays with {} as a multivalue field', () => {
+    const events = applyIndexedExtractions([event('{"tags":["x","y","z"]}')], [dir('json')]);
+    expect(events[0].fields['tags{}']).toEqual(['x', 'y', 'z']);
+    expect(events[0].fields['tags']).toBeUndefined();
+  });
+
+  it('does not emit a stringified container field for nested objects', () => {
+    const events = applyIndexedExtractions(
+      [event('{"user":{"name":"alice","id":5}}')],
+      [dir('json')]
+    );
+    expect(events[0].fields['user.name']).toBe('alice');
+    expect(events[0].fields['user.id']).toBe('5');
+    expect(events[0].fields['user']).toBeUndefined();
+  });
+
+  it('decodes escaped characters via JSON.parse', () => {
+    const events = applyIndexedExtractions(
+      [event('{"msg":"line1\\nline2","q":"say \\"hi\\"","path":"C:\\\\tmp"}')],
+      [dir('json')]
+    );
+    expect(events[0].fields['msg']).toBe('line1\nline2');
+    expect(events[0].fields['q']).toBe('say "hi"');
+    expect(events[0].fields['path']).toBe('C:\\tmp');
+  });
+
+  it('extracts a top-level JSON array', () => {
+    const events = applyIndexedExtractions(
+      [event('[{"id":1},{"id":2}]')],
+      [dir('json')]
+    );
+    expect(events[0].fields['{}.id']).toEqual(['1', '2']);
+  });
+
   it('populates fieldSourceKeys for underscore-stripped JSON keys', () => {
     const events = applyIndexedExtractions(
       [event('{"_GID":"100","_UID":"1000","normalKey":"value"}')],
@@ -69,7 +115,7 @@ describe('applyIndexedExtractions — JSON', () => {
 });
 
 describe('applyIndexedExtractions — CSV', () => {
-  it('header row (first event) maps to data rows (subsequent events)', () => {
+  it('header row maps to data rows and is not itself emitted as an event', () => {
     // Simulates LINE_BREAKER having already split the CSV into one event per line
     const header = event('timestamp,action,user');
     const row1 = event('2024-01-15,login,alice');
@@ -77,23 +123,43 @@ describe('applyIndexedExtractions — CSV', () => {
 
     const events = applyIndexedExtractions([header, row1, row2], [dir('csv')]);
 
-    // Header event itself should have no extracted fields
-    expect(events[0].fields).toEqual({});
+    // The header line is consumed as metadata — only the two data rows remain.
+    expect(events).toHaveLength(2);
 
-    // Data rows should have fields from header
-    expect(events[1].fields['timestamp']).toBe('2024-01-15');
-    expect(events[1].fields['action']).toBe('login');
-    expect(events[1].fields['user']).toBe('alice');
+    expect(events[0].fields['timestamp']).toBe('2024-01-15');
+    expect(events[0].fields['action']).toBe('login');
+    expect(events[0].fields['user']).toBe('alice');
 
-    expect(events[2].fields['user']).toBe('bob');
+    expect(events[1].fields['user']).toBe('bob');
   });
 
   it('handles quoted CSV fields', () => {
     const header = event('name,description');
     const row = event('"Smith, John","A ""quoted"" value"');
     const events = applyIndexedExtractions([header, row], [dir('csv')]);
-    expect(events[1].fields['name']).toBe('Smith, John');
-    expect(events[1].fields['description']).toBe('A "quoted" value');
+    expect(events[0].fields['name']).toBe('Smith, John');
+    expect(events[0].fields['description']).toBe('A "quoted" value');
+  });
+});
+
+describe('applyIndexedExtractions — CSV quoting', () => {
+  it('preserves interior whitespace of quoted fields but trims unquoted ones', () => {
+    const header = event('name,note');
+    const row = event('  bob  ,"  spaced value  "');
+    const events = applyIndexedExtractions([header, row], [dir('csv')]);
+    expect(events[0].fields['name']).toBe('bob');
+    expect(events[0].fields['note']).toBe('  spaced value  ');
+  });
+});
+
+describe('applyIndexedExtractions — W3C quoting', () => {
+  it('keeps a quoted field containing spaces as a single value', () => {
+    const header = event('#Fields: cs-method cs(User-Agent) sc-status');
+    const row = event('GET "Mozilla/5.0 (Windows NT 10.0)" 200');
+    const events = applyIndexedExtractions([header, row], [dir('w3c')]);
+    expect(events[0].fields['cs-method']).toBe('GET');
+    expect(events[0].fields['cs(User-Agent)']).toBe('Mozilla/5.0 (Windows NT 10.0)');
+    expect(events[0].fields['sc-status']).toBe('200');
   });
 });
 
@@ -102,8 +168,8 @@ describe('applyIndexedExtractions — TSV', () => {
     const header = event('ts\thost\tsource');
     const row = event('2024-01-15\tmyhost\t/var/log/app');
     const events = applyIndexedExtractions([header, row], [dir('tsv')]);
-    expect(events[1].fields['host']).toBe('myhost');
-    expect(events[1].fields['source']).toBe('/var/log/app');
+    expect(events[0].fields['host']).toBe('myhost');
+    expect(events[0].fields['source']).toBe('/var/log/app');
   });
 });
 
@@ -140,20 +206,20 @@ describe('applyIndexedExtractions — leading underscore stripping', () => {
     const header = event('_ts,_user,action');
     const row = event('2024-01-15,alice,login');
     const events = applyIndexedExtractions([header, row], [dir('csv')]);
-    expect(events[1].fields['ts']).toBe('2024-01-15');
-    expect(events[1].fields['user']).toBe('alice');
-    expect(events[1].fields['action']).toBe('login');
-    expect(events[1].fields['_ts']).toBeUndefined();
+    expect(events[0].fields['ts']).toBe('2024-01-15');
+    expect(events[0].fields['user']).toBe('alice');
+    expect(events[0].fields['action']).toBe('login');
+    expect(events[0].fields['_ts']).toBeUndefined();
   });
 
   it('strips leading _ from W3C #Fields headers', () => {
     const header = event('#Fields: _cs-method uri status');
     const row = event('GET /api 200');
     const events = applyIndexedExtractions([header, row], [dir('w3c')]);
-    expect(events[1].fields['cs-method']).toBe('GET');
-    expect(events[1].fields['uri']).toBe('/api');
-    expect(events[1].fields['status']).toBe('200');
-    expect(events[1].fields['_cs-method']).toBeUndefined();
+    expect(events[0].fields['cs-method']).toBe('GET');
+    expect(events[0].fields['uri']).toBe('/api');
+    expect(events[0].fields['status']).toBe('200');
+    expect(events[0].fields['_cs-method']).toBeUndefined();
   });
 });
 
