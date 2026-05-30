@@ -62,6 +62,63 @@ describe('applyEvalExpressions — numeric predicates', () => {
   });
 });
 
+describe('applyEvalExpressions — function fidelity', () => {
+  it('typeof returns Number / String / Bool / Invalid', () => {
+    const [r] = applyEvalExpressions(
+      [event({})],
+      [evalDir('t', 'typeof(12) . "," . typeof("hi") . "," . typeof(1==1) . "," . typeof(missing)')],
+    );
+    expect(r.fields['t']).toBe('Number,String,Bool,Invalid');
+  });
+
+  it('like() is case-sensitive', () => {
+    const [hit] = applyEvalExpressions([event({ a: 'Error' })], [evalDir('m', 'if(like(a, "Error"), "y", "n")')]);
+    expect(hit.fields['m']).toBe('y');
+    const [miss] = applyEvalExpressions([event({ a: 'error' })], [evalDir('m', 'if(like(a, "Error"), "y", "n")')]);
+    expect(miss.fields['m']).toBe('n');
+  });
+
+  it('mvindex supports negative indices and NULL-on-out-of-range', () => {
+    const [r] = applyEvalExpressions(
+      [event({})],
+      [evalDir('last', 'mvindex(split("a,b,c", ","), -1)')],
+    );
+    expect(r.fields['last']).toBe('c');
+    const [oor] = applyEvalExpressions(
+      [event({})],
+      [evalDir('x', 'mvindex(split("a,b", ","), 9)')],
+    );
+    expect(oor.fields['x']).toBeUndefined(); // null → field deleted
+  });
+
+  it('max() treats strings as greater than numbers; min() picks the number', () => {
+    const [mx] = applyEvalExpressions([event({})], [evalDir('m', 'max(5, "apple", 10)')]);
+    expect(mx.fields['m']).toBe('apple');
+    const [mn] = applyEvalExpressions([event({})], [evalDir('m', 'min(5, "apple", 10)')]);
+    expect(mn.fields['m']).toBe('5');
+  });
+
+  it('tostring duration zero-pads hours and rolls over days', () => {
+    const [r] = applyEvalExpressions([event({})], [evalDir('d', 'tostring(615, "duration")')]);
+    expect(r.fields['d']).toBe('00:10:15');
+    const [r2] = applyEvalExpressions([event({})], [evalDir('d', 'tostring(90061, "duration")')]);
+    expect(r2.fields['d']).toBe('1+01:01:01');
+  });
+
+  it('tostring commas forces two decimals with thousands separators', () => {
+    const [r] = applyEvalExpressions([event({})], [evalDir('c', 'tostring(1000000.1278, "commas")')]);
+    expect(r.fields['c']).toBe('1,000,000.13');
+  });
+
+  it('random() returns an integer in [0, 2^31)', () => {
+    const [r] = applyEvalExpressions([event({})], [evalDir('r', 'random()')]);
+    const n = Number(r.fields['r']);
+    expect(Number.isInteger(n)).toBe(true);
+    expect(n).toBeGreaterThanOrEqual(0);
+    expect(n).toBeLessThan(2147483648);
+  });
+});
+
 describe('applyEvalExpressions — replace() ReDoS guard', () => {
   it('returns original string for a ReDoS-risky pattern', () => {
     // (a+)+ is the classic ReDoS pattern

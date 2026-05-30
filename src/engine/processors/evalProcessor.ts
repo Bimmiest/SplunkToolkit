@@ -499,20 +499,30 @@ class Parser {
           const format = toStr(args[1]);
           const val = toNum(args[0]);
           if (format === 'hex') return '0x' + Math.floor(val).toString(16);
-          if (format === 'commas') return val.toLocaleString();
+          if (format === 'commas') {
+            // Splunk always shows thousands separators and exactly two decimals.
+            return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          }
           if (format === 'duration') {
-            const h = Math.floor(val / 3600);
-            const m = Math.floor((val % 3600) / 60);
-            const s = Math.floor(val % 60);
-            return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+            const pad = (n: number) => String(n).padStart(2, '0');
+            const total = Math.floor(Math.abs(val));
+            const days = Math.floor(total / 86400);
+            const h = Math.floor((total % 86400) / 3600);
+            const m = Math.floor((total % 3600) / 60);
+            const s = total % 60;
+            const sign = val < 0 ? '-' : '';
+            const hms = `${pad(h)}:${pad(m)}:${pad(s)}`;
+            return days > 0 ? `${sign}${days}+${hms}` : `${sign}${hms}`;
           }
         }
         return toStr(args[0]);
       }
       case 'typeof': {
-        if (args[0] === null) return 'Null';
+        // Splunk returns "Number" | "String" | "Bool" | "Invalid"
+        // (a null / nonexistent field is "Invalid", not a separate null type).
+        if (args[0] === null || args[0] === undefined) return 'Invalid';
         if (typeof args[0] === 'number') return 'Number';
-        if (typeof args[0] === 'boolean') return 'Boolean';
+        if (typeof args[0] === 'boolean') return 'Bool';
         if (Array.isArray(args[0])) return 'MultiValue';
         return 'String';
       }
@@ -544,19 +554,23 @@ class Parser {
       case 'exp': return Math.exp(toNum(args[0]));
       case 'pi': return Math.PI;
       case 'exact': return toNum(args[0]);
-      case 'min': return Math.min(...args.map(toNum));
-      case 'max': return Math.max(...args.map(toNum));
-      case 'random': return Math.random();
+      case 'min': return minMax(args, 'min');
+      case 'max': return minMax(args, 'max');
+      case 'random': return Math.floor(Math.random() * 2147483648); // 0 .. 2^31-1, like Splunk
       case 'sigfig': return toNum(args[0]);
 
       // Multivalue
       case 'mvcount': return toMv(args[0]).length;
       case 'mvindex': {
         const mv = toMv(args[0]);
-        const start = toNum(args[1]);
-        const end = args[2] !== undefined ? toNum(args[2]) : start;
-        if (start === end) return mv[start] ?? null;
-        return mv.slice(start, end + 1);
+        const n = mv.length;
+        // Splunk mvindex is 0-based; negative indices count from the end (-1 = last).
+        const norm = (idx: number) => (idx < 0 ? n + idx : idx);
+        const start = norm(toNum(args[1]));
+        const end = args[2] !== undefined ? norm(toNum(args[2])) : start;
+        // Out-of-range or inverted ranges yield NULL.
+        if (start < 0 || start >= n || end < 0 || end >= n || end < start) return null;
+        return start === end ? mv[start] : mv.slice(start, end + 1);
       }
       case 'mvfilter':
         this.onStubWarning?.('mvfilter');
@@ -615,7 +629,8 @@ class Parser {
           .replace(/[.+*?^${}()|[\]\\]/g, '\\$&')
           .replace(/%/g, '.*')
           .replace(/_/g, '.');
-        const regex = safeRegex(`^${pattern}$`, 'i');
+        // Splunk's like() is case-sensitive.
+        const regex = safeRegex(`^${pattern}$`);
         return regex ? regex.test(value) : false;
       }
       case 'match': {
@@ -630,6 +645,9 @@ class Parser {
         return false;
 
       default:
+        // Unknown or not-yet-simulated function — surface a warning rather than
+        // silently returning null (which looks like the field just didn't compute).
+        this.onStubWarning?.(fn);
         return null;
     }
   }
@@ -683,6 +701,36 @@ function isNumericString(v: EvalValue): boolean {
 function isNumericValue(v: EvalValue): boolean {
   if (typeof v === 'number') return Number.isFinite(v);
   return isNumericString(v);
+}
+
+/**
+ * Splunk ordering for min()/max(): numeric values compare numerically, strings
+ * compare lexicographically, and any number is considered less than any string.
+ * Returns <0 if a<b, >0 if a>b, 0 if equal.
+ */
+function compareEvalValues(a: EvalValue, b: EvalValue): number {
+  const aNum = isNumericValue(a);
+  const bNum = isNumericValue(b);
+  if (aNum && bNum) return Number(a) - Number(b);
+  if (aNum) return -1; // number < string
+  if (bNum) return 1;
+  const as = toStr(a);
+  const bs = toStr(b);
+  return as < bs ? -1 : as > bs ? 1 : 0;
+}
+
+/** min()/max() over scalars and multivalue args, using Splunk's mixed-type ordering. */
+function minMax(args: EvalValue[], which: 'min' | 'max'): EvalValue {
+  const vals = args
+    .flatMap((a) => (Array.isArray(a) ? a : [a]))
+    .filter((v) => v !== null && v !== undefined);
+  if (vals.length === 0) return null;
+  let best = vals[0];
+  for (let i = 1; i < vals.length; i++) {
+    const cmp = compareEvalValues(vals[i], best);
+    if (which === 'min' ? cmp < 0 : cmp > 0) best = vals[i];
+  }
+  return best;
 }
 
 function compare(left: EvalValue, right: EvalValue, op: string): boolean {
