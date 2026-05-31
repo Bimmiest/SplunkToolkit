@@ -291,7 +291,12 @@ function PreviewSubTab() {
       />
 
       {/* Sub-tab content */}
-      <div className="flex-1 min-h-0 overflow-auto">
+      <div
+        className="flex-1 min-h-0 overflow-auto"
+        role="tabpanel"
+        id={`tabpanel-${subTab}`}
+        aria-labelledby={`tab-${subTab}`}
+      >
         {subTab === 'raw' && <RawTab items={paginatedItems} currentPage={currentPage} eventsPerPage={eventsPerPage} search={search} />}
         {subTab === 'highlighted' && <HighlightedTab items={paginatedItems} allEvents={filteredEvents} currentPage={currentPage} eventsPerPage={eventsPerPage} />}
         {subTab === 'diff' && <DiffTab items={paginatedItems} currentPage={currentPage} eventsPerPage={eventsPerPage} />}

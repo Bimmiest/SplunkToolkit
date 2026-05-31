@@ -241,6 +241,7 @@ export function FieldsTab() {
           </svg>
           <input
             type="text"
+            aria-label="Search fields"
             placeholder="Search fields..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -393,7 +394,7 @@ function FieldNameCell({
 
   if (depth === 0) {
     return (
-      <span className="flex items-center gap-1 text-[var(--color-accent)]">
+      <span className="flex items-center gap-1 font-medium text-[var(--color-text-primary)]">
         {isParent && (
           <button
             className="flex items-center justify-center w-4 h-4 rounded hover:bg-[var(--color-bg-tertiary)] cursor-pointer bg-transparent border-none p-0 transition-colors"

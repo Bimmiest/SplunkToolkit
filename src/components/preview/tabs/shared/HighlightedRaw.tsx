@@ -79,28 +79,51 @@ export function HighlightedRaw({
     return <span style={{ opacity: focused ? 0.3 : 1, transition: 'opacity 0.15s' }}>{raw}</span>;
   }
 
-  highlights.sort((a, b) => a.start - b.start || b.end - a.end);
+  // Split the raw text at every highlight boundary, then for each atomic sub-range
+  // render the INNERMOST (smallest) field that covers it. This keeps overlapping /
+  // nested field highlights additive — a field captured inside another still shows
+  // its own colour — instead of the larger span swallowing the smaller one.
+  const bounds = new Set<number>([0, raw.length]);
+  for (const h of highlights) {
+    if (h.start >= 0 && h.start <= raw.length) bounds.add(h.start);
+    if (h.end >= 0 && h.end <= raw.length) bounds.add(h.end);
+  }
+  const cuts = [...bounds].sort((a, b) => a - b);
 
-  const segments: React.ReactNode[] = [];
-  let lastEnd = 0;
+  // Build atomic segments (owner = innermost covering highlight, or null for plain text),
+  // merging contiguous runs that share the same owning field.
+  const atomic: { start: number; end: number; hl: Highlight | null }[] = [];
+  for (let i = 0; i < cuts.length - 1; i++) {
+    const s = cuts[i];
+    const e = cuts[i + 1];
+    if (s >= e) continue;
+    let owner: Highlight | null = null;
+    for (const h of highlights) {
+      if (h.start <= s && h.end >= e && (owner === null || h.end - h.start < owner.end - owner.start)) {
+        owner = h;
+      }
+    }
+    const prev = atomic[atomic.length - 1];
+    if (prev && prev.end === s && (prev.hl?.field ?? null) === (owner?.field ?? null)) {
+      prev.end = e;
+    } else {
+      atomic.push({ start: s, end: e, hl: owner });
+    }
+  }
 
-  for (const hl of highlights) {
-    if (hl.start < lastEnd) continue;
-
-    if (hl.start > lastEnd) {
-      segments.push(
-        <span key={`text-${lastEnd}`} style={{ opacity: focused ? 0.3 : 1, transition: 'opacity 0.15s' }}>
-          {raw.substring(lastEnd, hl.start)}
+  const segments: React.ReactNode[] = atomic.map(({ start, end, hl }) => {
+    const text = raw.substring(start, end);
+    if (!hl) {
+      return (
+        <span key={`text-${start}`} style={{ opacity: focused ? 0.3 : 1, transition: 'opacity 0.15s' }}>
+          {text}
         </span>
       );
     }
-
     const active = isFieldActive(hl.field, activeFields);
-    const value = raw.substring(hl.start, hl.end);
-
-    segments.push(
+    return (
       <span
-        key={`${hl.start}-${hl.field}`}
+        key={`${start}-${hl.field}`}
         style={{
           color: hl.color,
           backgroundColor: active && focused ? hl.color + '20' : 'transparent',
@@ -108,26 +131,16 @@ export function HighlightedRaw({
           transition: 'opacity 0.15s, background-color 0.15s, color 0.15s',
           cursor: 'pointer',
         }}
-        title={titleFor(hl.field, value)}
+        title={titleFor(hl.field, text)}
         className="rounded-sm px-0.5"
         onMouseEnter={() => onFieldHover(hl.field)}
         onMouseLeave={() => onFieldHover(null)}
         onClick={() => onFieldClick(hl.field)}
       >
-        {value}
+        {text}
       </span>
     );
-
-    lastEnd = hl.end;
-  }
-
-  if (lastEnd < raw.length) {
-    segments.push(
-      <span key={`text-${lastEnd}`} style={{ opacity: focused ? 0.3 : 1, transition: 'opacity 0.15s' }}>
-        {raw.substring(lastEnd)}
-      </span>
-    );
-  }
+  });
 
   return <>{segments}</>;
 }

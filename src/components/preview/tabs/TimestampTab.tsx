@@ -10,6 +10,13 @@ interface TimestampTabProps {
   eventsPerPage: number;
 }
 
+// Theme-aware highlight colours (no hard-coded hex — see design system in CLAUDE.md).
+const PREFIX_COLOR = 'var(--color-info)';
+const FORMAT_COLOR = 'var(--color-success)';
+const LOOKAHEAD_COLOR = 'var(--color-error)';
+/** A translucent tint of a CSS-variable colour for highlight backgrounds. */
+const tint = (color: string, pct: number) => `color-mix(in srgb, ${color} ${pct}%, transparent)`;
+
 /** Human-readable descriptions for strftime directives (used by the format breakdown) */
 const DIRECTIVE_DESCRIPTIONS: Record<string, string> = {
   '%Y': '4-digit year',
@@ -256,9 +263,9 @@ export function TimestampTab({ items, currentPage, eventsPerPage }: TimestampTab
       {/* Config summary */}
       <div className="flex-shrink-0 px-3 py-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-          <ConfigValue label="TIME_PREFIX" value={config.timePrefix} color="#3b82f6" />
-          <ConfigValue label="TIME_FORMAT" value={config.timeFormat} color="#22c55e" />
-          <ConfigValue label="MAX_TIMESTAMP_LOOKAHEAD" value={config.maxLookahead.toString()} color="#ef4444" />
+          <ConfigValue label="TIME_PREFIX" value={config.timePrefix} color={PREFIX_COLOR} />
+          <ConfigValue label="TIME_FORMAT" value={config.timeFormat} color={FORMAT_COLOR} />
+          <ConfigValue label="MAX_TIMESTAMP_LOOKAHEAD" value={config.maxLookahead.toString()} color={LOOKAHEAD_COLOR} />
           {config.tz && <ConfigValue label="TZ" value={config.tz} />}
         </div>
         {directives.length > 0 && (
@@ -300,6 +307,7 @@ export function TimestampTab({ items, currentPage, eventsPerPage }: TimestampTab
               </svg>
               <input
                 type="text"
+                aria-label="Search strptime directives"
                 placeholder="Search directives..."
                 value={refSearch}
                 onChange={(e) => setRefSearch(e.target.value)}
@@ -330,15 +338,15 @@ export function TimestampTab({ items, currentPage, eventsPerPage }: TimestampTab
       <div className="flex-shrink-0 px-3 py-1.5 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
         <div className="flex items-center gap-4 text-[10px]">
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-2 rounded-sm" style={{ backgroundColor: '#3b82f640', borderBottom: '2px solid #3b82f6' }} />
+            <span className="w-3 h-2 rounded-sm" style={{ backgroundColor: tint(PREFIX_COLOR, 25), borderBottom: `2px solid ${PREFIX_COLOR}` }} />
             <span className="text-[var(--color-text-muted)]">TIME_PREFIX match</span>
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-2 rounded-sm" style={{ backgroundColor: '#22c55e40', borderBottom: '2px solid #22c55e' }} />
+            <span className="w-3 h-2 rounded-sm" style={{ backgroundColor: tint(FORMAT_COLOR, 25), borderBottom: `2px solid ${FORMAT_COLOR}` }} />
             <span className="text-[var(--color-text-muted)]">TIME_FORMAT match</span>
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="text-[11px] font-bold leading-none" style={{ color: '#ef4444' }}>]</span>
+            <span className="text-[11px] font-bold leading-none" style={{ color: LOOKAHEAD_COLOR }}>]</span>
             <span className="text-[var(--color-text-muted)]">Lookahead boundary</span>
           </span>
         </div>
@@ -426,7 +434,7 @@ function TimestampOverlay({ raw, result, config }: { raw: string; result: Timest
           segments.push(<span key="pre" className="text-[var(--color-text-primary)] opacity-40">{raw.substring(0, pStart)}</span>);
         }
         segments.push(
-          <span key="prefix" style={{ backgroundColor: '#3b82f630', borderBottom: '2px solid #3b82f6' }} className="rounded-sm px-0.5">
+          <span key="prefix" style={{ backgroundColor: tint(PREFIX_COLOR, 19), borderBottom: `2px solid ${PREFIX_COLOR}` }} className="rounded-sm px-0.5">
             {raw.substring(pStart, pEnd)}
           </span>
         );
@@ -436,7 +444,7 @@ function TimestampOverlay({ raw, result, config }: { raw: string; result: Timest
           </span>
         );
         segments.push(
-          <span key="la-marker" style={{ color: '#ef4444', fontWeight: 'bold' }}>]</span>
+          <span key="la-marker" style={{ color: LOOKAHEAD_COLOR, fontWeight: 'bold' }}>]</span>
         );
         if (laEnd < raw.length) {
           segments.push(<span key="post" className="text-[var(--color-text-primary)] opacity-40">{raw.substring(laEnd)}</span>);
@@ -465,7 +473,7 @@ function TimestampOverlay({ raw, result, config }: { raw: string; result: Timest
     segments.push(
       <span
         key="prefix"
-        style={{ backgroundColor: '#3b82f630', borderBottom: '2px solid #3b82f6' }}
+        style={{ backgroundColor: tint(PREFIX_COLOR, 19), borderBottom: `2px solid ${PREFIX_COLOR}` }}
         className="rounded-sm px-0.5"
         title={`TIME_PREFIX: ${config.timePrefix}`}
       >
@@ -489,7 +497,7 @@ function TimestampOverlay({ raw, result, config }: { raw: string; result: Timest
   segments.push(
     <span
       key="ts"
-      style={{ backgroundColor: '#22c55e35', borderBottom: '2px solid #22c55e' }}
+      style={{ backgroundColor: tint(FORMAT_COLOR, 21), borderBottom: `2px solid ${FORMAT_COLOR}` }}
       className="rounded-sm px-0.5"
       title={`TIME_FORMAT: ${config.timeFormat}\nParsed: ${result.parsedTime?.toISOString() ?? 'failed'}`}
     >
@@ -504,7 +512,7 @@ function TimestampOverlay({ raw, result, config }: { raw: string; result: Timest
       <span key="post-ts-la">
         {raw.substring(cursor, result.lookaheadEnd)}
       </span>,
-      <span key="la-marker" style={{ color: '#ef4444', fontWeight: 'bold' }}>]</span>
+      <span key="la-marker" style={{ color: LOOKAHEAD_COLOR, fontWeight: 'bold' }}>]</span>
     );
     cursor = result.lookaheadEnd;
   }

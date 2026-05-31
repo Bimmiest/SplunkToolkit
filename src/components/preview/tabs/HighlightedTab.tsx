@@ -98,12 +98,12 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
         const isAuto = autoFields.has(key);
         const isManual = manualFields.has(key);
         const isCalc = calcFields.has(key);
-        if (!isAuto && !isManual && !isCalc) continue;
-        // EVAL wins over earlier extractors: calc > manual > auto
-        const effectiveCategory: FieldFilter = isCalc ? 'calc' : isManual ? 'manual' : 'auto';
-        if (effectiveCategory === 'auto' && !includeAuto) continue;
-        if (effectiveCategory === 'manual' && !includeManual) continue;
-        if (effectiveCategory === 'calc' && !includeCalc) continue;
+        // Membership, not single-bucket: a field extracted (manual) and then
+        // overwritten by EVAL (calc) belongs to BOTH categories, so it must show
+        // under each of their filters — and stay consistent with the filter counts.
+        const inSelectedFilter =
+          (includeAuto && isAuto) || (includeManual && isManual) || (includeCalc && isCalc);
+        if (!inSelectedFilter) continue;
         if (!map.has(key)) {
           map.set(key, FIELD_COLORS[colorIdx % FIELD_COLORS.length]);
           colorIdx++;

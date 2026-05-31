@@ -194,6 +194,7 @@ export function RegexTab({ items, currentPage, eventsPerPage }: RegexTabProps) {
         </div>
         <input
           type="text"
+          aria-label="Regular expression pattern"
           placeholder="(?P<field_name>\d+\.\d+\.\d+\.\d+)..."
           value={pattern}
           onChange={(e) => setPattern(e.target.value)}
@@ -233,6 +234,7 @@ export function RegexTab({ items, currentPage, eventsPerPage }: RegexTabProps) {
             <span className="text-xs text-[var(--color-text-muted)]">EXTRACT-</span>
             <input
               type="text"
+              aria-label="EXTRACT class name"
               value={className}
               onChange={(e) => setClassName(e.target.value.replace(/\s/g, '_'))}
               className="px-1.5 py-0.5 text-xs font-mono rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent)] w-32"
@@ -281,6 +283,7 @@ export function RegexTab({ items, currentPage, eventsPerPage }: RegexTabProps) {
               </svg>
               <input
                 type="text"
+                aria-label="Search patterns"
                 placeholder="Search patterns..."
                 value={refSearch}
                 onChange={(e) => setRefSearch(e.target.value)}

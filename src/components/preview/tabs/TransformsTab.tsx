@@ -6,11 +6,16 @@ import { Tooltip } from '../../ui/Tooltip';
 interface StepSummary {
   processor: string;
   phase: 'index-time' | 'search-time';
-  description: string;
+  /** Distinct per-event descriptions, in first-seen order. */
+  descriptions: string[];
   eventsAffected: number;
   totalEvents: number;
   fieldsAdded: string[];
 }
+
+// Strip a trailing "(…)" detail (e.g. "(lines 1-1)") so per-event variants of an
+// index-time step collapse to one representative summary line.
+const stripDetail = (d: string) => d.replace(/\s*\([^)]*\)\s*$/, '');
 
 export function TransformsTab() {
   const result = useAppStore((s) => s.processingResult);
@@ -19,39 +24,40 @@ export function TransformsTab() {
     if (!result) return { indexTime: [] as StepSummary[], searchTime: [] as StepSummary[] };
 
     const totalEvents = result.events.length;
-    const stepMap = new Map<string, StepSummary>();
+    // Group by processor (not processor+description) so index-time steps with
+    // per-event descriptions collapse into one row per processor, consistent with
+    // the search-time section. Distinct event count and per-event detail are kept.
+    const stepMap = new Map<string, StepSummary & { events: Set<number> }>();
 
-    for (const event of result.events) {
+    result.events.forEach((event, eventIdx) => {
       for (const step of event.processingTrace) {
-        const key = `${step.processor}:${step.description}`;
-        const existing = stepMap.get(key);
-        if (existing) {
-          existing.eventsAffected++;
-          if (step.fieldsAdded) {
-            for (const f of step.fieldsAdded) {
-              if (!existing.fieldsAdded.includes(f)) {
-                existing.fieldsAdded.push(f);
-              }
-            }
-          }
-        } else {
-          stepMap.set(key, {
+        let entry = stepMap.get(step.processor);
+        if (!entry) {
+          entry = {
             processor: step.processor,
             phase: step.phase,
-            description: step.description,
-            eventsAffected: 1,
+            descriptions: [],
+            eventsAffected: 0,
             totalEvents,
-            fieldsAdded: step.fieldsAdded ? [...step.fieldsAdded] : [],
-          });
+            fieldsAdded: [],
+            events: new Set<number>(),
+          };
+          stepMap.set(step.processor, entry);
+        }
+        entry.events.add(eventIdx);
+        if (!entry.descriptions.includes(step.description)) entry.descriptions.push(step.description);
+        for (const f of step.fieldsAdded ?? []) {
+          if (!entry.fieldsAdded.includes(f)) entry.fieldsAdded.push(f);
         }
       }
-    }
+    });
 
     const indexTime: StepSummary[] = [];
     const searchTime: StepSummary[] = [];
-    for (const s of stepMap.values()) {
-      if (s.phase === 'index-time') indexTime.push(s);
-      else searchTime.push(s);
+    for (const { events, ...s } of stepMap.values()) {
+      const step: StepSummary = { ...s, eventsAffected: events.size };
+      if (step.phase === 'index-time') indexTime.push(step);
+      else searchTime.push(step);
     }
 
     return { indexTime, searchTime };
@@ -113,9 +119,31 @@ function StepSection({ title, steps, phaseColor }: { title: string; steps: StepS
                   ({step.eventsAffected}/{step.totalEvents} events)
                 </span>
               </div>
-              <div className="text-xs text-[var(--color-text-secondary)] mt-0.5">
-                {step.description}
-              </div>
+              {(() => {
+                const reps = [...new Set(step.descriptions.map(stripDetail))];
+                const summaryText = reps.length === 1 ? reps[0] : step.descriptions[0];
+                return (
+                  <>
+                    <div className="text-xs text-[var(--color-text-secondary)] mt-0.5">
+                      {summaryText}
+                    </div>
+                    {step.descriptions.length > 1 && (
+                      <details className="mt-1">
+                        <summary className="text-[10px] text-[var(--color-text-muted)] cursor-pointer hover:text-[var(--color-text-secondary)] transition-colors select-none">
+                          Per-event detail ({step.descriptions.length})
+                        </summary>
+                        <ul className="mt-1 space-y-0.5">
+                          {step.descriptions.map((d, i) => (
+                            <li key={i} className="text-[11px] text-[var(--color-text-muted)] pl-2 border-l border-[var(--color-border-subtle)]">
+                              {d}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                  </>
+                );
+              })()}
               {step.fieldsAdded.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-1">
                   {step.fieldsAdded.map((f) => (

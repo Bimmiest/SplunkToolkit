@@ -54,6 +54,7 @@ export function FieldSidebar({
           </svg>
           <input
             type="text"
+            aria-label="Filter fields"
             placeholder="Filter fields..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}

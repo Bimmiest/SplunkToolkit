@@ -33,38 +33,42 @@ export function MetadataPanel() {
         <span className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">Metadata</span>
       </button>
       {!collapsed && (
-        <div className="grid grid-cols-2 gap-x-3 gap-y-2 px-3 pb-3">
-          {metadataFields.map(({ key, label, hint }) => (
-            <div key={key} className="flex flex-col gap-1">
-              <div className="flex items-center gap-1">
-                <label
-                  htmlFor={`metadata-${key}`}
-                  className="text-[10px] font-semibold uppercase tracking-wider"
-                  style={{ color: 'var(--color-text-muted)' }}
-                >
-                  {label}
-                </label>
-                <Tooltip content={hint} side="top">
-                  <button
-                    type="button"
-                    className="text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors p-0 border-none bg-transparent cursor-default"
-                    aria-label={`Info about ${label}`}
+        <div className="flex flex-col gap-1.5 px-3 pb-3">
+          {metadataFields.map(({ key, label, hint }) => {
+            // sourcetype drives [stanza] matching — emphasise it over the others.
+            const emphasized = key === 'sourcetype';
+            return (
+              <div key={key} className="flex items-center gap-2">
+                <div className="w-24 shrink-0 flex items-center gap-1">
+                  <label
+                    htmlFor={`metadata-${key}`}
+                    className="text-[10px] font-semibold uppercase tracking-wider truncate"
+                    style={{ color: emphasized ? 'var(--color-accent)' : 'var(--color-text-muted)' }}
                   >
-                    <Icon name="info" className="w-3 h-3 opacity-60" />
-                  </button>
-                </Tooltip>
+                    {label}
+                  </label>
+                  <Tooltip content={hint} side="top">
+                    <button
+                      type="button"
+                      className="text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors p-0 border-none bg-transparent cursor-default shrink-0"
+                      aria-label={`Info about ${label}`}
+                    >
+                      <Icon name="info" className="w-3 h-3 opacity-60" />
+                    </button>
+                  </Tooltip>
+                </div>
+                <input
+                  id={`metadata-${key}`}
+                  type="text"
+                  value={metadata[key]}
+                  onChange={(e) => setMetadataField(key, e.target.value)}
+                  placeholder={key === 'index' ? 'main' : key}
+                  spellCheck={false}
+                  className="flex-1 min-w-0 px-2 py-1 text-xs font-mono rounded-md outline-none bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] border border-[var(--color-border)] focus:border-[var(--color-accent)] transition-colors"
+                />
               </div>
-              <input
-                id={`metadata-${key}`}
-                type="text"
-                value={metadata[key]}
-                onChange={(e) => setMetadataField(key, e.target.value)}
-                placeholder={key === 'index' ? 'main' : key}
-                spellCheck={false}
-                className="w-full px-2 py-1.5 text-xs font-mono rounded-md outline-none bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] border border-[var(--color-border)] focus:border-[var(--color-accent)] transition-colors"
-              />
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

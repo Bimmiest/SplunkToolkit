@@ -82,6 +82,7 @@ export function MultiSelect({ label, options, selected, onChange, searchable }: 
                 <input
                   ref={searchRef}
                   type="text"
+                  aria-label={`Filter ${label} options`}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Filter…"

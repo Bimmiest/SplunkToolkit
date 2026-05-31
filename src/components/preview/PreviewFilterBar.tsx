@@ -42,6 +42,7 @@ export function PreviewFilterBar({
         />
         <input
           type="text"
+          aria-label="Search events"
           placeholder="Search events…"
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}

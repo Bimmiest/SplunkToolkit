@@ -1,6 +1,7 @@
 import { useAppStore } from '../../store/useAppStore';
 import { Badge } from '../ui/Badge';
 import { Icon } from '../ui/Icon';
+import { getEditor } from '../editor/editorRegistry';
 import type { ValidationDiagnostic } from '../../engine/types';
 
 export function ValidationPanel({ embedded }: { embedded?: boolean }) {
@@ -71,9 +72,21 @@ function ValidationItem({ diagnostic }: { diagnostic: ValidationDiagnostic }) {
         <div className="flex items-center gap-2 mt-0.5">
           <span className="text-xs text-[var(--color-text-muted)]">{diagnostic.file}</span>
           {diagnostic.line !== undefined && (
-            <span className="text-xs text-[var(--color-accent)] cursor-pointer hover:underline">
+            <button
+              type="button"
+              onClick={() => {
+                const ed = getEditor(diagnostic.file);
+                if (!ed || diagnostic.line === undefined) return;
+                ed.focus();
+                requestAnimationFrame(() => {
+                  ed.setPosition({ lineNumber: diagnostic.line!, column: 1 });
+                  ed.revealLineInCenter(diagnostic.line!);
+                });
+              }}
+              className="text-xs text-[var(--color-accent)] cursor-pointer hover:underline bg-transparent border-none p-0"
+            >
               line {diagnostic.line}
-            </span>
+            </button>
           )}
           {diagnostic.directiveKey && (
             <span className="text-xs font-mono text-[var(--color-text-muted)]">{diagnostic.directiveKey}</span>
