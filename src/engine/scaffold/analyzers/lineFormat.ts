@@ -3,6 +3,16 @@ import type { Confidence, ScaffoldSuggestion } from '../types';
 /**
  * Detect the line/event format and propose the matching props.conf directives
  * (KV_MODE / INDEXED_EXTRACTIONS / LINE_BREAKER / SHOULD_LINEMERGE).
+ *
+ * Precedent — INDEXED_EXTRACTIONS vs KV_MODE (Splunk guidance: prefer search-time
+ * extraction unless index-time is specifically needed):
+ *   • Delimited files (CSV / TSV / PSV / W3C) → INDEXED_EXTRACTIONS. They require
+ *     index-time structured parsing; there is no search-time KV_MODE equivalent.
+ *   • JSON / XML / key=value → KV_MODE (search-time). Flexible, no index bloat, no
+ *     extra storage/license cost. We deliberately do NOT propose
+ *     INDEXED_EXTRACTIONS=json — and never both (that double-extracts and
+ *     duplicates field values). Index-time JSON is a niche choice (e.g. tstats /
+ *     accelerated data models) left to the engineer.
  */
 export function detectLineFormat(rawData: string, lines: string[]): ScaffoldSuggestion[] {
   const nonBlank = lines.filter((l) => l.trim().length > 0);
@@ -20,7 +30,7 @@ export function detectLineFormat(rawData: string, lines: string[]): ScaffoldSugg
     return [
       { key: 'LINE_BREAKER', value: '([\\r\\n]+)', confidence: 'medium', evidence: 'One JSON object per line — break on newlines', enabledByDefault: true },
       { key: 'SHOULD_LINEMERGE', value: 'false', confidence: 'high', evidence: 'JSON events are a single line each; do not merge', enabledByDefault: true },
-      { key: 'KV_MODE', value: 'json', confidence: jsonRatio === 1 ? 'high' : 'medium', evidence: `${jsonLines}/${nonBlank.length} lines parse as JSON`, enabledByDefault: true },
+      { key: 'KV_MODE', value: 'json', confidence: jsonRatio === 1 ? 'high' : 'medium', evidence: `${jsonLines}/${nonBlank.length} lines parse as JSON — search-time KV_MODE preferred over INDEXED_EXTRACTIONS (no index bloat)`, enabledByDefault: true },
     ];
   }
 
@@ -37,7 +47,7 @@ export function detectLineFormat(rawData: string, lines: string[]): ScaffoldSugg
   // Delimited (CSV / TSV / PSV).
   const delim = detectDelimiter(nonBlank);
   if (delim) {
-    return [{ key: 'INDEXED_EXTRACTIONS', value: delim.format, confidence: delim.confidence, evidence: delim.evidence, enabledByDefault: true }];
+    return [{ key: 'INDEXED_EXTRACTIONS', value: delim.format, confidence: delim.confidence, evidence: `${delim.evidence} — delimited files use index-time structured extraction`, enabledByDefault: true }];
   }
 
   // Whitespace-indented continuation lines → merge into the preceding event.

@@ -19,7 +19,9 @@ export function scaffoldConfig(rawData: string, metadata: EventMetadata): Scaffo
     ...detectTruncate(lines),
   ];
 
-  // Structured (indexed) extraction supersedes search-time KV_MODE — never both.
+  // Never propose INDEXED_EXTRACTIONS and KV_MODE together: applying both
+  // double-extracts and duplicates field values. When a delimited (index-time)
+  // extraction is detected it wins; otherwise KV_MODE (search-time) stands.
   if (suggestions.some((s) => s.key === 'INDEXED_EXTRACTIONS')) {
     suggestions = suggestions.filter((s) => s.key !== 'KV_MODE');
   }
