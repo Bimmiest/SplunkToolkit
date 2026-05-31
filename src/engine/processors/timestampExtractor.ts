@@ -8,7 +8,7 @@ import { parseTimestamp, strftimeToRegex } from '../../utils/strftime';
  * ordered most-specific first so an ISO 8601 timestamp with a zone offset is
  * preferred over a variant without one (and over a bare date).
  */
-const AUTO_TIME_FORMATS = [
+export const AUTO_TIME_FORMATS = [
   '%Y-%m-%dT%H:%M:%S.%3N%z',
   '%Y-%m-%dT%H:%M:%S%z',
   '%Y-%m-%dT%H:%M:%S.%3N',
