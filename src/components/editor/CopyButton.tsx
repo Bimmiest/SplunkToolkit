@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Tooltip } from '../ui/Tooltip';
+import { copyToClipboard } from '../../utils/clipboard';
 
 interface CopyButtonProps {
   getText: () => string;
@@ -9,23 +10,9 @@ export function CopyButton({ getText }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(getText());
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Fallback for insecure contexts
-      const textarea = document.createElement('textarea');
-      textarea.value = getText();
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+    await copyToClipboard(getText());
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }, [getText]);
 
   return (
