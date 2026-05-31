@@ -4,6 +4,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { MetadataPanel } from '../metadata/MetadataPanel';
 import { Icon } from '../ui/Icon';
 import { ClearButton } from '../editor/ClearButton';
+import { ensureSplunkMonaco } from '../editor/splunkMonacoSetup';
 
 export function RawPanel() {
   const rawData = useAppStore((s) => s.rawData);
@@ -38,6 +39,7 @@ export function RawPanel() {
           language="plaintext"
           value={rawData}
           onChange={(val) => setRawData(val ?? '')}
+          beforeMount={ensureSplunkMonaco}
           theme={theme === 'dark' ? 'splunk-dark' : 'splunk-light'}
           options={{
             minimap: { enabled: false },
