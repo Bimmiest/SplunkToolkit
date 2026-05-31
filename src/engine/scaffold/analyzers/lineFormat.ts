@@ -34,13 +34,21 @@ export function detectLineFormat(rawData: string, lines: string[]): ScaffoldSugg
     ];
   }
 
-  // A single multi-line JSON object.
+  // Multiple newline-separated multi-line JSON objects (`}` … `{` across lines).
+  // Each object spans several lines, so the per-line JSON check above misses them.
   const trimmed = rawData.trim();
+  if (trimmed.startsWith('{') && /\}\s*[\r\n]+\s*\{/.test(rawData)) {
+    return [
+      { key: 'LINE_BREAKER', value: '([\\r\\n]+)(?=\\{)', confidence: 'medium', evidence: 'Multiple newline-separated JSON objects — break before each one', enabledByDefault: true },
+      { key: 'SHOULD_LINEMERGE', value: 'false', confidence: 'medium', evidence: 'Events are delimited by the LINE_BREAKER, not merged', enabledByDefault: true },
+      { key: 'KV_MODE', value: 'json', confidence: 'medium', evidence: 'JSON payload', enabledByDefault: true },
+    ];
+  }
+
+  // A single multi-line JSON object — one event, so no LINE_BREAKER is needed.
   if (nonBlank.length > 1 && trimmed.startsWith('{') && tryParse(trimmed)) {
     return [
-      { key: 'LINE_BREAKER', value: '([\\r\\n]+)(?=\\{)', confidence: 'medium', evidence: 'Input is a multi-line JSON object', enabledByDefault: true },
-      { key: 'SHOULD_LINEMERGE', value: 'false', confidence: 'medium', evidence: 'Break before each new JSON object', enabledByDefault: true },
-      { key: 'KV_MODE', value: 'json', confidence: 'medium', evidence: 'JSON payload', enabledByDefault: true },
+      { key: 'KV_MODE', value: 'json', confidence: 'medium', evidence: 'Single multi-line JSON object — search-time extraction', enabledByDefault: true },
     ];
   }
 
@@ -84,6 +92,9 @@ function countChar(line: string, ch: string): number {
 }
 
 function detectDelimiter(lines: string[]): { format: string; confidence: Confidence; evidence: string } | null {
+  // Delimited detection needs a header plus at least one data row; a single
+  // comma-containing line (e.g. prose) must not be mistaken for CSV.
+  if (lines.length < 2) return null;
   const candidates: Array<[string, string]> = [[',', 'csv'], ['\t', 'tsv'], ['|', 'psv']];
   const sample = lines.slice(0, 50);
   let best: { format: string; confidence: Confidence; evidence: string; score: number } | null = null;

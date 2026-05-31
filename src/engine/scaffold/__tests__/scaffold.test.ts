@@ -31,6 +31,26 @@ describe('detectLineFormat', () => {
     expect(byKey(out, 'INDEXED_EXTRACTIONS')?.value).toBe('csv');
   });
 
+  it('detects multiple newline-separated multi-line JSON objects', () => {
+    const raw = '{\n  "a": 1\n}\n{\n  "a": 2\n}';
+    const out = detectLineFormat(raw, splitLines(raw));
+    expect(byKey(out, 'LINE_BREAKER')?.value).toBe('([\\r\\n]+)(?=\\{)');
+    expect(byKey(out, 'SHOULD_LINEMERGE')?.value).toBe('false');
+    expect(byKey(out, 'KV_MODE')?.value).toBe('json');
+  });
+
+  it('a single multi-line JSON object gets KV_MODE=json but no LINE_BREAKER', () => {
+    const raw = '{\n  "a": 1,\n  "b": 2\n}';
+    const out = detectLineFormat(raw, splitLines(raw));
+    expect(byKey(out, 'KV_MODE')?.value).toBe('json');
+    expect(byKey(out, 'LINE_BREAKER')).toBeUndefined();
+  });
+
+  it('does not mistake a single comma-containing line for CSV', () => {
+    const raw = 'this is a sentence, with commas, but not csv';
+    expect(byKey(detectLineFormat(raw, splitLines(raw)), 'INDEXED_EXTRACTIONS')).toBeUndefined();
+  });
+
   it('detects whitespace continuation lines → line merge', () => {
     const raw = 'ERROR something failed\n    at foo()\n    at bar()\nERROR next';
     const out = detectLineFormat(raw, splitLines(raw));

@@ -4,6 +4,7 @@ import { scaffoldConfig } from '../../engine/scaffold/scaffoldConfig';
 import { renderStanza, appendStanza } from '../../engine/scaffold/serialize';
 import type { Confidence, ScaffoldSuggestion } from '../../engine/scaffold/types';
 import { computeDiff } from '../../utils/diffEngine';
+import { escapeRegex } from '../../utils/splunkRegex';
 import { Icon } from '../ui/Icon';
 import { Badge } from '../ui/Badge';
 
@@ -50,6 +51,7 @@ export function ScaffoldModal() {
   const chosen: ScaffoldSuggestion[] = result.suggestions.filter((s) => selected[s.key]);
   const mergedProps = chosen.length > 0 ? appendStanza(propsConf, renderStanza(stanzaName, chosen)) : propsConf;
   const diff = computeDiff(propsConf, mergedProps);
+  const stanzaExists = new RegExp(`^[ \\t]*\\[${escapeRegex(stanzaName)}\\][ \\t]*$`, 'm').test(propsConf);
 
   const canApply = chosen.length > 0;
 
@@ -132,6 +134,19 @@ export function ScaffoldModal() {
                   />
                 ))}
               </div>
+
+              {stanzaExists && chosen.length > 0 && (
+                <div
+                  className="flex items-start gap-2 px-3 py-2 rounded-md text-xs"
+                  style={{ backgroundColor: 'rgba(245, 158, 11, 0.12)', color: 'var(--color-warning)' }}
+                >
+                  <Icon name="warning" className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>
+                    A <code className="font-mono">[{stanzaName}]</code> stanza already exists in props.conf — these directives
+                    will be appended as a <strong>second</strong> stanza. Consider merging them into the existing one.
+                  </span>
+                </div>
+              )}
 
               {/* Diff preview */}
               <div>
