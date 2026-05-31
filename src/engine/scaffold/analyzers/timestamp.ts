@@ -50,11 +50,10 @@ export function detectTimestamp(lines: string[]): ScaffoldSuggestion[] {
   ];
 
   const matchEnd = best.match.index + best.match[0].length;
+  const tsLen = best.match[0].length;
   const prefix = derivePrefix(best.line.slice(0, best.match.index));
 
   if (prefix) {
-    // A stable key/delimiter boundary right before the timestamp. Splunk searches
-    // for the timestamp immediately after it, so no large lookahead is needed.
     out.push({
       key: 'TIME_PREFIX',
       value: escapeRegex(prefix),
@@ -62,13 +61,24 @@ export function detectTimestamp(lines: string[]): ScaffoldSuggestion[] {
       evidence: `Timestamp follows the literal "${prefix}"`,
       enabledByDefault: true,
     });
-  } else if (matchEnd > 128) {
-    // No stable prefix and the timestamp sits past the 128-char default window.
+    // MAX_TIMESTAMP_LOOKAHEAD is measured from AFTER the TIME_PREFIX match, so cap
+    // it to the timestamp length — Splunk stops scanning once the timestamp is read.
+    // Splunk recommends this as an indexing-performance best practice.
+    out.push({
+      key: 'MAX_TIMESTAMP_LOOKAHEAD',
+      value: String(tsLen + 1),
+      confidence: 'medium',
+      evidence: `Timestamp is ${tsLen} characters; cap the search just past TIME_PREFIX for indexing performance`,
+      enabledByDefault: true,
+    });
+  } else {
+    // No prefix → lookahead counts from the start of the event. Cap it near the
+    // timestamp's end so Splunk doesn't scan the whole 128-character default window.
     out.push({
       key: 'MAX_TIMESTAMP_LOOKAHEAD',
       value: String(matchEnd + 10),
       confidence,
-      evidence: `Timestamp ends near character ${matchEnd} with no stable prefix`,
+      evidence: `Timestamp ends near character ${matchEnd}; cap the search there for indexing performance`,
       enabledByDefault: true,
     });
   }

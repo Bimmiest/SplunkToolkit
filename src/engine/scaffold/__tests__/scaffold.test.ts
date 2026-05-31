@@ -75,8 +75,8 @@ describe('detectTimestamp', () => {
     // The prefix is the eventTime key boundary — not the (per-event) Alice/Bob values.
     expect(byKey(out, 'TIME_PREFIX')?.value).toBe('"eventTime":"');
     expect(byKey(out, 'TIME_PREFIX')?.value).not.toContain('Alice');
-    // With a stable prefix, no oversized MAX_TIMESTAMP_LOOKAHEAD is emitted.
-    expect(byKey(out, 'MAX_TIMESTAMP_LOOKAHEAD')).toBeUndefined();
+    // Lookahead is capped to the timestamp length (19) + 1, measured after the prefix.
+    expect(byKey(out, 'MAX_TIMESTAMP_LOOKAHEAD')?.value).toBe('20');
   });
 
   it('recognises leading epoch as %s', () => {
