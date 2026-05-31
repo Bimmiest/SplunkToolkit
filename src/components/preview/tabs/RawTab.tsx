@@ -2,6 +2,8 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../../store/useAppStore';
 import type { EnrichedEvent } from '../PreviewPanel';
 import type { EventMetadata, SplunkEvent } from '../../../engine/types';
+import { EventContextMenu } from './shared/EventContextMenu';
+import { SelectableRaw, type RawSelection } from './shared/SelectableRaw';
 
 const MAX_COLLAPSED_HEIGHT = 300;
 
@@ -76,6 +78,12 @@ function EventRow({ item, globalIdx, originalMetadata, search }: { item: Enriche
 
   const [metaExpanded, setMetaExpanded] = useState(false);
 
+  // React-controlled token selection (Raw view only; search uses the dimming
+  // highlighter). The picked substring drives the scaffold-from-selection menu.
+  const [selection, setSelection] = useState<RawSelection | null>(null);
+  const searching = search.trim().length > 0;
+  const selectedText = !searching && selection ? event._raw.slice(selection.start, selection.end) : '';
+
   const preRef = useRef<HTMLPreElement>(null);
   const [overflows, setOverflows] = useState(false);
   useLayoutEffect(() => {
@@ -86,6 +94,7 @@ function EventRow({ item, globalIdx, originalMetadata, search }: { item: Enriche
   }, [event._raw, search, expanded]);
 
   return (
+    <EventContextMenu event={event} selectionText={selectedText}>
     <div
       className={`border rounded ${isDropped ? 'border-red-500/40 opacity-60' : 'border-[var(--color-border)]'} bg-[var(--color-bg-secondary)]`}
     >
@@ -137,7 +146,9 @@ function EventRow({ item, globalIdx, originalMetadata, search }: { item: Enriche
         className="p-3 text-xs font-mono whitespace-pre-wrap break-all text-[var(--color-text-primary)] overflow-x-auto"
         style={{ maxHeight: expanded ? undefined : MAX_COLLAPSED_HEIGHT }}
       >
-        <SearchHighlightedRaw raw={event._raw} search={search} />
+        {searching
+          ? <SearchHighlightedRaw raw={event._raw} search={search} />
+          : <SelectableRaw raw={event._raw} selection={selection} onChange={setSelection} />}
       </pre>
       {overflows && (
         <button
@@ -217,6 +228,7 @@ function EventRow({ item, globalIdx, originalMetadata, search }: { item: Enriche
         </>
       )}
     </div>
+    </EventContextMenu>
   );
 }
 

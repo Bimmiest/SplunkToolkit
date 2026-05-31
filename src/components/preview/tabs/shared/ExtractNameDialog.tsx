@@ -1,0 +1,163 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { buildExtractFromSelection } from '../../../../engine/scaffold/fromSelection';
+import { safeRegex } from '../../../../utils/splunkRegex';
+import { DirectiveDialog } from './DirectiveDialog';
+
+type Capture =
+  | { state: 'empty' }
+  | { state: 'invalid' }
+  | { state: 'nomatch' }
+  | { state: 'nogroup'; full: string }
+  | { state: 'ok'; groups: [string, string][] };
+
+/** Run a candidate EXTRACT regex against the event raw, mirroring pipeline behavior. */
+function runCapture(pattern: string, raw: string): Capture {
+  const p = pattern.trim();
+  if (!p) return { state: 'empty' };
+  const re = safeRegex(p); // non-global → first match, like inline EXTRACT
+  if (!re) return { state: 'invalid' };
+  const m = re.exec(raw);
+  if (!m) return { state: 'nomatch' };
+  const groups = m.groups
+    ? (Object.entries(m.groups).filter(([, v]) => v !== undefined) as [string, string][])
+    : [];
+  if (groups.length === 0) return { state: 'nogroup', full: m[0] };
+  return { state: 'ok', groups };
+}
+
+const cleanFieldName = (s: string) => s.trim().replace(/\s+/g, '_');
+
+/**
+ * In-app dialog for "Create EXTRACT from selection". The field name and the regex
+ * pattern are both editable; the pattern stays derived from the field name until the
+ * user edits it directly. A live capture runs the pattern against this event's raw
+ * (via the engine's safeRegex) so you can see exactly what it grabs before applying.
+ */
+export function ExtractNameDialog({
+  raw,
+  selection,
+  stanza,
+  onApply,
+  onClose,
+}: {
+  raw: string;
+  selection: string;
+  stanza: string;
+  onApply: (key: string, value: string) => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState('new_field');
+  const [pattern, setPattern] = useState(() => buildExtractFromSelection(raw, selection, 'new_field')?.value ?? '');
+  const [patternDirty, setPatternDirty] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  const onNameChange = (v: string) => {
+    setName(v);
+    // Keep the generated pattern (and its named group) in sync until the user takes
+    // manual control of the regex.
+    if (!patternDirty) {
+      const regen = buildExtractFromSelection(raw, selection, cleanFieldName(v) || 'field');
+      setPattern(regen?.value ?? '');
+    }
+  };
+
+  const cleanName = cleanFieldName(name) || 'field';
+  const capture = useMemo(() => runCapture(pattern, raw), [pattern, raw]);
+  const valid = pattern.trim().length > 0 && capture.state !== 'invalid';
+
+  return (
+    <DirectiveDialog
+      title="Create EXTRACT from selection"
+      applyLabel="Add EXTRACT"
+      applyDisabled={!valid}
+      onApply={() => { if (valid) { onApply(`EXTRACT-${cleanName}`, pattern.trim()); onClose(); } }}
+      onClose={onClose}
+    >
+      <div>
+        <label htmlFor="extract-field-name" className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-text-secondary)' }}>
+          Field name
+        </label>
+        <input
+          id="extract-field-name"
+          ref={inputRef}
+          type="text"
+          value={name}
+          onChange={(e) => onNameChange(e.target.value)}
+          spellCheck={false}
+          className="mt-1 w-full px-2.5 py-1.5 rounded-md text-sm font-mono outline-none bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] border border-[var(--color-border)] focus:border-[var(--color-accent)]"
+        />
+      </div>
+
+      <div>
+        <label htmlFor="extract-pattern" className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-text-secondary)' }}>
+          Regex
+        </label>
+        <input
+          id="extract-pattern"
+          type="text"
+          value={pattern}
+          onChange={(e) => { setPattern(e.target.value); setPatternDirty(true); }}
+          spellCheck={false}
+          className="mt-1 w-full px-2.5 py-1.5 rounded-md text-sm font-mono outline-none bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] border border-[var(--color-border)] focus:border-[var(--color-accent)]"
+        />
+      </div>
+
+      <CapturePreview capture={capture} />
+
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+          Adds to <code className="font-mono">[{stanza}]</code>
+        </div>
+        <pre
+          className="text-xs font-mono rounded border p-2 overflow-x-auto whitespace-pre-wrap break-all"
+          style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-secondary)' }}
+        >
+          {pattern.trim() ? `EXTRACT-${cleanName} = ${pattern.trim()}` : 'Enter a regex…'}
+        </pre>
+      </div>
+    </DirectiveDialog>
+  );
+}
+
+function CapturePreview({ capture }: { capture: Capture }) {
+  if (capture.state === 'empty') return null;
+
+  const note = (color: string, text: string) => (
+    <div className="text-xs font-medium" style={{ color }}>{text}</div>
+  );
+
+  if (capture.state === 'invalid') return note('var(--color-error)', "Invalid regex — won't compile");
+  if (capture.state === 'nomatch') return note('var(--color-warning)', 'No match in this event');
+  if (capture.state === 'nogroup') {
+    return (
+      <div className="text-xs" style={{ color: 'var(--color-warning)' }}>
+        Matches <span className="font-mono" style={{ color: 'var(--color-text-primary)' }}>{capture.full}</span>, but has no named group — add <span className="font-mono">(?&lt;name&gt;…)</span>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+        Captures in this event
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {capture.groups.map(([k, v]) => (
+          <span key={k} className="text-xs font-mono px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--color-bg-tertiary)', color: 'var(--color-text-primary)' }}>
+            <span style={{ color: 'var(--color-success)' }}>{k}</span>
+            <span style={{ color: 'var(--color-text-muted)' }}> = </span>
+            {v === '' ? <span style={{ color: 'var(--color-text-muted)' }}>(empty)</span> : v}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}

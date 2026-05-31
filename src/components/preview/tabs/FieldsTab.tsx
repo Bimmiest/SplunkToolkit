@@ -1,5 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useAppStore } from '../../../store/useAppStore';
+import { copyToClipboard } from '../../../utils/clipboard';
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuLabel } from '../../ui/ContextMenu';
 
 type SortKey = 'name' | 'count' | 'distinct' | 'source' | 'aliases' | 'values';
 type SortDir = 'asc' | 'desc';
@@ -314,7 +316,9 @@ export function FieldsTab() {
                   ? fieldSummary.filter((f) => f.parentName === field.name).length
                   : 0;
                 return (
-              <tr key={field.name} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-secondary)] transition-colors">
+              <ContextMenu key={field.name}>
+              <ContextMenuTrigger>
+              <tr className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-secondary)] transition-colors">
                 <td className="py-1.5 px-3 font-mono font-medium" style={{ width: columnWidths.name }}>
                   <FieldNameCell
                     name={field.name}
@@ -369,6 +373,13 @@ export function FieldsTab() {
                   {Array.from(field.values).slice(0, 3).join(', ')}
                 </td>
               </tr>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuLabel>{field.name}</ContextMenuLabel>
+                <ContextMenuItem onSelect={() => copyToClipboard(field.name)}>Copy field name</ContextMenuItem>
+                <ContextMenuItem onSelect={() => copyToClipboard(Array.from(field.values).join(', '))}>Copy sample values</ContextMenuItem>
+              </ContextMenuContent>
+              </ContextMenu>
                 );
               })}
           </tbody>

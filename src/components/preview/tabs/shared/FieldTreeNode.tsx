@@ -1,5 +1,7 @@
 import { isFieldActive, isAnyFocused } from './useFieldFocus';
 import { type FieldNode, nodeMatchesSearch } from './fieldTreeUtils';
+import { copyToClipboard } from '../../../../utils/clipboard';
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuLabel } from '../../../ui/ContextMenu';
 
 interface FieldTreeNodeProps {
   node: FieldNode;
@@ -25,8 +27,7 @@ export function FieldTreeNode({
   const active = isFieldActive(node.name, activeFields);
   const pinned = pinnedFields.has(node.name);
 
-  return (
-    <div style={{ paddingLeft: `${node.depth * 10}px` }}>
+  const row = (
       <div
         className="flex items-center gap-1 px-1.5 py-0.5 rounded cursor-pointer select-none group"
         style={{
@@ -73,6 +74,20 @@ export function FieldTreeNode({
           <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 ml-auto" style={{ backgroundColor: node.color }} />
         )}
       </div>
+  );
+
+  return (
+    <div style={{ paddingLeft: `${node.depth * 10}px` }}>
+      {hasChildren ? row : (
+        <ContextMenu>
+          <ContextMenuTrigger>{row}</ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuLabel>{node.name}</ContextMenuLabel>
+            <ContextMenuItem onSelect={() => copyToClipboard(node.name)}>Copy field name</ContextMenuItem>
+            <ContextMenuItem onSelect={() => onClick(node.name)}>{pinned ? 'Unpin field' : 'Pin field'}</ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+      )}
 
       {hasChildren && !isCollapsed && node.children.map((child) => (
         <FieldTreeNode

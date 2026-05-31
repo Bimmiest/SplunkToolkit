@@ -1,5 +1,7 @@
 import { findFieldValuePositions } from '../../../../utils/fieldHighlight';
 import { isFieldActive, isAnyFocused } from './useFieldFocus';
+import { copyToClipboard } from '../../../../utils/clipboard';
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuLabel } from '../../../ui/ContextMenu';
 
 interface Highlight {
   start: number;
@@ -121,24 +123,37 @@ export function HighlightedRaw({
       );
     }
     const active = isFieldActive(hl.field, activeFields);
+    const raw0 = fieldValues.get(hl.field);
+    const valueStr = raw0 === undefined ? text : Array.isArray(raw0) ? raw0.join(', ') : raw0;
     return (
-      <span
-        key={`${start}-${hl.field}`}
-        style={{
-          color: hl.color,
-          backgroundColor: active && focused ? hl.color + '20' : 'transparent',
-          opacity: focused && !active ? 0.2 : 1,
-          transition: 'opacity 0.15s, background-color 0.15s, color 0.15s',
-          cursor: 'pointer',
-        }}
-        title={titleFor(hl.field, text)}
-        className="rounded-sm px-0.5"
-        onMouseEnter={() => onFieldHover(hl.field)}
-        onMouseLeave={() => onFieldHover(null)}
-        onClick={() => onFieldClick(hl.field)}
-      >
-        {text}
-      </span>
+      <ContextMenu key={`${start}-${hl.field}`}>
+        <ContextMenuTrigger>
+          <span
+            style={{
+              color: hl.color,
+              backgroundColor: active && focused ? hl.color + '20' : 'transparent',
+              opacity: focused && !active ? 0.2 : 1,
+              transition: 'opacity 0.15s, background-color 0.15s, color 0.15s',
+              cursor: 'pointer',
+            }}
+            title={titleFor(hl.field, text)}
+            className="rounded-sm px-0.5"
+            onMouseEnter={() => onFieldHover(hl.field)}
+            onMouseLeave={() => onFieldHover(null)}
+            onClick={() => onFieldClick(hl.field)}
+          >
+            {text}
+          </span>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuLabel>{hl.field}</ContextMenuLabel>
+          <ContextMenuItem onSelect={() => copyToClipboard(valueStr)}>Copy value</ContextMenuItem>
+          <ContextMenuItem onSelect={() => copyToClipboard(hl.field)}>Copy field name</ContextMenuItem>
+          <ContextMenuItem onSelect={() => copyToClipboard(`${hl.field}=${valueStr}`)}>Copy field=value</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => onFieldClick(hl.field)}>Pin / unpin field</ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     );
   });
 

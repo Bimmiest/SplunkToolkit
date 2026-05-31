@@ -1,0 +1,87 @@
+import { useState } from 'react';
+import type { ReactNode } from 'react';
+import { useAppStore } from '../../../../store/useAppStore';
+import type { SplunkEvent } from '../../../../engine/types';
+import { copyToClipboard } from '../../../../utils/clipboard';
+import { upsertDirectiveInStanza } from '../../../../engine/scaffold/serialize';
+import { ExtractNameDialog } from './ExtractNameDialog';
+import { TimePrefixDialog } from './TimePrefixDialog';
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuLabel,
+} from '../../../ui/ContextMenu';
+
+function currentSelection(): string {
+  return (typeof window !== 'undefined' ? window.getSelection()?.toString() ?? '' : '').trim();
+}
+
+/**
+ * Event-level right-click menu: copy the whole event / its fields as JSON, and —
+ * when text is selected — copy it or scaffold a props.conf directive from it.
+ * Generated directives are upserted into the event's matched sourcetype stanza.
+ *
+ * `selectionText`, when provided (the Raw tab's React-controlled token selection),
+ * takes precedence over the native window.getSelection fallback used elsewhere.
+ */
+export function EventContextMenu({ event, children, selectionText }: { event: SplunkEvent; children: ReactNode; selectionText?: string }) {
+  const propsConf = useAppStore((s) => s.propsConf);
+  const setPropsConf = useAppStore((s) => s.setPropsConf);
+  const sourcetype = useAppStore((s) => s.metadata.sourcetype);
+  const stanza = sourcetype.trim() || 'my:sourcetype';
+
+  // Capture the native selection when the menu opens — by the time an item's onSelect
+  // fires, the menu has taken focus and window.getSelection() is usually empty. A
+  // controlled selectionText (token selection) wins when present.
+  const [nativeSelection, setNativeSelection] = useState('');
+  const [extractOpen, setExtractOpen] = useState(false);
+  const [timePrefixOpen, setTimePrefixOpen] = useState(false);
+
+  const selection = (selectionText ?? '').trim() || nativeSelection;
+
+  return (
+    <>
+      <ContextMenu onOpenChange={(open) => { if (open) setNativeSelection(currentSelection()); }}>
+        <ContextMenuTrigger>{children}</ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onSelect={() => copyToClipboard(event._raw)}>Copy event</ContextMenuItem>
+          {Object.keys(event.fields).length > 0 && (
+            <ContextMenuItem onSelect={() => copyToClipboard(JSON.stringify(event.fields, null, 2))}>
+              Copy fields as JSON
+            </ContextMenuItem>
+          )}
+          {selection.length > 0 && (
+            <>
+              <ContextMenuItem onSelect={() => copyToClipboard(selection)}>Copy selection</ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuLabel>Scaffold from selection → [{stanza}]</ContextMenuLabel>
+              <ContextMenuItem onSelect={() => setExtractOpen(true)}>Create EXTRACT…</ContextMenuItem>
+              <ContextMenuItem onSelect={() => setTimePrefixOpen(true)}>Set as TIME_PREFIX…</ContextMenuItem>
+            </>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
+      {extractOpen && (
+        <ExtractNameDialog
+          raw={event._raw}
+          selection={selection}
+          stanza={stanza}
+          onApply={(key, value) => setPropsConf(upsertDirectiveInStanza(propsConf, stanza, key, value))}
+          onClose={() => setExtractOpen(false)}
+        />
+      )}
+      {timePrefixOpen && (
+        <TimePrefixDialog
+          raw={event._raw}
+          selection={selection}
+          stanza={stanza}
+          onApply={(value) => setPropsConf(upsertDirectiveInStanza(propsConf, stanza, 'TIME_PREFIX', value))}
+          onClose={() => setTimePrefixOpen(false)}
+        />
+      )}
+    </>
+  );
+}
