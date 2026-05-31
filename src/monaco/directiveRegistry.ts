@@ -590,6 +590,34 @@ const DIRECTIVES: DirectiveInfo[] = [
     phase: 'index-time',
   },
   {
+    key: 'REPEAT_MATCH',
+    description:
+      'When true, re-runs the REGEX repeatedly across the source text (starting where ' +
+      'the previous match ended) to extract every occurrence, rather than stopping at ' +
+      'the first match. Combine with MV_ADD to build multivalue fields. Default: false.',
+    example: 'REPEAT_MATCH = true',
+    defaultValue: 'false',
+    category: 'Field Extraction',
+    appliesTo: 'transforms.conf',
+    valueType: 'boolean',
+    isClassBased: false,
+    phase: 'both',
+  },
+  {
+    key: 'MV_ADD',
+    description:
+      'Search-time only. Controls behaviour when an extracted field already has a value: ' +
+      'when true, the field becomes multivalue and the new value is appended; when false, ' +
+      'the new value is discarded and the first value is kept. Default: false.',
+    example: 'MV_ADD = true',
+    defaultValue: 'false',
+    category: 'Field Extraction',
+    appliesTo: 'transforms.conf',
+    valueType: 'boolean',
+    isClassBased: false,
+    phase: 'search-time',
+  },
+  {
     key: 'WRITE_META',
     description:
       'When set to true, writes the extracted fields into the _meta field of the event at index time. ' +

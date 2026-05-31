@@ -183,6 +183,11 @@ export function applyRegexTransform(
   const destKeyDir = transformStanza.directives.find((d) => d.key === 'DEST_KEY');
   const writeMetaDir = transformStanza.directives.find((d) => d.key === 'WRITE_META');
   const writeMeta = writeMetaDir?.value.trim().toLowerCase() === 'true';
+  // REPEAT_MATCH: re-run the regex to find every match (default: first match only).
+  // MV_ADD: when a field is extracted more than once, accumulate into a multivalue
+  // field rather than discarding the later value (default: keep the first).
+  const repeatMatch = transformStanza.directives.find((d) => d.key === 'REPEAT_MATCH')?.value.trim().toLowerCase() === 'true';
+  const mvAdd = transformStanza.directives.find((d) => d.key === 'MV_ADD')?.value.trim().toLowerCase() === 'true';
 
   const result: TransformResult = { fields: {}, matched: false };
 
@@ -270,15 +275,30 @@ export function applyRegexTransform(
       }
     }
   } else {
-    // No FORMAT — use named capture groups from first match as fields.
-    const match = compiled.plain.exec(sourceValue);
-    if (match?.groups) {
+    // No FORMAT — extract named capture groups. REPEAT_MATCH=true re-runs the
+    // regex across the event (all matches); otherwise only the first match is used.
+    // When a field is captured more than once, MV_ADD=true accumulates a multivalue
+    // field while MV_ADD=false keeps the first value and discards the rest.
+    let matches: RegExpMatchArray[];
+    if (repeatMatch) {
+      matches = [...sourceValue.matchAll(compiled.global)];
+    } else {
+      const m = compiled.plain.exec(sourceValue);
+      matches = m ? [m] : [];
+    }
+
+    for (const match of matches) {
+      if (!match.groups) continue;
       for (const [name, value] of Object.entries(match.groups)) {
-        if (value !== undefined) {
-          const fieldName = writeMeta ? stripLeadingUnderscoreForField(name) : name;
-          if (!fieldName) continue;
+        if (value === undefined) continue;
+        const fieldName = writeMeta ? stripLeadingUnderscoreForField(name) : name;
+        if (!fieldName) continue;
+        if (result.fields[fieldName] === undefined) {
           result.fields[fieldName] = value;
+        } else if (mvAdd) {
+          addMultiValue(result.fields, fieldName, value);
         }
+        // else: field already set and MV_ADD is false — discard the later value.
       }
     }
   }

@@ -49,6 +49,39 @@ describe('applyRegexTransform — named capture groups', () => {
   });
 });
 
+describe('applyRegexTransform — REPEAT_MATCH / MV_ADD', () => {
+  it('defaults to the first match only (single value)', () => {
+    const s = stanza('nums', { REGEX: '(?<num>\\d+)' });
+    const result = applyRegexTransform(event('1 2 3'), s);
+    expect(result.fields['num']).toBe('1');
+  });
+
+  it('REPEAT_MATCH + MV_ADD collects every match into a multivalue field', () => {
+    const s = stanza('nums', { REGEX: '(?<num>\\d+)', REPEAT_MATCH: 'true', MV_ADD: 'true' });
+    const result = applyRegexTransform(event('1 2 3'), s);
+    expect(result.fields['num']).toEqual(['1', '2', '3']);
+  });
+
+  it('REPEAT_MATCH without MV_ADD keeps the first value and discards the rest', () => {
+    const s = stanza('nums', { REGEX: '(?<num>\\d+)', REPEAT_MATCH: 'true' });
+    const result = applyRegexTransform(event('1 2 3'), s);
+    expect(result.fields['num']).toBe('1');
+  });
+
+  it('MV_ADD without REPEAT_MATCH still only sees the first match', () => {
+    const s = stanza('nums', { REGEX: '(?<num>\\d+)', MV_ADD: 'true' });
+    const result = applyRegexTransform(event('1 2 3'), s);
+    expect(result.fields['num']).toBe('1');
+  });
+
+  it('REPEAT_MATCH + MV_ADD builds multivalue across multiple named groups', () => {
+    const s = stanza('kv', { REGEX: '(?<k>\\w+)=(?<v>\\d+)', REPEAT_MATCH: 'true', MV_ADD: 'true' });
+    const result = applyRegexTransform(event('a=1 b=2 c=3'), s);
+    expect(result.fields['k']).toEqual(['a', 'b', 'c']);
+    expect(result.fields['v']).toEqual(['1', '2', '3']);
+  });
+});
+
 describe('applyRegexTransform — DEST_KEY = _raw replaces the whole event', () => {
   it('replaces the ENTIRE _raw with the FORMAT expansion (uncaptured text is lost)', () => {
     // The classic footgun: the regex matches only the IP, so everything else
