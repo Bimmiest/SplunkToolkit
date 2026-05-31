@@ -51,20 +51,20 @@ export function Tabs({ tabs, activeTab, onTabChange, ariaLabel, size = 'md', var
       ref={tablistRef}
       role="tablist"
       aria-label={ariaLabel}
-      className={variant === 'secondary' ? 'flex gap-0.5 p-1' : 'flex gap-1'}
+      className={variant === 'secondary' ? 'flex gap-0.5 p-1 overflow-x-auto min-w-0' : 'flex gap-1 overflow-x-auto min-w-0'}
       onKeyDown={handleKeyDown}
     >
       {tabs.map((tab) => {
         const isActive = tab.id === activeTab;
         const underlineClasses = [
-          'relative flex items-center gap-1.5 font-medium cursor-pointer outline-none focus-visible:ring-2 border-b-2 -mb-px',
+          'relative flex items-center gap-1.5 font-medium cursor-pointer outline-none focus-visible:ring-2 border-b-2 -mb-px shrink-0 whitespace-nowrap',
           size === 'sm' ? 'px-2.5 py-1.5 text-xs' : 'px-3 py-1.5 text-sm',
           isActive
             ? 'text-[var(--color-accent)] border-b-[var(--color-accent)]'
             : 'text-[var(--color-text-muted)] border-b-transparent hover:text-[var(--color-text-secondary)]',
         ].join(' ');
         const secondaryClasses = [
-          'relative flex items-center gap-1.5 font-medium cursor-pointer outline-none focus-visible:ring-1 rounded transition-colors',
+          'relative flex items-center gap-1.5 font-medium cursor-pointer outline-none focus-visible:ring-1 rounded transition-colors shrink-0 whitespace-nowrap',
           size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm',
           isActive
             ? 'bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] border border-[var(--color-border)] shadow-sm'

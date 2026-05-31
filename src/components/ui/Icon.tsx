@@ -1,6 +1,6 @@
 import type React from 'react';
 
-type IconName =
+export type IconName =
   | 'chevron-down'
   | 'chevron-left'
   | 'chevron-right'

@@ -61,7 +61,7 @@ export function PreviewPanel() {
   return (
     <div className="h-full flex flex-col bg-[var(--color-bg-primary)]">
       <div className="flex items-center justify-between border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)]">
-        <div className="flex items-center gap-2 px-3">
+        <div className="flex items-center gap-2 px-3 shrink-0">
           <Icon name="eye" className="w-3.5 h-3.5 text-[var(--color-accent)]" />
           <span className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">Output</span>
         </div>
