@@ -11,11 +11,12 @@ const splitLines = (s: string) => s.split(/\r?\n/);
 const byKey = (sugs: ScaffoldSuggestion[], key: string) => sugs.find((s) => s.key === key);
 
 describe('detectLineFormat', () => {
-  it('detects JSON-per-line', () => {
+  it('detects JSON-per-line (incl. explicit LINE_BREAKER)', () => {
     const raw = '{"a":1}\n{"a":2}\n{"a":3}';
     const out = detectLineFormat(raw, splitLines(raw));
     expect(byKey(out, 'KV_MODE')?.value).toBe('json');
     expect(byKey(out, 'SHOULD_LINEMERGE')?.value).toBe('false');
+    expect(byKey(out, 'LINE_BREAKER')?.value).toBe('([\\r\\n]+)');
   });
 
   it('detects XML', () => {
@@ -63,6 +64,19 @@ describe('detectTimestamp', () => {
     const out = detectTimestamp(splitLines(raw));
     expect(byKey(out, 'TIME_FORMAT')?.value).toBe('%d/%b/%Y:%H:%M:%S %z');
     expect(byKey(out, 'TIME_PREFIX')?.value).toBe('\\[');
+  });
+
+  it('derives a STABLE key-boundary prefix for JSON (not per-event values)', () => {
+    const raw =
+      '{"eventVersion":"1.08","userIdentity":{"userName":"Alice"},"eventTime":"2024-01-15T10:00:00Z"}\n' +
+      '{"eventVersion":"1.08","userIdentity":{"userName":"Bob"},"eventTime":"2024-01-15T10:00:01Z"}';
+    const out = detectTimestamp(splitLines(raw));
+    expect(byKey(out, 'TIME_FORMAT')?.value).toBe('%Y-%m-%dT%H:%M:%S');
+    // The prefix is the eventTime key boundary — not the (per-event) Alice/Bob values.
+    expect(byKey(out, 'TIME_PREFIX')?.value).toBe('"eventTime":"');
+    expect(byKey(out, 'TIME_PREFIX')?.value).not.toContain('Alice');
+    // With a stable prefix, no oversized MAX_TIMESTAMP_LOOKAHEAD is emitted.
+    expect(byKey(out, 'MAX_TIMESTAMP_LOOKAHEAD')).toBeUndefined();
   });
 
   it('recognises leading epoch as %s', () => {

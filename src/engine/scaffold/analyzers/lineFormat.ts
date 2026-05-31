@@ -18,8 +18,9 @@ export function detectLineFormat(rawData: string, lines: string[]): ScaffoldSugg
   const jsonRatio = jsonLines / nonBlank.length;
   if (jsonRatio >= 0.8) {
     return [
+      { key: 'LINE_BREAKER', value: '([\\r\\n]+)', confidence: 'medium', evidence: 'One JSON object per line — break on newlines', enabledByDefault: true },
+      { key: 'SHOULD_LINEMERGE', value: 'false', confidence: 'high', evidence: 'JSON events are a single line each; do not merge', enabledByDefault: true },
       { key: 'KV_MODE', value: 'json', confidence: jsonRatio === 1 ? 'high' : 'medium', evidence: `${jsonLines}/${nonBlank.length} lines parse as JSON`, enabledByDefault: true },
-      { key: 'SHOULD_LINEMERGE', value: 'false', confidence: 'high', evidence: 'JSON events are a single line each', enabledByDefault: true },
     ];
   }
 

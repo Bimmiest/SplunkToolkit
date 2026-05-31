@@ -49,34 +49,45 @@ export function detectTimestamp(lines: string[]): ScaffoldSuggestion[] {
     { key: 'TIME_FORMAT', value: bestFmt, confidence, evidence: `Matched in ${best.count}/${sample.length} sample lines`, enabledByDefault: true },
   ];
 
-  const matchStart = best.match.index;
-  const matchEnd = matchStart + best.match[0].length;
+  const matchEnd = best.match.index + best.match[0].length;
+  const prefix = derivePrefix(best.line.slice(0, best.match.index));
 
-  // TIME_PREFIX: the literal token immediately preceding the timestamp (when any).
-  if (matchStart > 0) {
-    const before = best.line.slice(0, matchStart);
-    const token = /(\S+)\s*$/.exec(before);
-    if (token) {
-      out.push({
-        key: 'TIME_PREFIX',
-        value: escapeRegex(token[1]),
-        confidence: 'medium',
-        evidence: `Timestamp is preceded by "${token[1]}"`,
-        enabledByDefault: true,
-      });
-    }
-  }
-
-  // MAX_TIMESTAMP_LOOKAHEAD when the timestamp ends late in the line.
-  if (matchEnd > 32) {
+  if (prefix) {
+    // A stable key/delimiter boundary right before the timestamp. Splunk searches
+    // for the timestamp immediately after it, so no large lookahead is needed.
+    out.push({
+      key: 'TIME_PREFIX',
+      value: escapeRegex(prefix),
+      confidence: 'medium',
+      evidence: `Timestamp follows the literal "${prefix}"`,
+      enabledByDefault: true,
+    });
+  } else if (matchEnd > 128) {
+    // No stable prefix and the timestamp sits past the 128-char default window.
     out.push({
       key: 'MAX_TIMESTAMP_LOOKAHEAD',
       value: String(matchEnd + 10),
       confidence,
-      evidence: `Timestamp ends near character ${matchEnd}`,
+      evidence: `Timestamp ends near character ${matchEnd} with no stable prefix`,
       enabledByDefault: true,
     });
   }
 
   return out;
+}
+
+/**
+ * Derive a STABLE TIME_PREFIX from the text preceding the timestamp — the
+ * surrounding key/delimiter, never the per-event field values (which would only
+ * match the one sample event). Returns '' when there is no useful prefix.
+ */
+function derivePrefix(before: string): string {
+  if (!before) return '';
+  // Trailing `"key":` / key= boundary (JSON or key=value), incl. the value's opening quote.
+  const kv = /(["']?[\w.-]+["']?\s*[:=]\s*["']?)$/.exec(before);
+  if (kv) return kv[1];
+  // Otherwise a short trailing punctuation delimiter (e.g. "[").
+  const punct = /([^\w\s]{1,4})$/.exec(before);
+  if (punct) return punct[1];
+  return '';
 }
