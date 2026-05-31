@@ -11,8 +11,10 @@ import { SettingsPanel } from '../settings/SettingsPanel';
 import { FirstRunBanner } from '../onboarding/FirstRunBanner';
 import { useProcessingPipeline } from '../../hooks/useProcessingPipeline';
 import { useAppStore } from '../../store/useAppStore';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { CommandPalette } from '../ui/CommandPalette';
 import { ScaffoldModal } from '../scaffold/ScaffoldModal';
+import { MobileShell } from './MobileShell';
 
 function ResizeHandle({ direction = 'vertical' }: { direction?: 'horizontal' | 'vertical' }) {
   return (
@@ -39,6 +41,7 @@ export function AppShell() {
   const propsCollapsed = useAppStore((s) => !!s.collapsedPanels['props.conf']);
   const transformsCollapsed = useAppStore((s) => !!s.collapsedPanels['transforms.conf']);
   const scaffoldOpen = useAppStore((s) => s.scaffoldOpen);
+  const isMobile = useMediaQuery('(max-width: 767px)');
 
   // Build the resizable panel group key based on which panels are expanded
   // This forces a clean re-mount when collapse state changes
@@ -53,6 +56,9 @@ export function AppShell() {
       <CommandPalette />
       {scaffoldOpen && <ScaffoldModal />}
       <main id="main-content" className="flex-1 min-h-0">
+        {isMobile ? (
+          <MobileShell />
+        ) : (
         <Group orientation="horizontal" id="main-horizontal">
           {/* Left side: Raw, Props, Transforms */}
           <Panel defaultSize={38} minSize={20} id="left-inputs">
@@ -110,6 +116,7 @@ export function AppShell() {
             </ErrorBoundary>
           </Panel>
         </Group>
+        )}
       </main>
       <StatusBar />
     </div>

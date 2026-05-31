@@ -4,6 +4,19 @@ All notable changes to Splunk Toolkit are documented here, newest first.
 
 ---
 
+## 2026-05-31
+
+### Added
+
+- **Mobile / small-screen layout** — on viewports narrower than `768px` the desktop side-by-side resizable split (which collapsed each column to an unusable width on a phone, causing the Raw panel header, placeholder, footer and metadata to overlap) is replaced by a single-panel-at-a-time view. A new segmented control switches between **Raw**, **props.conf**, **transforms.conf** and **Output**, with each panel getting the full main area. New `useMediaQuery` hook ([src/hooks/useMediaQuery.ts](src/hooks/useMediaQuery.ts)) and `MobileShell` component ([src/components/layout/MobileShell.tsx](src/components/layout/MobileShell.tsx)).
+
+### Fixed
+
+- **Output tab bar clipped on small laptop screens** — `Tabs` tablist is now horizontally scrollable (`overflow-x-auto`, `min-w-0`) with non-shrinking, non-wrapping tab buttons (`shrink-0 whitespace-nowrap`), so the Preview/CIM Models/Fields/Pipeline/Architecture tabs no longer wrap or get cut off in narrow output panels.
+- **Header crowding on narrow screens** — the "Commands" label and `⌘K` kbd hint collapse to just the search icon below the `sm` breakpoint.
+
+---
+
 ## 2026-04-21
 
 ### Fixed

@@ -60,8 +60,8 @@ export function Header() {
                 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
             >
               <Icon name="search" className="w-3.5 h-3.5" />
-              <span>Commands</span>
-              <kbd className="ml-1 px-1 rounded text-[10px] font-mono bg-[var(--color-bg-tertiary)]">⌘K</kbd>
+              <span className="hidden sm:inline">Commands</span>
+              <kbd className="ml-1 px-1 rounded text-[10px] font-mono bg-[var(--color-bg-tertiary)] hidden sm:inline">⌘K</kbd>
             </button>
           </Tooltip>
           {hasAnyContent && (
