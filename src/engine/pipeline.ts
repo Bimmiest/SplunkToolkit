@@ -143,6 +143,32 @@ export function runPipeline(
   const matchedStanzas = matchStanzas(propsConf.stanzas, metadata);
   const directives = mergeDirectives(matchedStanzas);
 
+  // Warn when INDEXED_EXTRACTIONS = json is paired with search-time JSON extraction.
+  // Splunk extracts the fields at BOTH index time and search time, producing duplicate
+  // (multivalue) values. The simulator currently suppresses the duplicate in the preview,
+  // so without this warning an operator could ship a config that misbehaves in Splunk.
+  const indexedExtJson = directives.find((d) => d.key === 'INDEXED_EXTRACTIONS')?.value.trim().toLowerCase() === 'json';
+  if (indexedExtJson) {
+    const kvModeDir = directives.find((d) => d.key === 'KV_MODE');
+    const kvMode = kvModeDir?.value.trim().toLowerCase();
+    const autoKvJsonDir = directives.find((d) => d.key === 'AUTO_KV_JSON');
+    const autoKvJson = autoKvJsonDir ? autoKvJsonDir.value.trim().toLowerCase() !== 'false' : true;
+    const searchTimeJson =
+      kvMode === 'json' ||
+      ((kvMode === undefined || kvMode === 'auto' || kvMode === 'auto_escaped') && autoKvJson);
+    if (kvMode !== 'none' && searchTimeJson) {
+      const kvDesc = kvMode ? `KV_MODE = ${kvMode}` : 'the default KV_MODE = auto';
+      diagnostics.push({
+        level: 'warning',
+        message:
+          `INDEXED_EXTRACTIONS = json already extracts fields at index time, but ${kvDesc} extracts them again at search time. ` +
+          'In Splunk this produces duplicate (multivalue) field values. Set KV_MODE = none for this sourcetype when using INDEXED_EXTRACTIONS = json.',
+        file: 'props.conf',
+        line: kvModeDir?.line ?? directives.find((d) => d.key === 'INDEXED_EXTRACTIONS')?.line,
+      });
+    }
+  }
+
   // ── Index-time processing ─────────────────────────────
 
   // Step 1-2: Line breaking and merging.

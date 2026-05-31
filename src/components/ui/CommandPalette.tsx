@@ -25,6 +25,7 @@ export function CommandPalette() {
   const setTransformsConf = useAppStore((s) => s.setTransformsConf);
   const setMetadata = useAppStore((s) => s.setMetadata);
   const toggleHelp = useAppStore((s) => s.toggleHelp);
+  const toggleScaffold = useAppStore((s) => s.toggleScaffold);
 
   const close = useCallback(() => {
     if (open) toggleCommandPalette();
@@ -129,6 +130,12 @@ export function CommandPalette() {
           </CommandGroup>
 
           <CommandGroup heading="Actions">
+            <CommandItem
+              label="Scaffold config from sample data"
+              hint="Suggest props.conf"
+              icon="sparkles"
+              onSelect={() => run(toggleScaffold)}
+            />
             <CommandItem
               label="Toggle theme"
               icon="sun"
