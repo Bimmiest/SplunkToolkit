@@ -50,7 +50,7 @@ export function FirstRunBanner() {
   return (
     <div
       role="banner"
-      className="shrink-0 flex items-center gap-4 px-4 py-2.5 border-b"
+      className="shrink-0 flex items-start sm:items-center gap-2 sm:gap-4 px-4 py-2.5 border-b"
       style={{
         backgroundColor: 'var(--color-bg-elevated)',
         borderColor: 'var(--color-border-subtle)',

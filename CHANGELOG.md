@@ -12,6 +12,8 @@ All notable changes to Splunk Toolkit are documented here, newest first.
 
 ### Fixed
 
+- **Raw Log editor rendered with the default light theme on first load (mobile)** — the custom `splunk-dark`/`splunk-light` Monaco themes were only defined inside `SplunkEditor`'s `beforeMount` (props/transforms), but the Raw Log panel uses a plain editor that references them. On mobile only the Raw tab mounts first, so Monaco fell back to its default white theme until another tab was visited. The theme/language registration is now a shared, idempotent `ensureSplunkMonaco` helper ([src/components/editor/splunkMonacoSetup.ts](src/components/editor/splunkMonacoSetup.ts)) called by every editor's `beforeMount`.
+- **First-run banner dismiss button floated mid-height** when the steps wrapped to two rows on narrow screens — it now top-aligns below the `sm` breakpoint and stays centered above it.
 - **Output tab bar clipped on small laptop screens** — `Tabs` tablist is now horizontally scrollable (`overflow-x-auto`, `min-w-0`) with non-shrinking, non-wrapping tab buttons (`shrink-0 whitespace-nowrap`), so the Preview/CIM Models/Fields/Pipeline/Architecture tabs no longer wrap or get cut off in narrow output panels.
 - **Header crowding on narrow screens** — the "Commands" label and `⌘K` kbd hint collapse to just the search icon below the `sm` breakpoint.
 
