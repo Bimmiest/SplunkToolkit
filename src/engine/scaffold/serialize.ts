@@ -1,4 +1,5 @@
 import type { ScaffoldSuggestion } from './types';
+import { escapeRegex } from '../../utils/splunkRegex';
 
 /** Render a props.conf stanza from the selected directive suggestions. */
 export function renderStanza(sourcetype: string, suggestions: ScaffoldSuggestion[]): string {
@@ -11,4 +12,39 @@ export function renderStanza(sourcetype: string, suggestions: ScaffoldSuggestion
 export function appendStanza(existing: string, stanza: string): string {
   const trimmed = existing.replace(/\s+$/, '');
   return trimmed ? `${trimmed}\n\n${stanza}\n` : `${stanza}\n`;
+}
+
+/**
+ * Insert or replace a `KEY = value` directive inside the named stanza of props.conf
+ * text. If the stanza exists, an existing line for KEY is replaced in place;
+ * otherwise the directive is appended to the END of the stanza block (after the last
+ * directive, before any trailing blank line or the next stanza header). If the
+ * stanza is absent, a new stanza is appended to the file.
+ */
+export function upsertDirectiveInStanza(propsText: string, stanzaName: string, key: string, value: string): string {
+  const directiveLine = `${key} = ${value}`;
+  const lines = propsText.split('\n');
+  const headerRe = new RegExp(`^\\s*\\[${escapeRegex(stanzaName)}\\]\\s*$`);
+  const headerIdx = lines.findIndex((l) => headerRe.test(l));
+
+  if (headerIdx === -1) {
+    return appendStanza(propsText, `[${stanzaName}]\n${directiveLine}`);
+  }
+
+  // Extent of this stanza: up to the next stanza header (or end of file).
+  let end = headerIdx + 1;
+  while (end < lines.length && !/^\s*\[.+\]\s*$/.test(lines[end])) end++;
+
+  const keyRe = new RegExp(`^\\s*${escapeRegex(key)}\\s*=`);
+  const within = lines.slice(headerIdx + 1, end).findIndex((l) => keyRe.test(l));
+  if (within !== -1) {
+    lines[headerIdx + 1 + within] = directiveLine;
+  } else {
+    // Append after the last non-blank line of the stanza, so it lands at the bottom
+    // of the block rather than detached after a blank-line gap.
+    let insertAt = end;
+    while (insertAt > headerIdx + 1 && lines[insertAt - 1].trim() === '') insertAt--;
+    lines.splice(insertAt, 0, directiveLine);
+  }
+  return lines.join('\n');
 }

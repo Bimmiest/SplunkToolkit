@@ -91,7 +91,7 @@ export function detectTimestamp(lines: string[]): ScaffoldSuggestion[] {
  * surrounding key/delimiter, never the per-event field values (which would only
  * match the one sample event). Returns '' when there is no useful prefix.
  */
-function derivePrefix(before: string): string {
+export function derivePrefix(before: string): string {
   if (!before) return '';
   // Trailing `"key":` / key= boundary (JSON or key=value), incl. the value's opening quote.
   const kv = /(["']?[\w.-]+["']?\s*[:=]\s*["']?)$/.exec(before);
