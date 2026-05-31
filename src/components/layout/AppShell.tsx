@@ -12,6 +12,7 @@ import { FirstRunBanner } from '../onboarding/FirstRunBanner';
 import { useProcessingPipeline } from '../../hooks/useProcessingPipeline';
 import { useAppStore } from '../../store/useAppStore';
 import { CommandPalette } from '../ui/CommandPalette';
+import { ScaffoldModal } from '../scaffold/ScaffoldModal';
 
 function ResizeHandle({ direction = 'vertical' }: { direction?: 'horizontal' | 'vertical' }) {
   return (
@@ -37,6 +38,7 @@ export function AppShell() {
 
   const propsCollapsed = useAppStore((s) => !!s.collapsedPanels['props.conf']);
   const transformsCollapsed = useAppStore((s) => !!s.collapsedPanels['transforms.conf']);
+  const scaffoldOpen = useAppStore((s) => s.scaffoldOpen);
 
   // Build the resizable panel group key based on which panels are expanded
   // This forces a clean re-mount when collapse state changes
@@ -49,6 +51,7 @@ export function AppShell() {
       <HelpPanel />
       <SettingsPanel />
       <CommandPalette />
+      {scaffoldOpen && <ScaffoldModal />}
       <main id="main-content" className="flex-1 min-h-0">
         <Group orientation="horizontal" id="main-horizontal">
           {/* Left side: Raw, Props, Transforms */}

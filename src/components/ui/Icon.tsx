@@ -23,6 +23,7 @@ type IconName =
   | 'terminal'
   | 'shield'
   | 'clipboard'
+  | 'sparkles'
   | 'play';
 
 const PATHS: Record<IconName, React.ReactNode> = {
@@ -81,6 +82,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   'play': <polygon points="5 3 19 12 5 21 5 3" />,
+  'sparkles': <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m6-15l2.4 6.6L21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4L12 2z" />,
 };
 
 interface IconProps {

@@ -60,6 +60,9 @@ interface AppState {
 
   settingsOpen: boolean;
   toggleSettings: () => void;
+
+  scaffoldOpen: boolean;
+  toggleScaffold: () => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -154,4 +157,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   settingsOpen: false,
   toggleSettings: () => set((state) => ({ settingsOpen: !state.settingsOpen })),
+
+  scaffoldOpen: false,
+  toggleScaffold: () => set((state) => ({ scaffoldOpen: !state.scaffoldOpen })),
 }));
