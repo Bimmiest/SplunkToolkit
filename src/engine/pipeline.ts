@@ -170,7 +170,7 @@ export function runPipeline(
   events = safeProcessor('SEDCMD', events, () => applySedCommands(events, directives), diagnostics);
 
   // Step 7: Index-time TRANSFORMS
-  events = safeProcessor('TRANSFORMS', events, () => applyTransforms(events, directives, transformsConf, 'index-time'), diagnostics, 'transforms.conf');
+  events = safeProcessor('TRANSFORMS', events, () => applyTransforms(events, directives, transformsConf, 'index-time', diagnostics), diagnostics, 'transforms.conf');
 
   // Step 7b: INGEST_EVAL (from transforms.conf stanzas)
   events = safeProcessor('INGEST_EVAL', events, () => {
