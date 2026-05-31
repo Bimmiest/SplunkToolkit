@@ -32,7 +32,10 @@ export function ScaffoldModal() {
     for (const s of result.suggestions) init[s.key] = s.enabledByDefault;
     return init;
   });
-  const [renameSourcetype, setRenameSourcetype] = useState(() => result.sourcetypeSuggestion?.enabledByDefault ?? false);
+  // Editable stanza name / sourcetype. Defaults to the normalised suggestion, the
+  // current sourcetype, or a placeholder — and is written to metadata on apply so
+  // the appended stanza actually matches the events.
+  const [sourcetype, setSourcetype] = useState(() => result.sourcetype);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -42,19 +45,19 @@ export function ScaffoldModal() {
     return () => document.removeEventListener('keydown', onKey);
   }, [toggleScaffold]);
 
-  const original = metadata.sourcetype.trim() || 'my:sourcetype';
-  const renameSuggestion = result.sourcetypeSuggestion;
-  const stanzaName = renameSourcetype && renameSuggestion ? renameSuggestion.value : original;
+  const stanzaName = sourcetype.trim() || 'my:sourcetype';
 
   const chosen: ScaffoldSuggestion[] = result.suggestions.filter((s) => selected[s.key]);
   const mergedProps = chosen.length > 0 ? appendStanza(propsConf, renderStanza(stanzaName, chosen)) : propsConf;
   const diff = computeDiff(propsConf, mergedProps);
 
-  const canApply = chosen.length > 0 || (renameSourcetype && !!renameSuggestion);
+  const canApply = chosen.length > 0;
 
   const apply = () => {
-    if (chosen.length > 0) setPropsConf(mergedProps);
-    if (renameSourcetype && renameSuggestion) setMetadataField('sourcetype', renameSuggestion.value);
+    if (chosen.length === 0) return;
+    setPropsConf(mergedProps);
+    // Point the event's sourcetype at the new stanza so the scaffolded config applies.
+    if (stanzaName !== metadata.sourcetype) setMetadataField('sourcetype', stanzaName);
     toggleScaffold();
   };
 
@@ -93,18 +96,33 @@ export function ScaffoldModal() {
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {noData ? (
             <EmptyState text="Paste raw log data first, then reopen Scaffold." />
-          ) : result.suggestions.length === 0 && !renameSuggestion ? (
+          ) : result.suggestions.length === 0 ? (
             <EmptyState text="No confident suggestions for this sample. Try a larger or more representative sample." />
           ) : (
             <>
+              {/* Sourcetype / stanza name (editable; written to metadata on apply) */}
+              <div>
+                <label htmlFor="scaffold-sourcetype" className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-text-secondary)' }}>
+                  Sourcetype (stanza name)
+                </label>
+                <input
+                  id="scaffold-sourcetype"
+                  type="text"
+                  value={sourcetype}
+                  onChange={(e) => setSourcetype(e.target.value)}
+                  spellCheck={false}
+                  placeholder="my:sourcetype"
+                  className="mt-1 w-full px-2.5 py-1.5 rounded-md text-sm font-mono outline-none focus:border-[var(--color-border-hover)]"
+                  style={{ backgroundColor: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', color: 'var(--color-text-primary)' }}
+                />
+                <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                  {result.sourcetypeSuggestion
+                    ? `${result.sourcetypeSuggestion.evidence} — applied to the event's sourcetype on save`
+                    : "Applied to the event's sourcetype on save so the new stanza matches your data."}
+                </p>
+              </div>
+
               <div className="space-y-1.5">
-                {result.sourcetypeSuggestion && (
-                  <RenameRow
-                    checked={renameSourcetype}
-                    onToggle={() => setRenameSourcetype((v) => !v)}
-                    suggestion={result.sourcetypeSuggestion}
-                  />
-                )}
                 {result.suggestions.map((s) => (
                   <SuggestionRow
                     key={s.key}
@@ -166,26 +184,6 @@ function SuggestionRow({ suggestion, checked, onToggle }: { suggestion: Scaffold
           <code className="font-mono text-[13px]" style={{ color: 'var(--color-text-primary)' }}>
             {suggestion.key} = {suggestion.value}
           </code>
-          <Badge variant={CONFIDENCE_VARIANT[suggestion.confidence]}>{suggestion.confidence}</Badge>
-        </div>
-        <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>{suggestion.evidence}</p>
-      </div>
-    </label>
-  );
-}
-
-function RenameRow({ suggestion, checked, onToggle }: { suggestion: ScaffoldSuggestion; checked: boolean; onToggle: () => void }) {
-  return (
-    <label
-      className="flex items-start gap-3 px-3 py-2 rounded-lg cursor-pointer"
-      style={{ backgroundColor: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)' }}
-    >
-      <input type="checkbox" checked={checked} onChange={onToggle} className="mt-0.5 accent-[var(--color-accent)] cursor-pointer" />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[13px]" style={{ color: 'var(--color-text-primary)' }}>
-            Rename sourcetype → <code className="font-mono">{suggestion.value}</code>
-          </span>
           <Badge variant={CONFIDENCE_VARIANT[suggestion.confidence]}>{suggestion.confidence}</Badge>
         </div>
         <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>{suggestion.evidence}</p>
