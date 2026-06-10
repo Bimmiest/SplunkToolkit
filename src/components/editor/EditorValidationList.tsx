@@ -78,11 +78,8 @@ export function EditorValidationList({ file }: EditorValidationListProps) {
 }
 
 function DiagnosticRow({ diagnostic, onNavigate }: { diagnostic: ValidationDiagnostic; onNavigate?: () => void }) {
-  return (
-    <div
-      className={`flex items-center gap-2 px-3 py-1.5 hover:bg-[var(--color-bg-tertiary)] transition-colors ${onNavigate ? 'cursor-pointer' : ''}`}
-      onClick={onNavigate}
-    >
+  const content = (
+    <>
       <div className="flex-shrink-0">
         <StatusIcon level={diagnostic.level} />
       </div>
@@ -95,8 +92,21 @@ function DiagnosticRow({ diagnostic, onNavigate }: { diagnostic: ValidationDiagn
           <div className="text-xs text-[var(--color-success)]" style={{ overflowWrap: 'anywhere' }}>{diagnostic.suggestion}</div>
         )}
       </div>
-    </div>
+    </>
   );
+
+  const base = 'flex items-center gap-2 px-3 py-1.5 hover:bg-[var(--color-bg-tertiary)] transition-colors';
+
+  // When the row jumps to a line, render a real <button> so it's keyboard
+  // focusable and activates on Enter/Space (a clickable <div> was mouse-only).
+  if (onNavigate) {
+    return (
+      <button type="button" onClick={onNavigate} className={`${base} w-full text-left cursor-pointer`}>
+        {content}
+      </button>
+    );
+  }
+  return <div className={base}>{content}</div>;
 }
 
 function StatusIcon({ level }: { level: 'error' | 'warning' | 'info' | 'success' }) {

@@ -1,6 +1,7 @@
 import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 import { safeRegex, convertSplunkToJsRegex } from '../../utils/splunkRegex';
 import { isInternalField } from '../utils/internalFields';
+import { byClassName } from '../utils/asciiCompare';
 
 export function extractFields(
   events: SplunkEvent[],
@@ -9,7 +10,7 @@ export function extractFields(
 ): SplunkEvent[] {
   const extractDirectives = directives
     .filter((d) => d.directiveType === 'EXTRACT')
-    .sort((a, b) => (a.className ?? '').localeCompare(b.className ?? ''));
+    .sort(byClassName);
 
   if (extractDirectives.length === 0) return events;
 
@@ -20,6 +21,17 @@ export function extractFields(
     // EXTRACT extracts the FIRST match only (max_match defaults to 1); multivalue
     // extraction requires a transforms.conf REGEX with MV_ADD, which EXTRACT lacks.
     const regex = jsPattern ? safeRegex(jsPattern, 'd') : null;
+    // safeRegex returns null for invalid PCRE-isms AND for patterns the ReDoS
+    // heuristic refuses. Either way the extraction is silently skipped, so surface it.
+    if (jsPattern && !regex && diagnostics) {
+      diagnostics.push({
+        level: 'warning',
+        message: `EXTRACT-${dir.className ?? ''} was skipped: its pattern could not be compiled safely (invalid regex or rejected as ReDoS-prone). No fields were extracted.`,
+        file: 'props.conf',
+        line: dir.line,
+        directiveKey: dir.key,
+      });
+    }
     return { directive: dir, regex, sourceField };
   });
 
@@ -75,8 +87,11 @@ export function extractFields(
       const added: string[] = [];
       for (const [name, value] of Object.entries(m.groups)) {
         if (value === undefined) continue;
-        // First-wins: Splunk does not let an EXTRACT overwrite a field that is
-        // already set (by an earlier EXTRACT, indexed extraction, etc.).
+        // First-wins (simplification — SEM-12): this engine keeps the value from
+        // the first extraction and discards later ones for the same field name.
+        // Real Splunk's behaviour when two search-time extractions yield the same
+        // field is closer to producing a multivalue field; verify against a live
+        // indexer before relying on the collision outcome here.
         if (newFields[name] !== undefined) continue;
         newFields[name] = value;
         added.push(name);

@@ -58,7 +58,8 @@ function buildDirectiveMap(): Record<string, DirectiveMeta> {
     '%a': { regex: `(${WEEKDAY_NAMES_ABBR.join('|')})`, capture: 'weekdayAbbr' },
     '%A': { regex: `(${WEEKDAY_NAMES_FULL.join('|')})`, capture: 'weekdayFull' },
     '%Z': { regex: '([A-Za-z][A-Za-z0-9_/+-]*)', capture: 'tzName' },
-    '%z': { regex: '([+-]\\d{2}:?\\d{2})', capture: 'tzOffset' },
+    // ISO-8601 'Z' (Zulu/UTC), ±HH:MM / ±HHMM, and ±HH-only offsets.
+    '%z': { regex: '(Z|[+-]\\d{2}:?\\d{2}|[+-]\\d{2})', capture: 'tzOffset' },
     '%s': { regex: '(\\d{10,13})', capture: 'epoch' },
     '%3N': { regex: '(\\d{3})', capture: 'milliseconds' },
     '%6N': { regex: '(\\d{6})', capture: 'microseconds' },
@@ -203,11 +204,11 @@ function resolveTzOffsetMinutes(tz: string): number {
     return TZ_OFFSETS[upper];
   }
 
-  // Try parsing as +HHMM / -HH:MM
-  const m = /^([+-])(\d{2}):?(\d{2})$/.exec(tz);
+  // Try parsing as +HHMM / -HH:MM / +HH (minutes optional).
+  const m = /^([+-])(\d{2})(?::?(\d{2}))?$/.exec(tz);
   if (m) {
     const sign = m[1] === '+' ? 1 : -1;
-    return sign * (parseInt(m[2], 10) * 60 + parseInt(m[3], 10));
+    return sign * (parseInt(m[2], 10) * 60 + (m[3] ? parseInt(m[3], 10) : 0));
   }
 
   return 0;

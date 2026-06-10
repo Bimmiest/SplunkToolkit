@@ -175,7 +175,8 @@ function applyDelimsExtraction(
 
 export function applyRegexTransform(
   event: SplunkEvent,
-  transformStanza: ConfStanza
+  transformStanza: ConfStanza,
+  onInvalidRegex?: (pattern: string) => void,
 ): TransformResult {
   const regexDir = transformStanza.directives.find((d) => d.key === 'REGEX');
   const formatDir = transformStanza.directives.find((d) => d.key === 'FORMAT');
@@ -203,7 +204,12 @@ export function applyRegexTransform(
 
   const jsPattern = convertSplunkToJsRegex(regexDir.value.trim());
   const compiled = getCompiledRegex(transformStanza, jsPattern);
-  if (!compiled) return result;
+  if (!compiled) {
+    // Invalid PCRE-ism or a pattern the ReDoS heuristic refused — the transform
+    // silently does nothing, so let the caller surface a diagnostic.
+    onInvalidRegex?.(regexDir.value.trim());
+    return result;
+  }
 
   // Quick match check using plain (non-global) regex to avoid mutating lastIndex here.
   if (!compiled.plain.test(sourceValue)) return result;
@@ -249,6 +255,10 @@ export function applyRegexTransform(
           } else {
             extraValues.push(formatted);
           }
+          // Guard against zero-length matches (e.g. a regex like `(.*)` that can
+          // match the empty string) — without advancing, lastIndex never moves and
+          // global.exec loops forever.
+          if (m.index === global.lastIndex) global.lastIndex++;
         }
         if (firstValue !== undefined) {
           result.destKey = destKey;
@@ -268,10 +278,11 @@ export function applyRegexTransform(
         let p: RegExpExecArray | null;
         while ((p = PAIR_RE.exec(formatted)) !== null) {
           const field = writeMeta ? stripLeadingUnderscoreForField(p[1]) : p[1];
-          if (!field) continue;
           const value = p[2] !== undefined ? p[2] : p[3];
-          addMultiValue(result.fields, field, value);
+          if (field) addMultiValue(result.fields, field, value);
         }
+        // Guard against zero-length outer matches looping forever.
+        if (m.index === global.lastIndex) global.lastIndex++;
       }
     }
   } else {

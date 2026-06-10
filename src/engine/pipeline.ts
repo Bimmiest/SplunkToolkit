@@ -11,7 +11,6 @@ import { extractFields } from './processors/fieldExtractor';
 import { applyKvMode } from './processors/kvMode';
 import { applyFieldAliases } from './processors/fieldAlias';
 import { applyEvalExpressions } from './processors/evalProcessor';
-import { applyIngestEval } from './transforms/ingestEval';
 
 function safeProcessor(
   name: string,
@@ -87,12 +86,41 @@ export function runPipeline(
     'MetaData:Sourcetype': 'sourcetype::',
     'MetaData:Index': 'index::',
   };
+  // DEST_KEY only accepts a documented set of routing keys; the simulator otherwise
+  // falls back to "treat as a field name", which Splunk does not do.
+  const DEST_KEY_SIMULATED = new Set([
+    'queue', '_raw', '_meta', '_time',
+    'MetaData:Host', 'MetaData:Source', 'MetaData:Sourcetype', 'MetaData:Index',
+  ]);
+  const DEST_KEY_UNSIMULATED = new Set(['_TCP_ROUTING', '_SYSLOG_ROUTING', '_INDEX_AND_FORWARD_ROUTING']);
   for (const stanza of transformsConf.stanzas) {
     const destKeyDir = stanza.directives.find((d) => d.key === 'DEST_KEY');
     const formatDir = stanza.directives.find((d) => d.key === 'FORMAT');
-    if (destKeyDir && formatDir) {
-      const dk = destKeyDir.value.trim().replace(/^_/, '');
-      const requiredPrefix = DEST_KEY_REQUIRED_PREFIX[dk];
+    if (!destKeyDir) continue;
+
+    // Normalise the _MetaData: alias the same way the router does.
+    const destKey = destKeyDir.value.trim().replace(/^_(?=MetaData:)/i, '');
+
+    if (DEST_KEY_UNSIMULATED.has(destKey)) {
+      diagnostics.push({
+        level: 'warning',
+        message: `DEST_KEY = ${destKeyDir.value.trim()} is a valid Splunk routing key but is not simulated — events will not be cloned/routed in the preview.`,
+        file: 'transforms.conf',
+        line: destKeyDir.line,
+        directiveKey: destKeyDir.key,
+      });
+    } else if (!DEST_KEY_SIMULATED.has(destKey)) {
+      diagnostics.push({
+        level: 'warning',
+        message: `DEST_KEY = ${destKeyDir.value.trim()} is not a recognised Splunk DEST_KEY. Splunk only accepts the documented keys (queue, _raw, _meta, _time, MetaData:Host/Source/Sourcetype/Index, _TCP_ROUTING, _SYSLOG_ROUTING). An unrecognised key has no routing effect.`,
+        file: 'transforms.conf',
+        line: destKeyDir.line,
+        directiveKey: destKeyDir.key,
+      });
+    }
+
+    if (formatDir) {
+      const requiredPrefix = DEST_KEY_REQUIRED_PREFIX[destKey];
       if (requiredPrefix && !formatDir.value.includes(requiredPrefix)) {
         diagnostics.push({
           level: 'warning',
@@ -181,10 +209,10 @@ export function runPipeline(
     !directives.some((d) => d.key.toUpperCase() === 'SHOULD_LINEMERGE')
       ? [...directives, { key: 'SHOULD_LINEMERGE', value: 'false', directiveType: 'SHOULD_LINEMERGE', line: 0 } as ConfDirective]
       : directives;
-  let events = breakLines(truncatedRaw, lineBreakDirectives, metadata);
+  let events = breakLines(truncatedRaw, lineBreakDirectives, metadata, diagnostics);
 
   // Step 3: Truncation
-  events = safeProcessor('TRUNCATE', events, () => truncateEvents(events, directives), diagnostics);
+  events = safeProcessor('TRUNCATE', events, () => truncateEvents(events, directives, diagnostics), diagnostics);
 
   // Step 4: Timestamp extraction
   events = safeProcessor('Timestamp', events, () => extractTimestamps(events, directives), diagnostics);
@@ -193,22 +221,12 @@ export function runPipeline(
   events = safeProcessor('INDEXED_EXTRACTIONS', events, () => applyIndexedExtractions(events, directives), diagnostics);
 
   // Step 6: SEDCMD
-  events = safeProcessor('SEDCMD', events, () => applySedCommands(events, directives), diagnostics);
+  events = safeProcessor('SEDCMD', events, () => applySedCommands(events, directives, diagnostics), diagnostics);
 
-  // Step 7: Index-time TRANSFORMS
+  // Step 7: Index-time TRANSFORMS — regex transforms, DEST_KEY routing, and
+  // INGEST_EVAL stanzas are all applied here, interleaved in TRANSFORMS-<class>
+  // list order (only when a props.conf stanza references them).
   events = safeProcessor('TRANSFORMS', events, () => applyTransforms(events, directives, transformsConf, 'index-time', diagnostics), diagnostics, 'transforms.conf');
-
-  // Step 7b: INGEST_EVAL (from transforms.conf stanzas)
-  events = safeProcessor('INGEST_EVAL', events, () => {
-    let result = events;
-    for (const stanza of transformsConf.stanzas) {
-      const ingestEvalDirs = stanza.directives.filter((d) => d.key === 'INGEST_EVAL');
-      if (ingestEvalDirs.length > 0) {
-        result = applyIngestEval(result, ingestEvalDirs, diagnostics);
-      }
-    }
-    return result;
-  }, diagnostics, 'transforms.conf');
 
   // ── Search-time processing ────────────────────────────
 
@@ -250,9 +268,10 @@ export function runPipeline(
     for (let i = 0; i < events.length; i++) {
       const evDirs = eventDirectives[i];
       let ev: SplunkEvent[] = [events[i]];
+      // Splunk's search-time order is EXTRACT → REPORT → automatic KV (KV_MODE) → FIELDALIAS → EVAL.
       ev = safeProcessor('EXTRACT', ev, () => extractFields(ev, evDirs, diagnostics), diagnostics);
-      ev = safeProcessor('KV_MODE', ev, () => applyKvMode(ev, evDirs), diagnostics);
       ev = safeProcessor('REPORT', ev, () => applyTransforms(ev, evDirs, transformsConf, 'search-time'), diagnostics, 'transforms.conf');
+      ev = safeProcessor('KV_MODE', ev, () => applyKvMode(ev, evDirs), diagnostics);
       ev = safeProcessor('FIELDALIAS', ev, () => applyFieldAliases(ev, evDirs, diagnostics), diagnostics);
       ev = safeProcessor('EVAL', ev, () => applyEvalExpressions(ev, evDirs, diagnostics), diagnostics);
       processed.push(...ev);
@@ -276,11 +295,12 @@ export function runPipeline(
     // Step 8: EXTRACT (inline field extraction)
     events = safeProcessor('EXTRACT', events, () => extractFields(events, directives, diagnostics), diagnostics);
 
-    // Step 9: KV_MODE
-    events = safeProcessor('KV_MODE', events, () => applyKvMode(events, directives), diagnostics);
-
-    // Step 10: Search-time REPORT transforms
+    // Step 9: Search-time REPORT transforms (run BEFORE automatic KV — Splunk's
+    // documented order is inline EXTRACT → REPORT field transforms → automatic KV).
     events = safeProcessor('REPORT', events, () => applyTransforms(events, directives, transformsConf, 'search-time'), diagnostics, 'transforms.conf');
+
+    // Step 10: KV_MODE (automatic key-value extraction)
+    events = safeProcessor('KV_MODE', events, () => applyKvMode(events, directives), diagnostics);
 
     // Step 11: FIELDALIAS
     events = safeProcessor('FIELDALIAS', events, () => applyFieldAliases(events, directives, diagnostics), diagnostics);

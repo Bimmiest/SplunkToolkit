@@ -1,21 +1,27 @@
-import { useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 
 /**
  * Subscribe to a CSS media query and re-render when its match state changes.
  * Returns false during server-side rendering (no `window`).
  */
 export function useMediaQuery(query: string): boolean {
-  const subscribe = (callback: () => void) => {
-    if (typeof window === 'undefined' || !window.matchMedia) return () => {};
-    const mql = window.matchMedia(query);
-    mql.addEventListener('change', callback);
-    return () => mql.removeEventListener('change', callback);
-  };
+  // Memoise subscribe/getSnapshot per `query` — otherwise new function identities
+  // each render make useSyncExternalStore tear down and re-add the matchMedia
+  // listener on (almost) every render.
+  const subscribe = useCallback(
+    (callback: () => void) => {
+      if (typeof window === 'undefined' || !window.matchMedia) return () => {};
+      const mql = window.matchMedia(query);
+      mql.addEventListener('change', callback);
+      return () => mql.removeEventListener('change', callback);
+    },
+    [query],
+  );
 
-  const getSnapshot = () =>
-    typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia(query).matches;
+  const getSnapshot = useCallback(
+    () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia(query).matches,
+    [query],
+  );
 
-  const getServerSnapshot = () => false;
-
-  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }

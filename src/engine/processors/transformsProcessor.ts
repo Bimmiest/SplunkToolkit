@@ -1,10 +1,21 @@
 import type { SplunkEvent, ConfDirective, ParsedConf, ValidationDiagnostic } from '../types';
 import { applyRegexTransform } from '../transforms/regexTransform';
 import { applyDestKey } from '../transforms/destKeyRouter';
+import { applyIngestEval } from '../transforms/ingestEval';
+import { byClassName } from '../utils/asciiCompare';
 
 // A DEST_KEY=_raw transform that shrinks the event by at least this fraction is
 // treated as accidental data loss (FORMAT did not reproduce the rest of the line).
 const RAW_LOSS_THRESHOLD = 0.3;
+
+// DEST_KEY values the router actually simulates (after the _MetaData:→MetaData:
+// alias is normalised).
+const SIMULATED_DEST_KEYS = new Set([
+  'queue', '_raw', '_meta', '_time',
+  'MetaData:Host', 'MetaData:Index', 'MetaData:Source', 'MetaData:Sourcetype',
+]);
+// Documented Splunk routing keys this tool recognises but does not model.
+const VALID_UNSIMULATED_DEST_KEYS = new Set(['_TCP_ROUTING', '_SYSLOG_ROUTING']);
 
 export function applyTransforms(
   events: SplunkEvent[],
@@ -14,18 +25,30 @@ export function applyTransforms(
   diagnostics?: ValidationDiagnostic[],
 ): SplunkEvent[] {
   const directiveType = phase === 'index-time' ? 'TRANSFORMS' : 'REPORT';
-  const transformDirectives = directives.filter((d) => d.directiveType === directiveType);
+  // When multiple TRANSFORMS-<class>/REPORT-<class> entries match, Splunk applies
+  // them in ASCII order of the class name (comma-separated names within one class
+  // stay list-ordered). Ordering is decisive once queue routing is last-wins.
+  const transformDirectives = directives
+    .filter((d) => d.directiveType === directiveType)
+    .sort(byClassName);
 
   if (transformDirectives.length === 0) return events;
 
   const stanzaMap = new Map(transformsConf.stanzas.map((s) => [s.name, s]));
   // Emit the DEST_KEY=_raw data-loss warning at most once per transform stanza.
   const warnedRawLoss = new Set<string>();
+  // SEM-7: warn once per stanza about index-time transforms that extract fields
+  // with no WRITE_META/DEST_KEY (which have no effect at index time in Splunk).
+  const warnedNoWriteMeta = new Set<string>();
+  // SEM-16: warn once per stanza whose REGEX could not be compiled (invalid or ReDoS-rejected).
+  const warnedInvalidRegex = new Set<string>();
+  // SEM-11: warn once per stanza that routes via an unknown/unsimulated DEST_KEY.
+  const warnedUnknownDestKey = new Set<string>();
 
-  return events.flatMap((event) => {
-    let currentEvent: SplunkEvent | null = event;
+  return events.map((event) => {
+    let currentEvent: SplunkEvent = event;
 
-    outer: for (const dir of transformDirectives) {
+    for (const dir of transformDirectives) {
       // Value can be comma-separated list of transform stanza names
       const stanzaNames = dir.value.split(',').map((s) => s.trim()).filter(Boolean);
 
@@ -33,14 +56,45 @@ export function applyTransforms(
         const transformStanza = stanzaMap.get(stanzaName);
         if (!transformStanza) continue;
 
-        const result = applyRegexTransform(currentEvent, transformStanza);
+        // INGEST_EVAL stanzas are part of the index-time TRANSFORMS list: they
+        // execute at THIS position (interleaved with regex transforms), and only
+        // because a TRANSFORMS-<class> references them. A regex transform listed
+        // after the eval therefore sees the evaled event. INGEST_EVAL is
+        // index-time only, so it is ignored on the search-time (REPORT) pass.
+        const ingestEvalDirs = transformStanza.directives.filter((d) => d.key === 'INGEST_EVAL');
+        if (ingestEvalDirs.length > 0) {
+          if (phase === 'index-time') {
+            currentEvent = applyIngestEval([currentEvent], ingestEvalDirs, diagnostics)[0];
+          }
+          continue;
+        }
+
+        const result = applyRegexTransform(currentEvent, transformStanza, (pattern) => {
+          if (!diagnostics || warnedInvalidRegex.has(stanzaName)) return;
+          warnedInvalidRegex.add(stanzaName);
+          diagnostics.push({
+            level: 'warning',
+            message: `Transform "${stanzaName}" was skipped: its REGEX (${pattern}) could not be compiled safely (invalid regex or rejected as ReDoS-prone).`,
+            file: 'transforms.conf',
+            line: transformStanza.directives.find((d) => d.key === 'REGEX')?.line ?? transformStanza.lineRange.start,
+          });
+        });
 
         if (result.matched) {
+          if (phase === 'index-time' && diagnostics) {
+            warnIndexTimeNoWriteMeta(result, stanzaName, transformStanza, diagnostics, warnedNoWriteMeta);
+          }
           const beforeRaw = currentEvent._raw;
+          // applyDestKey records queue values onto _meta._queue rather than dropping
+          // the event — a later transform in the list can still overwrite the queue
+          // (last-wins). nullQueue events are flagged (and shown as dropped) only
+          // after the whole list runs; they are never removed mid-list.
           const routed = applyDestKey(currentEvent, result);
-          if (routed === null) return []; // nullQueue — drop the event
           if (result.destKey === '_raw' && diagnostics) {
             warnRawLoss(beforeRaw, routed._raw, stanzaName, transformStanza, diagnostics, warnedRawLoss);
+          }
+          if (result.destKey && diagnostics) {
+            warnUnknownDestKey(result.destKey, stanzaName, transformStanza, diagnostics, warnedUnknownDestKey);
           }
           currentEvent = {
             ...routed,
@@ -56,12 +110,85 @@ export function applyTransforms(
               },
             ],
           };
-          if (result.destKey === 'queue') break outer; // routing is final
         }
       }
     }
 
-    return currentEvent ? [currentEvent] : [];
+    return currentEvent;
+  });
+}
+
+/**
+ * Warn when an index-time transform extracts fields but writes nowhere — no
+ * WRITE_META = true and no DEST_KEY. In real Splunk such a stanza does nothing at
+ * index time (index-time field extraction requires WRITE_META), so a config that
+ * "works" in the preview would ship dead. Fires at most once per stanza.
+ */
+function warnIndexTimeNoWriteMeta(
+  result: { fields: Record<string, string | string[]>; destKey?: string },
+  stanzaName: string,
+  transformStanza: ParsedConf['stanzas'][number],
+  diagnostics: ValidationDiagnostic[],
+  warned: Set<string>,
+): void {
+  if (warned.has(stanzaName)) return;
+  // Only a concern when the transform produced fields and did not route anywhere.
+  if (result.destKey || Object.keys(result.fields).length === 0) return;
+  const writeMeta = transformStanza.directives
+    .find((d) => d.key === 'WRITE_META')?.value.trim().toLowerCase() === 'true';
+  if (writeMeta) return;
+
+  warned.add(stanzaName);
+  diagnostics.push({
+    level: 'warning',
+    message:
+      `Index-time transform "${stanzaName}" extracts fields (${Object.keys(result.fields).join(', ')}) but has no ` +
+      'WRITE_META = true and no DEST_KEY. In real Splunk an index-time TRANSFORMS stanza only stores fields when ' +
+      'WRITE_META = true (or it routes via DEST_KEY); without either it has no effect. If you meant a search-time ' +
+      'extraction, reference it with REPORT-<class> instead of TRANSFORMS-<class>.',
+    file: 'transforms.conf',
+    line: transformStanza.lineRange.start,
+  });
+}
+
+/**
+ * SEM-11: warn when DEST_KEY is set to something outside the documented Splunk
+ * key set. The router falls back to treating an unknown key as a field name, so
+ * a typo'd key silently "works" in the preview while doing nothing in Splunk.
+ * `_TCP_ROUTING` / `_SYSLOG_ROUTING` are valid keys this tool just doesn't model;
+ * they get an informational note rather than a warning. Fires once per stanza.
+ */
+function warnUnknownDestKey(
+  destKey: string,
+  stanzaName: string,
+  transformStanza: ParsedConf['stanzas'][number],
+  diagnostics: ValidationDiagnostic[],
+  warned: Set<string>,
+): void {
+  // Mirror the router's _MetaData:→MetaData: alias normalisation before comparing.
+  const normalized = destKey.replace(/^_(?=MetaData:)/i, '');
+  if (SIMULATED_DEST_KEYS.has(normalized) || warned.has(stanzaName)) return;
+  warned.add(stanzaName);
+
+  const line = transformStanza.directives.find((d) => d.key === 'DEST_KEY')?.line ?? transformStanza.lineRange.start;
+  if (VALID_UNSIMULATED_DEST_KEYS.has(normalized)) {
+    diagnostics.push({
+      level: 'info',
+      message: `DEST_KEY = ${destKey} in transform "${stanzaName}" is a valid Splunk routing key but is not simulated here — the event is shown unchanged.`,
+      file: 'transforms.conf',
+      line,
+    });
+    return;
+  }
+  diagnostics.push({
+    level: 'warning',
+    message:
+      `DEST_KEY = ${destKey} in transform "${stanzaName}" is not a recognized Splunk DEST_KEY ` +
+      '(expected one of queue, _raw, _meta, _time, MetaData:Host, MetaData:Index, MetaData:Source, ' +
+      'MetaData:Sourcetype, _TCP_ROUTING, _SYSLOG_ROUTING). The preview treats it as a field name, ' +
+      'but real Splunk ignores unknown DEST_KEY values.',
+    file: 'transforms.conf',
+    line,
   });
 }
 

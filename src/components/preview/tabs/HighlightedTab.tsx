@@ -121,15 +121,26 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
     return map;
   }, [fieldColorMap, containerFields]);
 
-  const filteredItems = useMemo(() => {
-    if (pinnedFields.size === 0) return items;
-    return allEvents.filter(({ event }) => {
+  // Each rendered row carries its TRUE global event index so the "Event #" badge
+  // stays correct whether we're showing a paginated page or a pin-filtered view.
+  // When fields are pinned the filter spans every event (a pin is a global filter),
+  // so we index into allEvents rather than reusing the current page's offset math.
+  const filteredItems = useMemo<{ item: EnrichedEvent; globalIdx: number }[]>(() => {
+    if (pinnedFields.size === 0) {
+      const offset = (currentPage - 1) * eventsPerPage;
+      return items.map((item, i) => ({ item, globalIdx: offset + i + 1 }));
+    }
+    const out: { item: EnrichedEvent; globalIdx: number }[] = [];
+    allEvents.forEach((item, i) => {
       for (const pinned of pinnedFields) {
-        if (pinned in event.fields) return true;
+        if (pinned in item.event.fields) {
+          out.push({ item, globalIdx: i + 1 });
+          break;
+        }
       }
-      return false;
     });
-  }, [items, allEvents, pinnedFields]);
+    return out;
+  }, [items, allEvents, pinnedFields, currentPage, eventsPerPage]);
 
   const tree = useMemo(
     () => buildFieldTree(fieldColorMap, containerFields, fieldProcessorMap),
@@ -161,7 +172,7 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
   const showCalcStrip = fieldFilter === 'calc' || fieldFilter === 'all';
 
   const eventBadgeCounts = useMemo(() =>
-    filteredItems.map((item) => {
+    filteredItems.map(({ item }) => {
       const eventFields = Object.keys(item.event.fields).filter((f) => highlightColorMap.has(f));
       const evalTrace = item.event.processingTrace.find((t) => t.processor === 'EVAL');
       const eventCalcFields = showCalcStrip
@@ -260,7 +271,7 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
 
           {pinnedFields.size > 0 && (
             <span className="text-[10px] text-[var(--color-text-muted)] flex items-center gap-1.5">
-              {filteredItems.length}/{items.length} events match {pinnedFields.size} pinned field{pinnedFields.size > 1 ? 's' : ''}
+              {filteredItems.length}/{allEvents.length} events match {pinnedFields.size} pinned field{pinnedFields.size > 1 ? 's' : ''}
               <button
                 type="button"
                 onClick={() => { for (const f of pinnedFields) togglePin(f); }}
@@ -298,8 +309,7 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
           collapsed={sidebarCollapsed}
           sidebar={sidebar}
         >
-          {filteredItems.map((item, idx) => {
-            const globalIdx = (currentPage - 1) * eventsPerPage + idx + 1;
+          {filteredItems.map(({ item, globalIdx }, idx) => {
             const { eventCalcFields, autoCount, manualCount, calcCount } = eventBadgeCounts[idx];
 
             const fieldValues = new Map<string, string | string[]>(
@@ -310,7 +320,7 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
 
             return (
               <FieldEventCard
-                key={idx}
+                key={globalIdx}
                 event={item.event}
                 globalIdx={globalIdx}
                 fieldColorMap={highlightColorMap}

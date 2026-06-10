@@ -34,6 +34,25 @@ describe('applyEvalExpressions — arithmetic', () => {
     const [result] = applyEvalExpressions([event({ a: 'hello' })], [evalDir('msg', 'a . " world"')]);
     expect(result.fields['msg']).toBe('hello world');
   });
+
+  // SEM-8: + concatenates non-numeric strings rather than coercing to 0.
+  it('+ concatenates two non-numeric strings', () => {
+    const [result] = applyEvalExpressions([event({ a: 'foo', b: 'bar' })], [evalDir('c', 'a + b')]);
+    expect(result.fields['c']).toBe('foobar');
+  });
+
+  // SEM-8: NULL propagates through arithmetic (null + 5 = null, not 5).
+  it('propagates NULL through + (missing field)', () => {
+    const [result] = applyEvalExpressions([event({})], [evalDir('c', 'missing + 5')]);
+    expect(result.fields['c']).toBeUndefined(); // null result → field not set
+  });
+
+  it('propagates NULL through * and unary minus', () => {
+    const [r1] = applyEvalExpressions([event({})], [evalDir('c', 'missing * 2')]);
+    expect(r1.fields['c']).toBeUndefined();
+    const [r2] = applyEvalExpressions([event({})], [evalDir('c', '-missing')]);
+    expect(r2.fields['c']).toBeUndefined();
+  });
 });
 
 describe('applyEvalExpressions — numeric predicates', () => {
@@ -105,9 +124,22 @@ describe('applyEvalExpressions — function fidelity', () => {
     expect(r2.fields['d']).toBe('1+01:01:01');
   });
 
-  it('tostring commas forces two decimals with thousands separators', () => {
+  it('tostring commas keeps thousands separators and 2-dp precision for fractions', () => {
     const [r] = applyEvalExpressions([event({})], [evalDir('c', 'tostring(1000000.1278, "commas")')]);
     expect(r.fields['c']).toBe('1,000,000.13');
+  });
+
+  // SEM-8: integers get no forced ".00".
+  it('tostring commas shows no decimals for an integer', () => {
+    const [r] = applyEvalExpressions([event({})], [evalDir('c', 'tostring(12345, "commas")')]);
+    expect(r.fields['c']).toBe('12,345');
+  });
+
+  // SEM-8: expanded strftime token coverage (%b month abbr, %p AM/PM, %Y).
+  it('strftime supports %b/%p/%Y tokens', () => {
+    // 1705312800 = 2024-01-15T10:00:00Z. Asserts only timezone-independent tokens.
+    const [r] = applyEvalExpressions([event({})], [evalDir('d', 'strftime(1705312800, "%Y %b")')]);
+    expect(r.fields['d']).toBe('2024 Jan');
   });
 
   it('random() returns an integer in [0, 2^31)', () => {
@@ -240,6 +272,65 @@ describe('applyEvalExpressions — IN / NOT IN operator', () => {
       [evalDir('r', 'if(NOT x, "yes", "no")')]
     );
     expect(r.fields['r']).toBe('yes');
+  });
+});
+
+describe('applyEvalExpressions — lazy evaluation (SEM-8)', () => {
+  // The untaken branch of if() must not run — so its stub warning must not fire.
+  it('if() does not evaluate (or warn about) the untaken branch', () => {
+    const diagnostics: import('../types').ValidationDiagnostic[] = [];
+    const [r] = applyEvalExpressions(
+      [event({ x: '1' })],
+      [evalDir('r', 'if(x == 1, "yes", md5("never"))')],
+      diagnostics,
+    );
+    expect(r.fields['r']).toBe('yes');
+    // md5() is a stub; it sits on the false branch and must not be reached.
+    expect(diagnostics.some((d) => d.message.includes('md5'))).toBe(false);
+  });
+
+  it('case() stops at the first matching predicate', () => {
+    const diagnostics: import('../types').ValidationDiagnostic[] = [];
+    const [r] = applyEvalExpressions(
+      [event({ x: '1' })],
+      [evalDir('r', 'case(x == 1, "first", true, sha256("never"))')],
+      diagnostics,
+    );
+    expect(r.fields['r']).toBe('first');
+    expect(diagnostics.some((d) => d.message.includes('sha256'))).toBe(false);
+  });
+
+  it('coalesce() stops at the first non-null and does not evaluate later args', () => {
+    const diagnostics: import('../types').ValidationDiagnostic[] = [];
+    const [r] = applyEvalExpressions(
+      [event({ a: 'present' })],
+      [evalDir('r', 'coalesce(a, cidrmatch("10.0.0.0/8", "10.1.1.1"))')],
+      diagnostics,
+    );
+    expect(r.fields['r']).toBe('present');
+    expect(diagnostics.some((d) => d.message.includes('cidrmatch'))).toBe(false);
+  });
+
+  it('OR short-circuits when the left operand is true', () => {
+    const diagnostics: import('../types').ValidationDiagnostic[] = [];
+    const [r] = applyEvalExpressions(
+      [event({ x: '1' })],
+      [evalDir('r', 'if(x == 1 OR searchmatch("y"), "hit", "miss")')],
+      diagnostics,
+    );
+    expect(r.fields['r']).toBe('hit');
+    expect(diagnostics.some((d) => d.message.includes('searchmatch'))).toBe(false);
+  });
+
+  it('AND short-circuits when the left operand is false', () => {
+    const diagnostics: import('../types').ValidationDiagnostic[] = [];
+    const [r] = applyEvalExpressions(
+      [event({ x: '0' })],
+      [evalDir('r', 'if(x == 1 AND searchmatch("y"), "hit", "miss")')],
+      diagnostics,
+    );
+    expect(r.fields['r']).toBe('miss');
+    expect(diagnostics.some((d) => d.message.includes('searchmatch'))).toBe(false);
   });
 });
 

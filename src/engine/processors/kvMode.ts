@@ -177,7 +177,7 @@ function walkXmlElement(
     const attr = el.attributes[i];
     // "Name" attribute on an element uses TagName_Name as field name (Windows EventLog convention).
     const fieldName = attr.name === 'Name' ? `${tagName}_Name` : attr.name;
-    if (attr.value && !fields[fieldName]) {
+    if (attr.value && fields[fieldName] === undefined) {
       fields[fieldName] = attr.value;
       added.push(fieldName);
     }
@@ -230,7 +230,7 @@ function extractKeyValue(
     for (const match of raw.matchAll(re)) {
       const key = match[1];
       let value = match[2];
-      if (key && value !== undefined && !fields[key]) {
+      if (key && value !== undefined && fields[key] === undefined) {
         if (unescape) value = value.replace(/\\(["'\\])/g, '$1');
         fields[key] = value;
         added.push(key);

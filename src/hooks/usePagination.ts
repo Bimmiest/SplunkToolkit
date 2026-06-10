@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useAppStore } from '../store/useAppStore';
 
 export function usePagination<T>(items: T[]) {
@@ -9,14 +9,22 @@ export function usePagination<T>(items: T[]) {
 
   const totalPages = Math.max(1, Math.ceil(items.length / eventsPerPage));
 
+  // When the event count shrinks (e.g. a new pipeline run yields fewer events) the
+  // stored currentPage can point past the last page and the view would show nothing.
+  // Clamp for rendering immediately, and sync the store back to a valid page.
+  const safePage = Math.min(currentPage, totalPages);
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages, setCurrentPage]);
+
   const paginatedItems = useMemo(() => {
-    const start = (currentPage - 1) * eventsPerPage;
+    const start = (safePage - 1) * eventsPerPage;
     return items.slice(start, start + eventsPerPage);
-  }, [items, currentPage, eventsPerPage]);
+  }, [items, safePage, eventsPerPage]);
 
   return {
     paginatedItems,
-    currentPage,
+    currentPage: safePage,
     totalPages,
     eventsPerPage,
     totalItems: items.length,

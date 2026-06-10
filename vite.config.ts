@@ -9,7 +9,11 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'monaco-editor': ['monaco-editor'],
+          // Group the slim editor.api entry — NOT the `monaco-editor` barrel,
+          // which would force the ~80 basic-languages and the TS/JSON/CSS/HTML
+          // language services (and their web workers) back into the graph even
+          // though nothing imports them. See TOOL-2 / main.tsx.
+          'monaco-editor': ['monaco-editor/esm/vs/editor/editor.api'],
           'react-vendor': ['react', 'react-dom'],
         },
       },

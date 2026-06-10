@@ -8,6 +8,10 @@ const createWorker = () =>
   new Worker(new URL('../engine/pipelineWorker.ts', import.meta.url), { type: 'module' });
 
 const WORKER_TIMEOUT_MS = 5_000;
+// How many times a single request may restart the worker after a crash before we
+// give up. A request that itself crashes the worker (e.g. OOM-sized input) would
+// otherwise restart-and-replay forever; cap it so the loop terminates.
+const MAX_WORKER_RETRIES = 1;
 
 export function useProcessingPipeline() {
   const rawData = useAppStore((s) => s.rawData);
@@ -27,7 +31,32 @@ export function useProcessingPipeline() {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRequestRef = useRef<PipelineWorkerRequest | null>(null);
   const requestStartRef = useRef<number>(0);
+  const retryCountRef = useRef(0);
   const initWorkerRef = useRef<() => void>(() => {});
+
+  // Arm the 5 s watchdog for a given request id. Pulled out of sendRequest so the
+  // crash-retry path can re-arm it too — without this, a hung retry would leave
+  // isProcessing stuck true forever. Clears any poisoned request so a later
+  // onerror cannot replay something that already timed out.
+  const armWatchdog = useRef((id: number) => {
+    if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => {
+      if (id !== requestIdRef.current) return;
+      timeoutRef.current = null;
+      lastRequestRef.current = null; // do not let onerror replay a request that hung
+      retryCountRef.current = 0;
+      setIsProcessing(false);
+      setProcessingResult(null);
+      setValidationDiagnostics([{
+        level: 'error',
+        message: `Pipeline timed out after ${WORKER_TIMEOUT_MS / 1000} s — the input may contain a regex prone to catastrophic backtracking (ReDoS). Try simplifying your EXTRACT or TRANSFORMS pattern.`,
+        file: 'props.conf',
+      }]);
+      workerRef.current?.terminate();
+      workerRef.current = null;
+      initWorkerRef.current();
+    }, WORKER_TIMEOUT_MS);
+  }).current;
 
   // Capture live inputs in a ref so the manual-run effect can read them without being a dependency.
   const liveInputsRef = useRef({ rawData, metadata, propsConf, transformsConf });
@@ -41,23 +70,10 @@ export function useProcessingPipeline() {
 
     const id = ++requestIdRef.current;
     requestStartRef.current = performance.now();
+    retryCountRef.current = 0; // a fresh user request starts the retry budget over
     setIsProcessing(true);
 
-    if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => {
-      if (id !== requestIdRef.current) return;
-      timeoutRef.current = null;
-      setIsProcessing(false);
-      setProcessingResult(null);
-      setValidationDiagnostics([{
-        level: 'error',
-        message: `Pipeline timed out after ${WORKER_TIMEOUT_MS / 1000} s — the input may contain a regex prone to catastrophic backtracking (ReDoS). Try simplifying your EXTRACT or TRANSFORMS pattern.`,
-        file: 'props.conf',
-      }]);
-      workerRef.current?.terminate();
-      workerRef.current = null;
-      initWorkerRef.current();
-    }, WORKER_TIMEOUT_MS);
+    armWatchdog(id);
 
     const request: PipelineWorkerRequest = {
       id,
@@ -92,6 +108,10 @@ export function useProcessingPipeline() {
         clearWatchdog();
         setIsProcessing(false);
         setLastProcessingMs(performance.now() - requestStartRef.current);
+        // This request completed cleanly — it is not poison, so clear the retry
+        // budget and drop it so a later crash cannot replay an already-done request.
+        retryCountRef.current = 0;
+        lastRequestRef.current = null;
 
         if (error || !result) {
           setProcessingResult(null);
@@ -109,21 +129,34 @@ export function useProcessingPipeline() {
 
       worker.onerror = (e) => {
         clearWatchdog();
+        workerRef.current?.terminate();
+        workerRef.current = null;
+        const restartedWorker = initWorker();
+
+        const pending = lastRequestRef.current;
+        if (pending && retryCountRef.current < MAX_WORKER_RETRIES) {
+          // Restart once and replay — covers a transient worker crash. The watchdog
+          // is re-armed so a retry that also hangs cannot leave isProcessing stuck.
+          retryCountRef.current += 1;
+          setIsProcessing(true);
+          armWatchdog(pending.id);
+          restartedWorker.postMessage(pending);
+          return;
+        }
+
+        // Out of retries (or no pending request): the input itself is crashing the
+        // worker. Drop it so we don't loop, and surface a terminal error.
+        lastRequestRef.current = null;
+        retryCountRef.current = 0;
         setIsProcessing(false);
         setProcessingResult(null);
         setValidationDiagnostics([{
           level: 'error',
-          message: `Worker error: ${e.message}`,
+          message: pending
+            ? `Worker crashed repeatedly while processing this input: ${e.message}. Processing was stopped — try reducing the input size or simplifying your patterns.`
+            : `Worker error: ${e.message}`,
           file: 'props.conf',
         }]);
-        workerRef.current?.terminate();
-        workerRef.current = null;
-        const restartedWorker = initWorker();
-        const pending = lastRequestRef.current;
-        if (pending) {
-          setIsProcessing(true);
-          restartedWorker.postMessage(pending);
-        }
       };
 
       return worker;
@@ -140,7 +173,7 @@ export function useProcessingPipeline() {
       workerRef.current?.terminate();
       workerRef.current = null;
     };
-  }, [setIsProcessing, setProcessingResult, setValidationDiagnostics, setLastProcessingMs]);
+  }, [armWatchdog, setIsProcessing, setProcessingResult, setValidationDiagnostics, setLastProcessingMs]);
 
   const inputs = useMemo(
     () => ({ rawData, metadata, propsConf, transformsConf }),

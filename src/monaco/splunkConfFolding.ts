@@ -1,4 +1,8 @@
-import { type languages, type editor, type CancellationToken, languages as monacoLanguages } from 'monaco-editor';
+import type { languages, editor, CancellationToken } from 'monaco-editor';
+// Value import from the slim entry only — a value import from the `monaco-editor`
+// barrel would drag editor.main (every language + its web worker) into the
+// bundle. See TOOL-2.
+import { languages as monacoLanguages } from 'monaco-editor/esm/vs/editor/editor.api';
 
 export function createFoldingRangeProvider(): languages.FoldingRangeProvider {
   return {
@@ -68,6 +72,15 @@ export function createFoldingRangeProvider(): languages.FoldingRangeProvider {
           }
           commentStart = null;
         }
+      }
+      // Flush a comment block that runs to the end of the file (the loop above
+      // only closes a block when a non-comment line follows it).
+      if (commentStart !== null && lineCount > commentStart) {
+        ranges.push({
+          start: commentStart,
+          end: lineCount,
+          kind: monacoLanguages.FoldingRangeKind.Comment,
+        });
       }
 
       return ranges;

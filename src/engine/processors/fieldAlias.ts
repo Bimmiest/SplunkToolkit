@@ -1,6 +1,7 @@
 import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 import { isInternalField } from '../utils/internalFields';
 import { safeRegex, escapeRegex } from '../../utils/splunkRegex';
+import { byClassName } from '../utils/asciiCompare';
 
 interface AliasMapping {
   source: string;
@@ -21,7 +22,7 @@ export function applyFieldAliases(
 ): SplunkEvent[] {
   const aliasDirectives = directives
     .filter((d) => d.directiveType === 'FIELDALIAS')
-    .sort((a, b) => (a.className ?? '').localeCompare(b.className ?? ''));
+    .sort(byClassName);
 
   if (aliasDirectives.length === 0) return events;
 

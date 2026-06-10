@@ -2,14 +2,22 @@ import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types'
 import { evaluateExpression } from '../processors/evalProcessor';
 import { stripLeadingUnderscoreForField } from '../utils/internalFields';
 
-// Split "field=expr, field2=fn(a,b)" on top-level commas only (not inside parens).
+// Split "field=expr, field2=fn(a,b)" on top-level commas only — not inside parens
+// and not inside a string literal (e.g. msg="a,b" must stay one assignment).
 function splitAssignments(s: string): string[] {
   const parts: string[] = [];
   let depth = 0;
   let start = 0;
+  let quote: '"' | "'" | null = null;
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
-    if (c === '(') depth++;
+    if (quote) {
+      // Inside a string literal: only the matching quote (when not escaped) ends it.
+      if (c === quote && s[i - 1] !== '\\') quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'") quote = c;
+    else if (c === '(') depth++;
     else if (c === ')') depth--;
     else if (c === ',' && depth === 0) {
       parts.push(s.slice(start, i).trim());

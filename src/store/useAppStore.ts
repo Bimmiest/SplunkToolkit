@@ -65,6 +65,42 @@ interface AppState {
   toggleScaffold: () => void;
 }
 
+const THEME_KEY = 'splunk-toolkit:theme';
+const SETTINGS_KEY = 'splunk-toolkit:settings';
+
+/** Restore the persisted theme, defaulting to dark when unset or unreadable. */
+function loadTheme(): 'light' | 'dark' {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'light' || saved === 'dark') return saved;
+  } catch { /* ignore */ }
+  return 'dark';
+}
+
+/**
+ * Restore persisted settings, validating shape rather than trusting the parsed
+ * JSON — a stale or hand-edited value could be the wrong shape (missing keys, or
+ * non-booleans), which would otherwise flow straight into the store. Also keeps
+ * the invariant that per-event mode implies manual-apply.
+ */
+function loadSettings(): { perEventPipeline: boolean; manualApply: boolean } {
+  const fallback = { perEventPipeline: false, manualApply: false };
+  try {
+    const saved = localStorage.getItem(SETTINGS_KEY);
+    if (!saved) return fallback;
+    const parsed = JSON.parse(saved) as unknown;
+    if (!parsed || typeof parsed !== 'object') return fallback;
+    const o = parsed as Record<string, unknown>;
+    const perEventPipeline = o.perEventPipeline === true;
+    return {
+      perEventPipeline,
+      manualApply: perEventPipeline || o.manualApply === true,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 export const useAppStore = create<AppState>((set) => ({
   rawData: '',
   setRawData: (data) => set({ rawData: data, currentPage: 1 }),
@@ -96,9 +132,13 @@ export const useAppStore = create<AppState>((set) => ({
   validationDiagnostics: [],
   setValidationDiagnostics: (diags) => set({ validationDiagnostics: diags }),
 
-  theme: 'dark',
+  theme: loadTheme(),
   toggleTheme: () =>
-    set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
+    set((state) => {
+      const theme = state.theme === 'light' ? 'dark' : 'light';
+      try { localStorage.setItem(THEME_KEY, theme); } catch { /* ignore */ }
+      return { theme };
+    }),
 
   activeOutputTab: 'preview',
   setActiveOutputTab: (tab) => set({ activeOutputTab: tab }),
@@ -127,25 +167,19 @@ export const useAppStore = create<AppState>((set) => ({
   lastProcessingMs: null,
   setLastProcessingMs: (ms) => set({ lastProcessingMs: ms }),
 
-  settings: (() => {
-    try {
-      const saved = localStorage.getItem('splunk-toolkit:settings');
-      if (saved) return JSON.parse(saved) as { perEventPipeline: boolean; manualApply: boolean };
-    } catch { /* ignore */ }
-    return { perEventPipeline: false, manualApply: false };
-  })(),
+  settings: loadSettings(),
   togglePerEventPipeline: () =>
     set((state) => {
       const perEventPipeline = !state.settings.perEventPipeline;
       const manualApply = perEventPipeline ? true : state.settings.manualApply;
       const next = { ...state.settings, perEventPipeline, manualApply };
-      try { localStorage.setItem('splunk-toolkit:settings', JSON.stringify(next)); } catch { /* ignore */ }
+      try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
       return { settings: next };
     }),
   toggleManualApply: () =>
     set((state) => {
       const next = { ...state.settings, manualApply: !state.settings.manualApply };
-      try { localStorage.setItem('splunk-toolkit:settings', JSON.stringify(next)); } catch { /* ignore */ }
+      try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
       return { settings: next };
     }),
 

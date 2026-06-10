@@ -36,6 +36,14 @@ const COMMENT_RE = /^#/;
 const BLANK_RE = /^\s*$/;
 
 // Splunk uses trailing backslash for line continuation (not leading whitespace).
+// A line continues only when it ends with an ODD number of backslashes — an even
+// count is escaped literal backslashes (e.g. a Windows path "C:\\dir\\"), not a
+// continuation marker.
+function endsWithContinuation(value: string): boolean {
+  let count = 0;
+  for (let i = value.length - 1; i >= 0 && value[i] === '\\'; i--) count++;
+  return count % 2 === 1;
+}
 
 // ---------------------------------------------------------------------------
 // Class-based directive detection
@@ -183,9 +191,11 @@ export function parseConf(
       continue;
     }
 
-    // --- Continuation lines (Splunk: previous directive value ends with \) ---
-    if (lastDirective && lastDirective.value.endsWith('\\')) {
-      lastDirective.value = lastDirective.value.slice(0, -1) + line.trimStart();
+    // --- Continuation lines (Splunk: previous directive value ends with a single \) ---
+    if (lastDirective && endsWithContinuation(lastDirective.value)) {
+      // Drop the continuation backslash and append the next line verbatim — Splunk
+      // preserves the continuation line's leading whitespace (no trimStart).
+      lastDirective.value = lastDirective.value.slice(0, -1) + line;
       continue;
     }
 

@@ -1,7 +1,7 @@
 import type { SplunkEvent } from '../types';
 import type { TransformResult } from './regexTransform';
 
-export function applyDestKey(event: SplunkEvent, result: TransformResult): SplunkEvent | null {
+export function applyDestKey(event: SplunkEvent, result: TransformResult): SplunkEvent {
   if (!result.matched || !result.destKey || !result.destValue) {
     // No routing, just add extracted fields
     return {
@@ -21,14 +21,14 @@ export function applyDestKey(event: SplunkEvent, result: TransformResult): Splun
       return { ...event, _raw: destValue, fields: { ...event.fields, ...result.fields } };
 
     case '_meta': {
-      // _meta values are space-separated key::value pairs
+      // _meta values are space-separated key::value pairs. Values may be quoted to
+      // contain spaces (key::"two words"), so parse with quote awareness rather than
+      // a naive whitespace split that would break a quoted value apart.
       const meta = { ...event._meta };
-      const pairs = destValue.split(/\s+/);
-      for (const pair of pairs) {
-        const idx = pair.indexOf('::');
-        if (idx > 0) {
-          meta[pair.substring(0, idx)] = pair.substring(idx + 2);
-        }
+      const pairRe = /(\S+?)::(?:"([^"]*)"|(\S+))/g;
+      let m: RegExpExecArray | null;
+      while ((m = pairRe.exec(destValue)) !== null) {
+        meta[m[1]] = m[2] !== undefined ? m[2] : m[3];
       }
       return { ...event, _meta: meta, fields: { ...event.fields, ...result.fields } };
     }
@@ -43,8 +43,12 @@ export function applyDestKey(event: SplunkEvent, result: TransformResult): Splun
     }
 
     case 'queue':
-      // nullQueue = drop event from pipeline; indexQueue = keep
-      if (destValue === 'nullQueue') return null;
+      // DEST_KEY = queue just writes the queue value onto the event. It is NOT
+      // a final decision: a later transform in the same list can overwrite it
+      // (last-wins), which is the basis of the canonical "drop everything except
+      // X" pattern (setnull → nullQueue on .*, then setparsing → indexQueue on
+      // the keepers). Record the value and let the transform list run to
+      // completion; the caller decides what a final `nullQueue` means.
       return {
         ...event,
         _meta: { ...event._meta, _queue: destValue },

@@ -58,8 +58,8 @@ function DiffEventCard({ globalIdx, originalRaw, modifiedRaw }: { globalIdx: num
           if (segment.removed) {
             return lines.map((line, li) => (
               <div key={`${si}-${li}`} className="flex bg-red-500/15">
-                <span className="flex-shrink-0 w-6 text-center text-red-400 select-none">-</span>
-                <pre className="flex-1 px-2 py-0.5 whitespace-pre-wrap break-all text-red-300">{line}</pre>
+                <span className="flex-shrink-0 w-6 text-center text-red-600 dark:text-red-400 select-none">-</span>
+                <pre className="flex-1 px-2 py-0.5 whitespace-pre-wrap break-all text-red-700 dark:text-red-300">{line}</pre>
               </div>
             ));
           }
@@ -67,8 +67,8 @@ function DiffEventCard({ globalIdx, originalRaw, modifiedRaw }: { globalIdx: num
           if (segment.added) {
             return lines.map((line, li) => (
               <div key={`${si}-${li}`} className="flex bg-green-500/15">
-                <span className="flex-shrink-0 w-6 text-center text-green-400 select-none">+</span>
-                <pre className="flex-1 px-2 py-0.5 whitespace-pre-wrap break-all text-green-300">{line}</pre>
+                <span className="flex-shrink-0 w-6 text-center text-green-600 dark:text-green-400 select-none">+</span>
+                <pre className="flex-1 px-2 py-0.5 whitespace-pre-wrap break-all text-green-700 dark:text-green-300">{line}</pre>
               </div>
             ));
           }

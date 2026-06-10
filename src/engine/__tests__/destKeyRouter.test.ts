@@ -60,15 +60,23 @@ describe('applyDestKey — MetaData:Source prefix enforcement', () => {
   });
 });
 
-describe('applyDestKey — nullQueue', () => {
-  it('returns null for nullQueue', () => {
+describe('applyDestKey — queue routing (last-wins)', () => {
+  it('records nullQueue on _meta._queue rather than dropping the event', () => {
+    // DEST_KEY = queue is not a final decision — a later transform can overwrite
+    // it — so the value is stored and the event is kept for the rest of the list.
     const event = applyDestKey(baseEvent(), result('queue', 'nullQueue'));
-    expect(event).toBeNull();
+    expect(event._meta._queue).toBe('nullQueue');
   });
 
-  it('keeps event for indexQueue', () => {
+  it('records indexQueue on _meta._queue', () => {
     const event = applyDestKey(baseEvent(), result('queue', 'indexQueue'));
-    expect(event).not.toBeNull();
+    expect(event._meta._queue).toBe('indexQueue');
+  });
+
+  it('later queue assignment overwrites an earlier one (last-wins)', () => {
+    const dropped = applyDestKey(baseEvent(), result('queue', 'nullQueue'));
+    const kept = applyDestKey(dropped, result('queue', 'indexQueue'));
+    expect(kept._meta._queue).toBe('indexQueue');
   });
 });
 
@@ -76,5 +84,19 @@ describe('applyDestKey — _raw replacement', () => {
   it('replaces _raw when destKey is _raw', () => {
     const event = applyDestKey(baseEvent(), result('_raw', 'replaced content'));
     expect(event?._raw).toBe('replaced content');
+  });
+});
+
+describe('applyDestKey — _meta (SEM-11)', () => {
+  it('parses space-separated key::value pairs', () => {
+    const event = applyDestKey(baseEvent(), result('_meta', 'a::1 b::2'));
+    expect(event._meta.a).toBe('1');
+    expect(event._meta.b).toBe('2');
+  });
+
+  it('keeps a quoted value containing spaces intact', () => {
+    const event = applyDestKey(baseEvent(), result('_meta', 'label::"two words" n::5'));
+    expect(event._meta.label).toBe('two words');
+    expect(event._meta.n).toBe('5');
   });
 });

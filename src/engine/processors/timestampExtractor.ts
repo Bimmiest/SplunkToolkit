@@ -57,8 +57,9 @@ export function extractTimestamps(events: SplunkEvent[], directives: ConfDirecti
   const tzDir = directives.find((d) => d.key === 'TZ');
 
   const timeFormat = timeFormatDir?.value.trim();
-  const parsedLookahead = maxLookaheadDir ? parseInt(maxLookaheadDir.value.trim(), 10) : 150;
-  const maxLookahead = Number.isFinite(parsedLookahead) && parsedLookahead > 0 ? parsedLookahead : 150;
+  // props.conf.spec default for MAX_TIMESTAMP_LOOKAHEAD is 128 characters.
+  const parsedLookahead = maxLookaheadDir ? parseInt(maxLookaheadDir.value.trim(), 10) : 128;
+  const maxLookahead = Number.isFinite(parsedLookahead) && parsedLookahead > 0 ? parsedLookahead : 128;
   const tz = tzDir?.value.trim();
 
   const timePrefixRegex = timePrefixDir ? safeRegex(timePrefixDir.value.trim()) : null;

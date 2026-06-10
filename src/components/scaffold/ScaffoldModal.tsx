@@ -210,8 +210,8 @@ function SuggestionRow({ suggestion, checked, onToggle }: { suggestion: Scaffold
 function DiffLine({ kind, line }: { kind: 'added' | 'removed' | 'ctx'; line: string }) {
   const sign = kind === 'added' ? '+' : kind === 'removed' ? '-' : ' ';
   const rowBg = kind === 'added' ? 'bg-green-500/15' : kind === 'removed' ? 'bg-red-500/15' : '';
-  const signColor = kind === 'added' ? 'text-green-400' : kind === 'removed' ? 'text-red-400' : 'text-[var(--color-text-muted)]';
-  const textColor = kind === 'added' ? 'text-green-300' : kind === 'removed' ? 'text-red-300' : 'text-[var(--color-text-primary)]';
+  const signColor = kind === 'added' ? 'text-green-600 dark:text-green-400' : kind === 'removed' ? 'text-red-600 dark:text-red-400' : 'text-[var(--color-text-muted)]';
+  const textColor = kind === 'added' ? 'text-green-700 dark:text-green-300' : kind === 'removed' ? 'text-red-700 dark:text-red-300' : 'text-[var(--color-text-primary)]';
   return (
     <div className={`flex ${rowBg}`}>
       <span className={`flex-shrink-0 w-6 text-center select-none ${signColor}`}>{sign}</span>

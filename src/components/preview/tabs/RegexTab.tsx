@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { safeRegex, validateRegex } from '../../../utils/splunkRegex';
+import { copyToClipboard } from '../../../utils/clipboard';
 import type { EnrichedEvent } from '../PreviewPanel';
 import { FIELD_COLORS } from './shared/fieldColors';
 
@@ -174,7 +175,9 @@ export function RegexTab({ items, currentPage, eventsPerPage }: RegexTabProps) {
 
   const handleCopy = () => {
     if (extractDirective) {
-      navigator.clipboard.writeText(extractDirective);
+      // Use the shared helper so copying still works in insecure contexts where
+      // navigator.clipboard is unavailable (it falls back to execCommand).
+      void copyToClipboard(extractDirective);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     }

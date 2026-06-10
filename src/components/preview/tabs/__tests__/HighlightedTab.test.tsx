@@ -102,4 +102,24 @@ describe('HighlightedTab', () => {
     // Only events containing `username` (eventWithManual) should remain — pin counter appears.
     expect(screen.getByText(/events match 1 pinned field/i)).toBeInTheDocument();
   });
+
+  // UI-2: the "Event #" badge uses the event's true global position, not page-local index.
+  it('numbers events by their global position across pages', () => {
+    // Page 2 of 2-per-page: the single item is the 3rd event overall.
+    render(<HighlightedTab items={[toItem(eventWithBoth)]} allEvents={items} currentPage={2} eventsPerPage={2} />);
+    expect(screen.getAllByText(/Event #/)).toHaveLength(1);
+    expect(screen.getByText(/Event #\s*3/)).toBeInTheDocument();
+  });
+
+  // UI-2: pinning is a global filter — it surfaces matches from other pages with their
+  // true index, and the counter is out of the total event count (not the page size).
+  it('pinning spans all events with correct global index and counter', () => {
+    const { container } = render(
+      <HighlightedTab items={[toItem(eventWithAuto)]} allEvents={items} currentPage={1} eventsPerPage={1} />,
+    );
+    // eventWithManual (global index 2) is not on the current page; pinning username surfaces it.
+    fireEvent.click(within(container).getAllByText('username')[0]);
+    expect(screen.getByText(/1\/3 events match/)).toBeInTheDocument();
+    expect(screen.getByText(/Event #\s*2/)).toBeInTheDocument();
+  });
 });

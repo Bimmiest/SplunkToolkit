@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import type React from 'react';
 import { Command } from 'cmdk';
 import { useAppStore } from '../../store/useAppStore';
@@ -31,6 +31,15 @@ export function CommandPalette() {
     if (open) toggleCommandPalette();
   }, [open, toggleCommandPalette]);
 
+  // Restore focus to whatever was focused before the palette opened, so keyboard
+  // users aren't dumped at the top of the page when it closes.
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    restoreFocusRef.current = document.activeElement as HTMLElement | null;
+    return () => restoreFocusRef.current?.focus?.();
+  }, [open]);
+
   // Global Ctrl+K / Cmd+K shortcut
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -57,7 +66,21 @@ export function CommandPalette() {
     <div
       className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]"
       style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Command palette"
       onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}
+      onKeyDown={(e) => {
+        // cmdk handles arrow navigation but not Escape (the ESC hint was decorative).
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          close();
+        } else if (e.key === 'Tab') {
+          // Keep focus inside the palette — its items are reached via arrows, so Tab
+          // would otherwise move focus to the page behind the modal.
+          e.preventDefault();
+        }
+      }}
     >
       <Command
         label="Command palette"

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState, type KeyboardEvent } from 'react';
 import { RawPanel } from '../raw/RawPanel';
 import { PropsConfEditor } from '../editor/PropsConfEditor';
 import { TransformsConfEditor } from '../editor/TransformsConfEditor';
@@ -23,12 +23,30 @@ const VIEWS: { id: MobileView; label: string; icon: IconName }[] = [
  */
 export function MobileShell() {
   const [view, setView] = useState<MobileView>('raw');
+  const tablistRef = useRef<HTMLDivElement>(null);
+
+  // Roving-tabindex keyboard navigation, matching the shared Tabs component:
+  // only the active tab is in the tab order; arrows/Home/End move between tabs.
+  const handleKeyDown = (e: KeyboardEvent) => {
+    const current = VIEWS.findIndex((v) => v.id === view);
+    let next = -1;
+    if (e.key === 'ArrowRight') next = (current + 1) % VIEWS.length;
+    else if (e.key === 'ArrowLeft') next = (current - 1 + VIEWS.length) % VIEWS.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = VIEWS.length - 1;
+    if (next < 0) return;
+    e.preventDefault();
+    setView(VIEWS[next].id);
+    tablistRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+  };
 
   return (
     <div className="h-full flex flex-col">
       <div
+        ref={tablistRef}
         role="tablist"
         aria-label="Workspace panels"
+        onKeyDown={handleKeyDown}
         className="shrink-0 flex items-stretch border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] overflow-x-auto"
       >
         {VIEWS.map((v) => {
@@ -36,8 +54,12 @@ export function MobileShell() {
           return (
             <button
               key={v.id}
+              type="button"
               role="tab"
+              id={`mobile-tab-${v.id}`}
               aria-selected={isActive}
+              aria-controls={`mobile-tabpanel-${v.id}`}
+              tabIndex={isActive ? 0 : -1}
               onClick={() => setView(v.id)}
               className={[
                 'flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 px-2 py-1.5',
@@ -54,7 +76,12 @@ export function MobileShell() {
         })}
       </div>
 
-      <div className="flex-1 min-h-0">
+      <div
+        role="tabpanel"
+        id={`mobile-tabpanel-${view}`}
+        aria-labelledby={`mobile-tab-${view}`}
+        className="flex-1 min-h-0"
+      >
         {view === 'raw' && (
           <ErrorBoundary panelName="Raw Data">
             <RawPanel />

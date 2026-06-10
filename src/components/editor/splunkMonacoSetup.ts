@@ -1,6 +1,17 @@
+import type { languages } from 'monaco-editor';
 import { createCompletionProvider } from '../../monaco/splunkConfCompletion';
 import { createHoverProvider } from '../../monaco/splunkConfHover';
 import { createFoldingRangeProvider } from '../../monaco/splunkConfFolding';
+
+/**
+ * The two conf files share one syntax (and one Monarch grammar) but expose
+ * different directive sets. Registering them as distinct language IDs (UI-4)
+ * lets each editor surface only its own completions/hovers instead of both —
+ * previously a single `splunk-conf` language carried both provider sets, so the
+ * props editor suggested transforms-only keys and vice versa.
+ */
+export const PROPS_LANGUAGE_ID = 'splunk-props';
+export const TRANSFORMS_LANGUAGE_ID = 'splunk-transforms';
 
 let languageRegistered = false;
 
@@ -10,7 +21,7 @@ let languageRegistered = false;
  * those themes paints — including the plain-text Raw Log editor, which on
  * mobile can mount on its own before any SplunkEditor exists.
  */
-export function ensureSplunkMonaco(monaco: typeof import('monaco-editor')) {
+export function ensureSplunkMonaco(monaco: MonacoApi) {
   if (!languageRegistered) {
     languageRegistered = true;
     registerSplunkConfLanguage(monaco);
@@ -19,10 +30,11 @@ export function ensureSplunkMonaco(monaco: typeof import('monaco-editor')) {
   window.monaco = monaco;
 }
 
-function registerSplunkConfLanguage(monaco: typeof import('monaco-editor')) {
-  monaco.languages.register({ id: 'splunk-conf' });
+function registerSplunkConfLanguage(monaco: MonacoApi) {
+  monaco.languages.register({ id: PROPS_LANGUAGE_ID });
+  monaco.languages.register({ id: TRANSFORMS_LANGUAGE_ID });
 
-  monaco.languages.setMonarchTokensProvider('splunk-conf', {
+  const monarchTokens: languages.IMonarchLanguage = {
     defaultToken: '',
     tokenPostfix: '.splunk-conf',
 
@@ -236,14 +248,19 @@ function registerSplunkConfLanguage(monaco: typeof import('monaco-editor')) {
         [/./, ''],
       ],
     },
-  });
+  };
 
-  // Register providers
-  monaco.languages.registerCompletionItemProvider('splunk-conf', createCompletionProvider('props.conf'));
-  monaco.languages.registerCompletionItemProvider('splunk-conf', createCompletionProvider('transforms.conf'));
-  monaco.languages.registerHoverProvider('splunk-conf', createHoverProvider('props.conf'));
-  monaco.languages.registerHoverProvider('splunk-conf', createHoverProvider('transforms.conf'));
-  monaco.languages.registerFoldingRangeProvider('splunk-conf', createFoldingRangeProvider());
+  // Both languages share the same grammar and folding behaviour…
+  monaco.languages.setMonarchTokensProvider(PROPS_LANGUAGE_ID, monarchTokens);
+  monaco.languages.setMonarchTokensProvider(TRANSFORMS_LANGUAGE_ID, monarchTokens);
+  monaco.languages.registerFoldingRangeProvider(PROPS_LANGUAGE_ID, createFoldingRangeProvider());
+  monaco.languages.registerFoldingRangeProvider(TRANSFORMS_LANGUAGE_ID, createFoldingRangeProvider());
+
+  // …but each gets only its own completions and hovers.
+  monaco.languages.registerCompletionItemProvider(PROPS_LANGUAGE_ID, createCompletionProvider('props.conf'));
+  monaco.languages.registerHoverProvider(PROPS_LANGUAGE_ID, createHoverProvider('props.conf'));
+  monaco.languages.registerCompletionItemProvider(TRANSFORMS_LANGUAGE_ID, createCompletionProvider('transforms.conf'));
+  monaco.languages.registerHoverProvider(TRANSFORMS_LANGUAGE_ID, createHoverProvider('transforms.conf'));
 
   // Light theme
   monaco.editor.defineTheme('splunk-light', {

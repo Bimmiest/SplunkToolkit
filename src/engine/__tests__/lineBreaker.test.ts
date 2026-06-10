@@ -26,6 +26,29 @@ describe('breakLines — basic LINE_BREAKER', () => {
   });
 });
 
+describe('breakLines — MAX_EVENTS line cap (SEM-5)', () => {
+  it('caps a merged event at MAX_EVENTS input lines', () => {
+    // 10 date-less lines would all merge into one event by default; MAX_EVENTS=3
+    // forces a break every 3 lines.
+    const raw = Array.from({ length: 9 }, (_, i) => `line${i}`).join('\n');
+    const events = breakLines(raw, [dir('MAX_EVENTS', '3')], META);
+    expect(events).toHaveLength(3);
+    expect(events[0]._raw.split('\n')).toHaveLength(3);
+  });
+
+  it('defaults to 256 lines (no cap for small inputs)', () => {
+    const raw = Array.from({ length: 10 }, (_, i) => `line${i}`).join('\n');
+    const events = breakLines(raw, [], META);
+    expect(events).toHaveLength(1);
+  });
+
+  it('ignores a non-numeric MAX_EVENTS (falls back to default)', () => {
+    const raw = Array.from({ length: 10 }, (_, i) => `line${i}`).join('\n');
+    const events = breakLines(raw, [dir('MAX_EVENTS', 'abc')], META);
+    expect(events).toHaveLength(1);
+  });
+});
+
 describe('breakLines — SHOULD_LINEMERGE defaults', () => {
   it('BREAK_ONLY_BEFORE_DATE defaults to true — breaks before ISO timestamp lines', () => {
     const raw = '2024-01-15 first event\ncontinuation of first\n2024-01-16 second event\n';

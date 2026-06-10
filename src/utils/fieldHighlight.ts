@@ -1,3 +1,7 @@
+// Bound the compiled-pattern cache so it can't grow without limit across a long
+// session over a large sample (each distinct key/value pair compiles 4 regexes).
+// A Map preserves insertion order, so evicting the first key is FIFO.
+const PATTERN_CACHE_LIMIT = 500;
 const _patternCache = new Map<string, RegExp[]>();
 
 function buildContextPatterns(key: string, value: string): RegExp[] {
@@ -12,6 +16,10 @@ function buildContextPatterns(key: string, value: string): RegExp[] {
     new RegExp(`(?:^|[\\s,;])${escapedKey}="${escapedVal}"`, 'gm'),       // key="value"
     new RegExp(`(?:^|[\\s,;])${escapedKey}=${escapedVal}(?=[,;\\s]|$)`, 'gm'), // key=value
   ];
+  if (_patternCache.size >= PATTERN_CACHE_LIMIT) {
+    const oldest = _patternCache.keys().next().value;
+    if (oldest !== undefined) _patternCache.delete(oldest);
+  }
   _patternCache.set(cacheKey, patterns);
   return patterns;
 }

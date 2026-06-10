@@ -6,7 +6,7 @@
  * merges segments based on SHOULD_LINEMERGE and related directives.
  */
 
-import type { ConfDirective, EventMetadata, SplunkEvent } from '../types';
+import type { ConfDirective, EventMetadata, SplunkEvent, ValidationDiagnostic } from '../types';
 import { safeRegex } from '../../utils/splunkRegex';
 
 /**
@@ -32,6 +32,15 @@ const DATE_LIKE_PATTERN = safeRegex(
     '|\\d{10,13}' +                                // epoch seconds/millis
     ')'
 );
+
+/** Number of input lines a segment contributes (1 + embedded newlines). */
+function countLines(text: string): number {
+  let n = 1;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\n') n++;
+  }
+  return n;
+}
 
 /**
  * Build a sorted array of newline character offsets for the entire rawData.
@@ -72,7 +81,8 @@ function lineAtOffset(newlines: number[], offset: number): number {
 export function breakLines(
   rawData: string,
   directives: ConfDirective[],
-  metadata: EventMetadata
+  metadata: EventMetadata,
+  diagnostics?: ValidationDiagnostic[],
 ): SplunkEvent[] {
   if (!rawData || rawData.length === 0) {
     return [];
@@ -108,7 +118,17 @@ export function breakLines(
     // avoiding the indexOf() ambiguity when captured text repeats in the match.
     const nonGlobalRegex = safeRegex(lineBreakerPattern, 'd');
     if (!nonGlobalRegex) {
-      // Invalid regex — treat entire data as one segment.
+      // Invalid regex — treat entire data as one segment. A user-supplied
+      // LINE_BREAKER that fails to compile silently disables event breaking, so
+      // surface it (the default '([\r\n]+)' always compiles, so this is a real config).
+      if (diagnostics && getDirective(directives, 'LINE_BREAKER') !== undefined) {
+        diagnostics.push({
+          level: 'warning',
+          message: `LINE_BREAKER pattern (${lineBreakerPattern}) could not be compiled safely (invalid regex or rejected as ReDoS-prone). Event breaking was skipped — the entire input is treated as one event.`,
+          file: 'props.conf',
+          line: directives.find((d) => d.key.toUpperCase() === 'LINE_BREAKER')?.line,
+        });
+      }
       segments = [rawData];
       segmentOffsets.push(0);
     } else {
@@ -189,6 +209,7 @@ export function breakLines(
   const shouldLineMerge = shouldLineMergeVal === undefined || shouldLineMergeVal.toLowerCase() === 'true';
 
   let mergedSegments: { text: string; offset: number }[];
+  let maxEventsTriggered = false;
 
   if (!shouldLineMerge) {
     mergedSegments = filteredSegments;
@@ -212,7 +233,15 @@ export function breakLines(
       ? safeRegex(mustBreakAfterStr)
       : null;
 
+    // MAX_EVENTS caps how many input lines may merge into a single event (Splunk
+    // default 256). Once reached, Splunk breaks even with no break pattern match —
+    // this is what stops a date-less log from merging into one giant event.
+    const maxEventsStr = getDirective(directives, 'MAX_EVENTS');
+    const parsedMaxEvents = maxEventsStr !== undefined ? parseInt(maxEventsStr.trim(), 10) : 256;
+    const maxEvents = Number.isFinite(parsedMaxEvents) && parsedMaxEvents > 0 ? parsedMaxEvents : 256;
+
     mergedSegments = [filteredSegments[0]];
+    let currentLineCount = countLines(filteredSegments[0].text);
     let forceBreakNext = false;
 
     // Check if the very first segment triggers MUST_BREAK_AFTER
@@ -222,12 +251,19 @@ export function breakLines(
 
     for (let i = 1; i < filteredSegments.length; i++) {
       const seg = filteredSegments[i];
+      const segLines = countLines(seg.text);
       let startNewEvent = false;
 
       // If previous segment triggered MUST_BREAK_AFTER, force a new event
       if (forceBreakNext) {
         startNewEvent = true;
         forceBreakNext = false;
+      }
+
+      // MAX_EVENTS: break when adding this segment would exceed the line cap.
+      if (!startNewEvent && currentLineCount + segLines > maxEvents) {
+        startNewEvent = true;
+        maxEventsTriggered = true;
       }
 
       // BREAK_ONLY_BEFORE: only start new event if regex matches at the start of the segment.
@@ -250,10 +286,12 @@ export function breakLines(
 
       if (startNewEvent) {
         mergedSegments.push({ text: seg.text, offset: seg.offset });
+        currentLineCount = segLines;
       } else {
         // Merge into previous
         const prev = mergedSegments[mergedSegments.length - 1];
         prev.text += '\n' + seg.text;
+        currentLineCount += segLines;
       }
 
       // Check MUST_BREAK_AFTER for this segment
@@ -305,6 +343,9 @@ export function breakLines(
     }
     if (getDirective(directives, 'MUST_BREAK_AFTER')) {
       mergeInfo.push(`MUST_BREAK_AFTER=${getDirective(directives, 'MUST_BREAK_AFTER')}`);
+    }
+    if (maxEventsTriggered) {
+      mergeInfo.push(`MAX_EVENTS=${getDirective(directives, 'MAX_EVENTS') ?? '256'} (line cap forced a break)`);
     }
     for (const ev of events) {
       ev.processingTrace.push({

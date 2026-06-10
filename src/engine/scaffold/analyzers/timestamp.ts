@@ -12,11 +12,22 @@ export function detectTimestamp(lines: string[]): ScaffoldSuggestion[] {
   const sample = lines.filter((l) => l.trim().length > 0).slice(0, SAMPLE_SIZE);
   if (sample.length === 0) return [];
 
-  // Leading epoch (10s / 13ms) → TIME_FORMAT = %s.
-  const epochLines = sample.filter((l) => /^\s*\d{10}(\d{3})?(?!\d)/.test(l)).length;
-  if (epochLines / sample.length >= 0.8) {
-    const conf: Confidence = epochLines === sample.length ? 'high' : 'medium';
-    return [{ key: 'TIME_FORMAT', value: '%s', confidence: conf, evidence: `${epochLines}/${sample.length} lines start with an epoch timestamp`, enabledByDefault: true }];
+  // Leading epoch → TIME_FORMAT. A 13-digit value is milliseconds: real Splunk's
+  // %s reads only whole seconds, so a bare %s misparses it — it needs %s%3N.
+  const epochMatches = sample
+    .map((l) => /^\s*\d{10}(\d{3})?(?!\d)/.exec(l))
+    .filter((m): m is RegExpExecArray => m !== null);
+  if (epochMatches.length / sample.length >= 0.8) {
+    const millis = epochMatches.filter((m) => m[1] !== undefined).length;
+    const isMillis = millis >= epochMatches.length / 2;
+    const conf: Confidence = epochMatches.length === sample.length ? 'high' : 'medium';
+    return [{
+      key: 'TIME_FORMAT',
+      value: isMillis ? '%s%3N' : '%s',
+      confidence: conf,
+      evidence: `${epochMatches.length}/${sample.length} lines start with ${isMillis ? 'a millisecond ' : 'an '}epoch timestamp`,
+      enabledByDefault: true,
+    }];
   }
 
   // Tally the highest-priority format that matches each line.

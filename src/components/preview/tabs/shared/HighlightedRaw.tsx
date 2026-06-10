@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { findFieldValuePositions } from '../../../../utils/fieldHighlight';
 import { isFieldActive, isAnyFocused } from './useFieldFocus';
 import { copyToClipboard } from '../../../../utils/clipboard';
@@ -43,74 +44,82 @@ export function HighlightedRaw({
 }: HighlightedRawProps) {
   const focused = isAnyFocused(activeFields);
 
-  const highlights: Highlight[] = [];
+  // Segmentation depends only on the raw text and the field/value/offset maps — NOT
+  // on activeFields/focused (which change on every hover). Memoise it so hovering a
+  // field doesn't recompute the whole boundary/atomic split for every visible card.
+  const atomic = useMemo(() => {
+    const highlights: Highlight[] = [];
 
-  for (const [field, color] of fieldColorMap) {
-    const rawValue = fieldValues.get(field);
-    if (rawValue === undefined) continue;
-    const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+    for (const [field, color] of fieldColorMap) {
+      const rawValue = fieldValues.get(field);
+      if (rawValue === undefined) continue;
+      const values = Array.isArray(rawValue) ? rawValue : [rawValue];
 
-    // Prefer authoritative offsets from positional extraction. Verify each offset
-    // still matches one of the current field values — guards against later processors
-    // that mutate _raw or the field value after EXTRACT runs.
-    const offsetList = fieldOffsets?.[field];
-    if (offsetList && offsetList.length > 0) {
-      const valueSet = new Set(values.filter(Boolean));
-      let usedAny = false;
-      for (const [s, e] of offsetList) {
-        if (s < 0 || e > raw.length || s >= e) continue;
-        if (valueSet.has(raw.substring(s, e))) {
-          highlights.push({ start: s, end: e, field, color });
-          usedAny = true;
+      // Prefer authoritative offsets from positional extraction. Verify each offset
+      // still matches one of the current field values — guards against later processors
+      // that mutate _raw or the field value after EXTRACT runs.
+      const offsetList = fieldOffsets?.[field];
+      if (offsetList && offsetList.length > 0) {
+        const valueSet = new Set(values.filter(Boolean));
+        let usedAny = false;
+        for (const [s, e] of offsetList) {
+          if (s < 0 || e > raw.length || s >= e) continue;
+          if (valueSet.has(raw.substring(s, e))) {
+            highlights.push({ start: s, end: e, field, color });
+            usedAny = true;
+          }
+        }
+        if (usedAny) continue;
+      }
+
+      const originalKey = fieldSourceKeys?.[field];
+      for (const v of values) {
+        if (!v) continue;
+        const positions = findFieldValuePositions(raw, field, v, originalKey);
+        for (const idx of positions) {
+          highlights.push({ start: idx, end: idx + v.length, field, color });
         }
       }
-      if (usedAny) continue;
     }
 
-    const originalKey = fieldSourceKeys?.[field];
-    for (const v of values) {
-      if (!v) continue;
-      const positions = findFieldValuePositions(raw, field, v, originalKey);
-      for (const idx of positions) {
-        highlights.push({ start: idx, end: idx + v.length, field, color });
-      }
-    }
-  }
+    if (highlights.length === 0) return [];
 
-  if (highlights.length === 0) {
-    return <span style={{ opacity: focused ? 0.3 : 1, transition: 'opacity 0.15s' }}>{raw}</span>;
-  }
-
-  // Split the raw text at every highlight boundary, then for each atomic sub-range
-  // render the INNERMOST (smallest) field that covers it. This keeps overlapping /
-  // nested field highlights additive — a field captured inside another still shows
-  // its own colour — instead of the larger span swallowing the smaller one.
-  const bounds = new Set<number>([0, raw.length]);
-  for (const h of highlights) {
-    if (h.start >= 0 && h.start <= raw.length) bounds.add(h.start);
-    if (h.end >= 0 && h.end <= raw.length) bounds.add(h.end);
-  }
-  const cuts = [...bounds].sort((a, b) => a - b);
-
-  // Build atomic segments (owner = innermost covering highlight, or null for plain text),
-  // merging contiguous runs that share the same owning field.
-  const atomic: { start: number; end: number; hl: Highlight | null }[] = [];
-  for (let i = 0; i < cuts.length - 1; i++) {
-    const s = cuts[i];
-    const e = cuts[i + 1];
-    if (s >= e) continue;
-    let owner: Highlight | null = null;
+    // Split the raw text at every highlight boundary, then for each atomic sub-range
+    // render the INNERMOST (smallest) field that covers it. This keeps overlapping /
+    // nested field highlights additive — a field captured inside another still shows
+    // its own colour — instead of the larger span swallowing the smaller one.
+    const bounds = new Set<number>([0, raw.length]);
     for (const h of highlights) {
-      if (h.start <= s && h.end >= e && (owner === null || h.end - h.start < owner.end - owner.start)) {
-        owner = h;
+      if (h.start >= 0 && h.start <= raw.length) bounds.add(h.start);
+      if (h.end >= 0 && h.end <= raw.length) bounds.add(h.end);
+    }
+    const cuts = [...bounds].sort((a, b) => a - b);
+
+    // Build atomic segments (owner = innermost covering highlight, or null for plain text),
+    // merging contiguous runs that share the same owning field.
+    const out: { start: number; end: number; hl: Highlight | null }[] = [];
+    for (let i = 0; i < cuts.length - 1; i++) {
+      const s = cuts[i];
+      const e = cuts[i + 1];
+      if (s >= e) continue;
+      let owner: Highlight | null = null;
+      for (const h of highlights) {
+        if (h.start <= s && h.end >= e && (owner === null || h.end - h.start < owner.end - owner.start)) {
+          owner = h;
+        }
+      }
+      const prev = out[out.length - 1];
+      if (prev && prev.end === s && (prev.hl?.field ?? null) === (owner?.field ?? null)) {
+        prev.end = e;
+      } else {
+        out.push({ start: s, end: e, hl: owner });
       }
     }
-    const prev = atomic[atomic.length - 1];
-    if (prev && prev.end === s && (prev.hl?.field ?? null) === (owner?.field ?? null)) {
-      prev.end = e;
-    } else {
-      atomic.push({ start: s, end: e, hl: owner });
-    }
+    return out;
+  }, [raw, fieldColorMap, fieldValues, fieldOffsets, fieldSourceKeys]);
+
+  if (atomic.length === 0) {
+    return <span style={{ opacity: focused ? 0.3 : 1, transition: 'opacity 0.15s' }}>{raw}</span>;
   }
 
   const segments: React.ReactNode[] = atomic.map(({ start, end, hl }) => {

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, type KeyboardEvent } from 'react';
 import { Icon } from './Icon';
 
 interface MultiSelectProps {
@@ -13,7 +13,21 @@ export function MultiSelect({ label, options, selected, onChange, searchable }: 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  const close = () => {
+    setOpen(false);
+    setQuery('');
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape' && open) {
+      e.stopPropagation();
+      close();
+      triggerRef.current?.focus();
+    }
+  };
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -51,9 +65,13 @@ export function MultiSelect({ label, options, selected, onChange, searchable }: 
   const showSearch = searchable && options.length > 8;
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative" onKeyDown={handleKeyDown}>
       <button
+        ref={triggerRef}
+        type="button"
         onClick={() => setOpen(!open)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
         className="flex items-center gap-1 px-2 py-1 text-xs rounded border cursor-pointer"
         style={{
           backgroundColor: activeCount > 0 ? 'var(--color-accent)' : 'var(--color-bg-primary)',

@@ -28,6 +28,18 @@ function stanza(name: string, directives: Record<string, string>): ConfStanza {
   };
 }
 
+describe('applyRegexTransform — zero-length match guard', () => {
+  it('terminates on a DEST_KEY=<field> regex that can match the empty string', () => {
+    // `(.*)` matches the whole line then an empty string at the end — without a
+    // lastIndex guard the global match loop would spin forever and hang the worker.
+    const s = stanza('grab', { REGEX: '(.*)', FORMAT: '$1', DEST_KEY: 'myfield' });
+    const result = applyRegexTransform(event('hello world'), s);
+    expect(result.matched).toBe(true);
+    expect(result.destKey).toBe('myfield');
+    expect(result.destValue).toContain('hello world');
+  });
+});
+
 describe('applyRegexTransform — named capture groups', () => {
   it('extracts named groups into fields when no FORMAT', () => {
     const s = stanza('test', { REGEX: '(?<user>\\w+) (?<action>\\w+)' });

@@ -17,7 +17,7 @@ const PIPELINE_STAGES: PipelineStage[] = [
     phase: 'index-time',
     description:
       'Splits the raw data stream into individual events. Splunk looks for the LINE_BREAKER regex to find event boundaries. By default it breaks on newlines, but multiline events (e.g. stack traces) need SHOULD_LINEMERGE or BREAK_ONLY_BEFORE.',
-    directives: ['LINE_BREAKER', 'SHOULD_LINEMERGE', 'BREAK_ONLY_BEFORE', 'BREAK_ONLY_BEFORE_DATE', 'MUST_BREAK_AFTER'],
+    directives: ['LINE_BREAKER', 'SHOULD_LINEMERGE', 'BREAK_ONLY_BEFORE', 'BREAK_ONLY_BEFORE_DATE', 'MUST_BREAK_AFTER', 'MAX_EVENTS'],
   },
   {
     step: 2,
@@ -69,19 +69,19 @@ const PIPELINE_STAGES: PipelineStage[] = [
   },
   {
     step: 8,
+    name: 'Search-Time Transforms',
+    phase: 'search-time',
+    description:
+      'Applies transforms.conf stanzas referenced by REPORT directives. Uses REGEX + FORMAT to extract fields at search time, with full support for SOURCE_KEY, DEST_KEY, and multivalue output. Runs before automatic KV extraction, matching Splunk’s documented order.',
+    directives: ['REPORT'],
+  },
+  {
+    step: 9,
     name: 'KV Mode',
     phase: 'search-time',
     description:
       'Automatically extracts fields from structured content in _raw. "auto" handles key=value and key="value" pairs; "json" parses embedded JSON objects; "xml" parses XML; "none" disables auto-extraction.',
     directives: ['KV_MODE', 'AUTO_KV_JSON'],
-  },
-  {
-    step: 9,
-    name: 'Search-Time Transforms',
-    phase: 'search-time',
-    description:
-      'Applies transforms.conf stanzas referenced by REPORT directives. Uses REGEX + FORMAT to extract fields at search time, with full support for SOURCE_KEY, DEST_KEY, and multivalue output.',
-    directives: ['REPORT'],
   },
   {
     step: 10,
@@ -138,11 +138,15 @@ export function HelpPanel() {
         aria-hidden="true"
       />
 
-      {/* Panel */}
+      {/* Panel — always mounted for the slide animation, so when closed mark it
+          `inert`/`aria-hidden` to drop its buttons from the tab order and the
+          accessibility tree (otherwise they're focusable while off-screen). */}
       <div
         role="dialog"
         aria-label="Pipeline reference"
-        aria-modal="true"
+        aria-modal={helpOpen ? 'true' : undefined}
+        aria-hidden={!helpOpen}
+        inert={!helpOpen}
         className="fixed top-0 right-0 bottom-0 z-50 flex flex-col w-[420px] max-w-full shadow-2xl transition-transform duration-250 ease-in-out"
         style={{
           backgroundColor: 'var(--color-bg-primary)',

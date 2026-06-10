@@ -60,8 +60,8 @@ const DIRECTIVES: DirectiveInfo[] = [
       'The maximum number of characters into an event that Splunk looks for a timestamp. ' +
       'After finding TIME_PREFIX, Splunk will look this many characters ahead for the timestamp. ' +
       'Setting this too low may cause timestamps to be missed; setting it too high may cause false matches.',
-    example: 'MAX_TIMESTAMP_LOOKAHEAD = 150',
-    defaultValue: '150',
+    example: 'MAX_TIMESTAMP_LOOKAHEAD = 128',
+    defaultValue: '128',
     category: 'Time Configuration',
     appliesTo: 'props.conf',
     valueType: 'number',
@@ -208,6 +208,20 @@ const DIRECTIVES: DirectiveInfo[] = [
     phase: 'index-time',
   },
   {
+    key: 'MAX_EVENTS',
+    description:
+      'The maximum number of input lines to add to any single event when SHOULD_LINEMERGE = true. ' +
+      'Splunk breaks an event after this many lines even if no break pattern has matched, preventing ' +
+      'runaway line merging (e.g. a log with no date-like lines).',
+    example: 'MAX_EVENTS = 256',
+    defaultValue: '256',
+    category: 'Event Breaking',
+    appliesTo: 'props.conf',
+    valueType: 'number',
+    isClassBased: false,
+    phase: 'index-time',
+  },
+  {
     key: 'LINE_BREAKER',
     description:
       'A regex with a capturing group that determines where event boundaries occur in the raw data stream. ' +
@@ -238,9 +252,11 @@ const DIRECTIVES: DirectiveInfo[] = [
   {
     key: 'EVENT_BREAKER_ENABLE',
     description:
-      'Enables the event breaker for HTTP Event Collector (HEC) and universal/heavy forwarder data. ' +
-      'When true, Splunk uses EVENT_BREAKER to split events before forwarding. ' +
-      'This improves load balancing by ensuring events are not split across indexers.',
+      'Enables the event breaker on a universal forwarder so it can split a data stream into ' +
+      'individual events before sending them to indexers. ' +
+      'When true, Splunk uses EVENT_BREAKER to determine boundaries. ' +
+      'This improves load balancing by ensuring events are not split across indexers. ' +
+      '(Applies to forwarder event breaking, not HEC.)',
     example: 'EVENT_BREAKER_ENABLE = true',
     defaultValue: 'false',
     category: 'Event Breaking',
@@ -313,13 +329,13 @@ const DIRECTIVES: DirectiveInfo[] = [
     description:
       'Specifies structured data format for automatic field extraction at index time. ' +
       'Splunk will parse the data according to the chosen format and create indexed fields. ' +
-      'Valid values include csv, tsv, psv, w3c, json, and xml.',
+      'Valid values are csv, tsv, psv, w3c, json, and hec.',
     example: 'INDEXED_EXTRACTIONS = json',
     defaultValue: '',
     category: 'Field Extraction',
     appliesTo: 'props.conf',
     valueType: 'enum',
-    enumValues: ['csv', 'tsv', 'psv', 'w3c', 'json', 'xml'],
+    enumValues: ['csv', 'tsv', 'psv', 'w3c', 'json', 'hec'],
     isClassBased: false,
     phase: 'index-time',
   },
@@ -601,21 +617,7 @@ const DIRECTIVES: DirectiveInfo[] = [
     appliesTo: 'transforms.conf',
     valueType: 'boolean',
     isClassBased: false,
-    phase: 'both',
-  },
-  {
-    key: 'MV_ADD',
-    description:
-      'Search-time only. Controls behaviour when an extracted field already has a value: ' +
-      'when true, the field becomes multivalue and the new value is appended; when false, ' +
-      'the new value is discarded and the first value is kept. Default: false.',
-    example: 'MV_ADD = true',
-    defaultValue: 'false',
-    category: 'Field Extraction',
-    appliesTo: 'transforms.conf',
-    valueType: 'boolean',
-    isClassBased: false,
-    phase: 'search-time',
+    phase: 'index-time',
   },
   {
     key: 'WRITE_META',
@@ -728,9 +730,9 @@ const DIRECTIVES: DirectiveInfo[] = [
     description:
       'The maximum number of matching rows from the lookup table that can be returned per event. ' +
       'When a lookup matches multiple rows, this caps how many are returned. ' +
-      'Set to 1 for single-value lookups or higher for multi-value results.',
+      'Default is 1000 for non-temporal lookups (1 for time-bounded lookups). Set to 1 for single-value lookups.',
     example: 'max_matches = 5',
-    defaultValue: '1',
+    defaultValue: '1000',
     category: 'Lookups',
     appliesTo: 'transforms.conf',
     valueType: 'number',
@@ -813,8 +815,9 @@ const DIRECTIVES: DirectiveInfo[] = [
   {
     key: 'CLEAN_KEYS',
     description:
-      'When set to true, Splunk converts extracted field names to lowercase and replaces non-alphanumeric characters ' +
-      'with underscores. Helps normalize field names extracted from diverse data sources.',
+      'When set to true (the default), Splunk replaces non-alphanumeric characters in extracted field names ' +
+      'with underscores. Field-name case is preserved. Set to false to keep the raw key text. ' +
+      'Helps normalize field names extracted from diverse data sources.',
     example: 'CLEAN_KEYS = true',
     defaultValue: 'true',
     category: 'Field Extraction',
@@ -977,14 +980,15 @@ const DIRECTIVES: DirectiveInfo[] = [
   {
     key: 'external_type',
     description:
-      'Specifies the type of external lookup. Currently only "python" and "kvstore" are supported. ' +
+      'Specifies the type of external lookup: "python" (scripted), "executable" (scripted via a binary), ' +
+      '"kvstore" (KV Store collection), "geo" / "geo_hex" (geospatial lookups). ' +
       'Used with external_cmd for scripted lookups or with collection for KV Store lookups.',
     example: 'external_type = python',
     defaultValue: '',
     category: 'Lookups',
     appliesTo: 'transforms.conf',
     valueType: 'enum',
-    enumValues: ['python', 'kvstore'],
+    enumValues: ['python', 'executable', 'kvstore', 'geo', 'geo_hex'],
     isClassBased: false,
     phase: 'search-time',
   },
@@ -1051,6 +1055,89 @@ const DIRECTIVES: DirectiveInfo[] = [
     category: 'Lookups',
     appliesTo: 'transforms.conf',
     valueType: 'strftime',
+    isClassBased: false,
+    phase: 'search-time',
+  },
+
+  // =======================================================================
+  // props.conf -- Miscellaneous (commonly-seen directives)
+  // =======================================================================
+  {
+    key: 'sourcetype',
+    description:
+      'Overrides the sourcetype for events matching this stanza. Most often used inside a ' +
+      '[source::...] stanza to assign a sourcetype based on the file path.',
+    example: 'sourcetype = my_app_logs',
+    defaultValue: '',
+    category: 'Miscellaneous',
+    appliesTo: 'props.conf',
+    valueType: 'string',
+    isClassBased: false,
+    phase: 'index-time',
+  },
+  {
+    key: 'TZ_ALIAS',
+    description:
+      'Remaps timezone abbreviations found in event text to specific timezones, resolving ambiguous ' +
+      'abbreviations (e.g. TZ_ALIAS = EST=GMT-5,CST=GMT-6). Applied during timestamp extraction.',
+    example: 'TZ_ALIAS = EST=GMT-5,CST=GMT-6',
+    defaultValue: '',
+    category: 'Time Configuration',
+    appliesTo: 'props.conf',
+    valueType: 'string',
+    isClassBased: false,
+    phase: 'index-time',
+  },
+  {
+    key: 'NO_BINARY_CHECK',
+    description:
+      'When true, Splunk processes files that appear to be binary instead of skipping them. ' +
+      'Set on a per-sourcetype basis for data that Splunk misdetects as binary.',
+    example: 'NO_BINARY_CHECK = true',
+    defaultValue: 'false',
+    category: 'Miscellaneous',
+    appliesTo: 'props.conf',
+    valueType: 'boolean',
+    isClassBased: false,
+    phase: 'index-time',
+  },
+  {
+    key: 'CHECK_FOR_HEADER',
+    description:
+      'When true, Splunk inspects the start of a file for a header to dynamically create a sourcetype ' +
+      '(used with structured/header-bearing files). Deprecated in favour of INDEXED_EXTRACTIONS.',
+    example: 'CHECK_FOR_HEADER = true',
+    defaultValue: 'true',
+    category: 'Miscellaneous',
+    appliesTo: 'props.conf',
+    valueType: 'boolean',
+    isClassBased: false,
+    phase: 'index-time',
+    deprecated: true,
+  },
+  {
+    key: 'disabled',
+    description:
+      'When true, disables this stanza so Splunk ignores its settings. A standard toggle available ' +
+      'on most Splunk configuration stanzas.',
+    example: 'disabled = false',
+    defaultValue: 'false',
+    category: 'Miscellaneous',
+    appliesTo: 'both',
+    valueType: 'boolean',
+    isClassBased: false,
+    phase: 'both',
+  },
+  {
+    key: 'DEFAULT_VALUE',
+    description:
+      'For an EXTRACT/REPORT extraction, the value assigned to a field when the regex does not match. ' +
+      'Ensures the field is always present even when extraction fails.',
+    example: 'DEFAULT_VALUE = unknown',
+    defaultValue: '',
+    category: 'Field Extraction',
+    appliesTo: 'transforms.conf',
+    valueType: 'string',
     isClassBased: false,
     phase: 'search-time',
   },

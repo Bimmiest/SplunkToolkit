@@ -19,12 +19,24 @@ export function computeDiagnostics(
   const lineCount = model.getLineCount();
   const seenStanzas = new Set<string>();
 
+  // Splunk continues a directive onto the next line when the line ends with a
+  // trailing backslash (NOT when the next line begins with whitespace). Track it
+  // so continuation lines are treated as value, not flagged as malformed.
+  let prevEndedWithBackslash = false;
+
   for (let i = 1; i <= lineCount; i++) {
     const line = model.getLineContent(i);
     const trimmed = line.trim();
 
-    // Skip comments and blank lines
-    if (trimmed === '' || trimmed.startsWith('#') || trimmed.startsWith(';')) continue;
+    const isContinuation = prevEndedWithBackslash && trimmed !== '';
+    prevEndedWithBackslash =
+      trimmed !== '' && !trimmed.startsWith('#') && line.trimEnd().endsWith('\\');
+
+    // A continuation line is part of the previous directive's value — skip it.
+    if (isContinuation) continue;
+
+    // Skip comments and blank lines. Splunk .conf uses `#` only — `;` is NOT a comment.
+    if (trimmed === '' || trimmed.startsWith('#')) continue;
 
     // Stanza headers
     if (trimmed.startsWith('[')) {
@@ -44,7 +56,7 @@ export function computeDiagnostics(
       if (seenStanzas.has(stanzaName)) {
         markers.push({
           severity: 4,
-          message: `Duplicate stanza "${stanzaName}" — later definition will override earlier one`,
+          message: `Duplicate stanza "${stanzaName}" — Splunk merges duplicate stanzas key-by-key (a later key overrides the same earlier key; keys only in the earlier stanza are kept)`,
           startLineNumber: i,
           startColumn: 1,
           endLineNumber: i,
@@ -155,8 +167,9 @@ export function computeDiagnostics(
 
     // Best practice warnings
     if (baseKey === 'LINE_BREAKER' && value) {
-      // Check if regex has a capturing group
-      if (!value.includes('(')) {
+      // Check for a real CAPTURING group — not an escaped `\(` literal and not a
+      // non-capturing `(?:…)` / lookaround `(?=…)` group.
+      if (!hasCapturingGroup(value)) {
         markers.push({
           severity: 4,
           message: 'LINE_BREAKER regex should contain at least one capturing group () — the captured content defines the break point',
@@ -184,6 +197,23 @@ export function computeDiagnostics(
   checkBestPractices(model, markers, fileType);
 
   return markers;
+}
+
+/**
+ * Returns true if the regex contains at least one *capturing* group. Ignores
+ * escaped literal parens (`\(`) and non-capturing / lookaround groups (`(?...`),
+ * which a naive `includes('(')` check would wrongly accept.
+ */
+function hasCapturingGroup(pattern: string): boolean {
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if (c === '\\') {
+      i++; // skip the escaped character
+      continue;
+    }
+    if (c === '(' && pattern[i + 1] !== '?') return true;
+  }
+  return false;
 }
 
 function checkBestPractices(

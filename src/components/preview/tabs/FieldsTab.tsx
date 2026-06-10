@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useAppStore } from '../../../store/useAppStore';
 import { copyToClipboard } from '../../../utils/clipboard';
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuLabel } from '../../ui/ContextMenu';
@@ -44,15 +44,17 @@ export function FieldsTab() {
   }, []);
 
   const handleSort = useCallback((key: SortKey) => {
-    setSortKey((prev) => {
-      if (prev === key) {
-        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-        return prev;
-      }
+    // Don't nest a setSortDir call inside a setSortKey updater — that updater is
+    // impure, so StrictMode's double-invoke queues two direction toggles that
+    // cancel out and the active column's direction never flips in dev. Call both
+    // setters at the top level; setSortDir uses a pure functional updater.
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
       setSortDir(key === 'name' ? 'asc' : 'desc');
-      return key;
-    });
-  }, []);
+    }
+  }, [sortKey]);
 
   // Build alias mapping: target → source from FIELDALIAS processing traces
   const aliasMap = useMemo(() => {
@@ -506,26 +508,29 @@ function ResizableHeader({
   onResize: (width: number) => void;
 }) {
   const isActive = sortKey === col.key;
-  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
-  useEffect(() => {
-    function onMouseMove(e: MouseEvent) {
-      if (!dragRef.current) return;
-      const delta = e.clientX - dragRef.current.startX;
-      onResize(Math.max(col.minWidth, dragRef.current.startWidth + delta));
+  // Attach the document-level drag listeners only for the duration of a resize.
+  // Registering them once per column in an effect kept N global mousemove
+  // handlers running for the table's whole lifetime, firing on every mouse move.
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = width;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    function onMouseMove(ev: MouseEvent) {
+      onResize(Math.max(col.minWidth, startWidth + (ev.clientX - startX)));
     }
     function onMouseUp() {
-      dragRef.current = null;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
     }
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-    return () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
-  }, [col.minWidth, onResize]);
+  };
 
   return (
     <th className="relative py-2 px-3 font-medium select-none" style={{ width }}>
@@ -540,12 +545,7 @@ function ResizableHeader({
       {/* Resize handle */}
       <div
         className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[var(--color-accent)] transition-colors z-10"
-        onMouseDown={(e) => {
-          e.preventDefault();
-          dragRef.current = { startX: e.clientX, startWidth: width };
-          document.body.style.cursor = 'col-resize';
-          document.body.style.userSelect = 'none';
-        }}
+        onMouseDown={startResize}
       />
     </th>
   );

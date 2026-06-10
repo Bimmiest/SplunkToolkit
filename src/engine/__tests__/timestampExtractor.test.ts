@@ -36,6 +36,15 @@ describe('extractTimestamps — explicit TIME_FORMAT (regression)', () => {
     );
     expect(iso(e._time)).toBe('2024-01-15T10:00:00.000Z');
   });
+
+  // SEM-9: %z must match a trailing ISO-8601 'Z' (and keep it UTC even when TZ is set).
+  it('matches %z against a literal Z and stays UTC despite a configured TZ', () => {
+    const [e] = extractTimestamps(
+      [event('2024-01-15T10:00:00Z some log')],
+      [dir('TIME_FORMAT', '%Y-%m-%dT%H:%M:%S%z'), dir('TZ', 'America/New_York')],
+    );
+    expect(iso(e._time)).toBe('2024-01-15T10:00:00.000Z');
+  });
 });
 
 describe('extractTimestamps — auto recognition (no TIME_FORMAT)', () => {

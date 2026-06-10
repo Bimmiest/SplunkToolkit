@@ -23,20 +23,19 @@ Input (raw log + metadata + props.conf + transforms.conf) flows through a single
 Runs in Splunk's actual order.
 
 **Index-time**
-1. Line breaking — `LINE_BREAKER`, `SHOULD_LINEMERGE`, `BREAK_ONLY_BEFORE`, `MUST_BREAK_AFTER`
+1. Line breaking — `LINE_BREAKER`, `SHOULD_LINEMERGE`, `BREAK_ONLY_BEFORE`, `MUST_BREAK_AFTER`, `MAX_EVENTS`
 2. Truncation — `TRUNCATE`
 3. Timestamp extraction — `TIME_PREFIX`, `TIME_FORMAT`, `MAX_TIMESTAMP_LOOKAHEAD`, `TZ`
 4. Indexed extractions — `INDEXED_EXTRACTIONS` (json, csv, tsv, psv, w3c)
 5. Sed commands — `SEDCMD-<class>`
-6. Transforms — `TRANSFORMS-<class>`
-7. Ingest eval — `INGEST_EVAL` (from transforms.conf)
+6. Transforms — `TRANSFORMS-<class>` (regex routing and `INGEST_EVAL` interleaved in `TRANSFORMS-<class>` list order; class names applied in ASCII order)
 
 **Search-time**
-8. Field extraction — `EXTRACT-<class>`
-9. KV mode — `KV_MODE` (auto, auto_escaped, json, xml, multi)
-10. Report transforms — `REPORT-<class>`
-11. Field aliases — `FIELDALIAS-<class>`
-12. Eval — `EVAL-<class>`
+7. Field extraction — `EXTRACT-<class>`
+8. Report transforms — `REPORT-<class>`
+9. KV mode — `KV_MODE` (auto, auto_escaped, json, xml, multi) — runs *after* `REPORT`, as Splunk documents
+10. Field aliases — `FIELDALIAS-<class>`
+11. Eval — `EVAL-<class>`
 
 ### Stanza precedence
 
@@ -150,7 +149,7 @@ All expressions are evaluated per-event before any are applied, matching Splunk'
 
 ## Tests
 
-Tests live in `src/**/__tests__/` and run under vitest. Engine tests target the highest-risk modules — line breaking, eval, regex transforms, dest-key routing, stanza matching, indexed extractions, and a statelessness regression suite. Component smoke tests cover StatusBar, HighlightedTab, FieldsTab, and RegexTab in jsdom. Current total: 112 tests.
+Tests live in `src/**/__tests__/` and run under vitest. Engine tests target the highest-risk modules — line breaking, eval, regex transforms, dest-key routing, stanza matching, indexed extractions, and a statelessness regression suite. Component smoke tests cover StatusBar, HighlightedTab, FieldsTab, and RegexTab in jsdom. Current total: 294 tests.
 
 Engine tests default to the `node` environment; component tests opt into jsdom with `// @vitest-environment jsdom` at the top of each file so engine tests don't pay the jsdom cost.
 

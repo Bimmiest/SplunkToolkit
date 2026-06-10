@@ -27,7 +27,10 @@ export function Header() {
     setMetadata({ index: 'main', host: '', source: '', sourcetype: '' });
   };
 
-  const hasAnyContent = !!useAppStore((s) => s.rawData || s.propsConf || s.transformsConf);
+  // Coerce to boolean INSIDE the selector so Zustand compares the boolean, not the
+  // raw text — otherwise the selector returns a changing string and the header
+  // re-renders on every keystroke even though hasAnyContent never changes.
+  const hasAnyContent = useAppStore((s) => Boolean(s.rawData || s.propsConf || s.transformsConf));
 
   const errorCount = useMemo(() => diagnostics.filter((d) => d.level === 'error').length, [diagnostics]);
   const warningCount = useMemo(() => diagnostics.filter((d) => d.level === 'warning').length, [diagnostics]);

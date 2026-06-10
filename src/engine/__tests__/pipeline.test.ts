@@ -40,3 +40,44 @@ describe('runPipeline — INDEXED_EXTRACTIONS + KV_MODE duplicate-extraction war
     expect(hasDupWarning(diagnostics)).toBe(false);
   });
 });
+
+describe('runPipeline — DEST_KEY validation (SEM-11)', () => {
+  const PLAIN_META: EventMetadata = { index: 'main', host: '', source: '', sourcetype: 'st' };
+  const props = '[st]\nTRANSFORMS-t = route';
+
+  it('warns when DEST_KEY is not a recognised routing key', () => {
+    const transforms = '[route]\nREGEX = (.*)\nDEST_KEY = made_up_key\nFORMAT = $1';
+    const { diagnostics } = runPipeline('a log line', PLAIN_META, props, transforms);
+    expect(diagnostics.some((d) => d.message.includes('not a recognised Splunk DEST_KEY'))).toBe(true);
+  });
+
+  it('warns that _TCP_ROUTING is valid but not simulated', () => {
+    const transforms = '[route]\nREGEX = (.*)\nDEST_KEY = _TCP_ROUTING\nFORMAT = group1';
+    const { diagnostics } = runPipeline('a log line', PLAIN_META, props, transforms);
+    expect(diagnostics.some((d) => d.message.includes('not simulated'))).toBe(true);
+  });
+
+  it('does NOT warn for a documented key like queue', () => {
+    const transforms = '[route]\nREGEX = (.*)\nDEST_KEY = queue\nFORMAT = indexQueue';
+    const { diagnostics } = runPipeline('a log line', PLAIN_META, props, transforms);
+    expect(diagnostics.some((d) => d.message.includes('DEST_KEY'))).toBe(false);
+  });
+});
+
+describe('runPipeline — INGEST_EVAL is scoped to referencing stanzas (SEM-2)', () => {
+  const PLAIN_META: EventMetadata = { index: 'main', host: '', source: '', sourcetype: 'st' };
+
+  it('does NOT apply an INGEST_EVAL stanza that no props.conf stanza references', () => {
+    const props = '[st]\n'; // no TRANSFORMS reference to the eval stanza
+    const transforms = '[addtag]\nINGEST_EVAL = tag="prod"';
+    const { result } = runPipeline('a log line', PLAIN_META, props, transforms);
+    expect(result.events[0].fields.tag).toBeUndefined();
+  });
+
+  it('applies an INGEST_EVAL stanza when a TRANSFORMS-<class> references it', () => {
+    const props = '[st]\nTRANSFORMS-t = addtag';
+    const transforms = '[addtag]\nINGEST_EVAL = tag="prod"';
+    const { result } = runPipeline('a log line', PLAIN_META, props, transforms);
+    expect(result.events[0].fields.tag).toBe('prod');
+  });
+});

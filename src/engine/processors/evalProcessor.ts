@@ -16,39 +16,59 @@ export function applyEvalExpressions(
   const reportedErrors = new Set<string>();
   const reportedStubs = new Set<string>();
 
+  const pushStub = (dir: ConfDirective, fn: string) => {
+    if (diagnostics && !reportedStubs.has(fn)) {
+      reportedStubs.add(fn);
+      diagnostics.push({
+        level: 'warning',
+        message: `${fn}() is not fully simulated — results may differ from real Splunk`,
+        file: 'props.conf',
+        line: dir.line,
+        directiveKey: dir.key,
+      });
+    }
+  };
+  const pushError = (dir: ConfDirective, fieldName: string, msg: string) => {
+    if (diagnostics && !reportedErrors.has(fieldName)) {
+      reportedErrors.add(fieldName);
+      diagnostics.push({
+        level: 'error',
+        message: `EVAL-${fieldName}: ${msg}`,
+        file: 'props.conf',
+        line: dir.line,
+        directiveKey: dir.key,
+      });
+    }
+  };
+
+  // Parse each directive's expression once into an AST; per-event evaluation
+  // reuses it (SEM-8: parse-once-per-directive instead of re-tokenising every
+  // event). The AST also enables lazy evaluation of branching functions.
+  const compiled = evalDirectives
+    .filter((dir) => (dir.className ?? '') !== '')
+    .map((dir) => {
+      const fieldName = dir.className as string;
+      try {
+        return { dir, fieldName, ast: parseExpression(dir.value.trim()), error: null as string | null };
+      } catch (err) {
+        return { dir, fieldName, ast: null, error: err instanceof Error ? err.message : String(err) };
+      }
+    });
+
   return events.map((event) => {
     // Eval expressions run in parallel — compute all before applying
     const results = new Map<string, EvalValue>();
 
-    for (const dir of evalDirectives) {
-      const fieldName = dir.className ?? '';
-      if (!fieldName) continue;
+    for (const c of compiled) {
+      if (c.error !== null) {
+        pushError(c.dir, c.fieldName, c.error);
+        continue;
+      }
       try {
-        const value = evaluateExpression(dir.value.trim(), event, (fn) => {
-          if (diagnostics && !reportedStubs.has(fn)) {
-            reportedStubs.add(fn);
-            diagnostics.push({
-              level: 'warning',
-              message: `${fn}() is not fully simulated — results may differ from real Splunk`,
-              file: 'props.conf',
-              line: dir.line,
-              directiveKey: dir.key,
-            });
-          }
-        });
-        results.set(fieldName, value);
+        const value = evalNode(c.ast!, { event, onStubWarning: (fn) => pushStub(c.dir, fn) });
+        results.set(c.fieldName, value);
       } catch (err) {
-        const msg = `EVAL-${fieldName}: ${err instanceof Error ? err.message : String(err)}`;
-        if (diagnostics && !reportedErrors.has(fieldName)) {
-          reportedErrors.add(fieldName);
-          diagnostics.push({
-            level: 'error',
-            message: msg,
-            file: 'props.conf',
-            line: dir.line,
-            directiveKey: dir.key,
-          });
-        }
+        pushError(c.dir, c.fieldName, err instanceof Error ? err.message : String(err));
       }
     }
 
@@ -195,6 +215,25 @@ function tokenize(expr: string): Token[] {
   return tokens;
 }
 
+// ── AST ─────────────────────────────────────────────────
+//
+// The parser builds an AST (no event bound) so it can run once per directive,
+// and the evaluator walks it per event. Keeping parse and eval separate is also
+// what lets branching functions (if/case/coalesce/validate) and AND/OR evaluate
+// lazily — Splunk only evaluates the branch it actually takes.
+
+type Node =
+  | { kind: 'lit'; value: EvalValue }
+  | { kind: 'field'; name: string }
+  | { kind: 'call'; name: string; args: Node[] }
+  | { kind: 'arith'; op: string; left: Node; right: Node }
+  | { kind: 'concat'; left: Node; right: Node }
+  | { kind: 'compare'; op: string; left: Node; right: Node }
+  | { kind: 'logical'; op: 'AND' | 'OR'; left: Node; right: Node }
+  | { kind: 'not'; operand: Node }
+  | { kind: 'neg'; operand: Node }
+  | { kind: 'in'; value: Node; list: Node[]; negate: boolean };
+
 // ── Parser ──────────────────────────────────────────────
 
 class Parser {
@@ -202,13 +241,9 @@ class Parser {
   private pos = 0;
   private depth = 0;
   private static readonly MAX_DEPTH = 50;
-  private event: SplunkEvent;
-  private onStubWarning: ((fn: string) => void) | undefined;
 
-  constructor(tokens: Token[], event: SplunkEvent, onStubWarning?: (fn: string) => void) {
+  constructor(tokens: Token[]) {
     this.tokens = tokens;
-    this.event = event;
-    this.onStubWarning = onStubWarning;
   }
 
   private peek(): Token | undefined {
@@ -227,12 +262,11 @@ class Parser {
     return tok;
   }
 
-  parse(): EvalValue {
-    const result = this.parseOr();
-    return result;
+  parse(): Node {
+    return this.parseOr();
   }
 
-  private parseOr(): EvalValue {
+  private parseOr(): Node {
     // Depth guard only covers OR-level nesting; flat chains via parseAddSub/parseMulDiv
     // do not increment depth. The worker watchdog (5 s) is the primary protection
     // against pathological inputs that slip through.
@@ -244,7 +278,7 @@ class Parser {
       while (this.peek()?.value === 'OR' || this.peek()?.value === '||') {
         this.consume();
         const right = this.parseAnd();
-        left = toBool(left) || toBool(right);
+        left = { kind: 'logical', op: 'OR', left, right };
       }
       return left;
     } finally {
@@ -252,25 +286,25 @@ class Parser {
     }
   }
 
-  private parseAnd(): EvalValue {
+  private parseAnd(): Node {
     let left = this.parseNot();
     while (this.peek()?.value === 'AND' || this.peek()?.value === '&&') {
       this.consume();
       const right = this.parseNot();
-      left = toBool(left) && toBool(right);
+      left = { kind: 'logical', op: 'AND', left, right };
     }
     return left;
   }
 
-  private parseNot(): EvalValue {
+  private parseNot(): Node {
     if (this.peek()?.value === 'NOT' || this.peek()?.value === '!') {
       this.consume();
-      return !toBool(this.parseComparison());
+      return { kind: 'not', operand: this.parseComparison() };
     }
     return this.parseComparison();
   }
 
-  private parseComparison(): EvalValue {
+  private parseComparison(): Node {
     const left = this.parseConcat();
     const tok = this.peek();
 
@@ -288,14 +322,14 @@ class Parser {
     if (tok?.type === 'op' && ['==', '=', '!=', '<', '>', '<=', '>='].includes(tok.value)) {
       const op = this.consume().value;
       const right = this.parseConcat();
-      return compare(left, right, op);
+      return { kind: 'compare', op, left, right };
     }
     return left;
   }
 
-  private parseInList(left: EvalValue, negate: boolean): EvalValue {
+  private parseInList(left: Node, negate: boolean): Node {
     this.expect('paren', '(');
-    const list: EvalValue[] = [];
+    const list: Node[] = [];
     if (this.peek()?.type !== 'paren' || this.peek()?.value !== ')') {
       list.push(this.parseOr());
       while (this.peek()?.type === 'comma') {
@@ -304,52 +338,48 @@ class Parser {
       }
     }
     this.expect('paren', ')');
-    const match = list.some((v) => compare(left, v, '='));
-    return negate ? !match : match;
+    return { kind: 'in', value: left, list, negate };
   }
 
-  private parseConcat(): EvalValue {
+  private parseConcat(): Node {
     let left = this.parseAddSub();
     while (this.peek()?.type === 'dot') {
       this.consume();
       const right = this.parseAddSub();
-      left = toStr(left) + toStr(right);
+      left = { kind: 'concat', left, right };
     }
     return left;
   }
 
-  private parseAddSub(): EvalValue {
+  private parseAddSub(): Node {
     let left = this.parseMulDiv();
     while (this.peek()?.type === 'op' && (this.peek()?.value === '+' || this.peek()?.value === '-')) {
       const op = this.consume().value;
       const right = this.parseMulDiv();
-      if (op === '+') left = toNum(left) + toNum(right);
-      else left = toNum(left) - toNum(right);
+      left = { kind: 'arith', op, left, right };
     }
     return left;
   }
 
-  private parseMulDiv(): EvalValue {
+  private parseMulDiv(): Node {
     let left = this.parseUnary();
     while (this.peek()?.type === 'op' && ['*', '/', '%'].includes(this.peek()!.value)) {
       const op = this.consume().value;
       const right = this.parseUnary();
-      if (op === '*') left = toNum(left) * toNum(right);
-      else if (op === '/') left = toNum(right) !== 0 ? toNum(left) / toNum(right) : null;
-      else left = toNum(right) !== 0 ? toNum(left) % toNum(right) : null;
+      left = { kind: 'arith', op, left, right };
     }
     return left;
   }
 
-  private parseUnary(): EvalValue {
+  private parseUnary(): Node {
     if (this.peek()?.type === 'op' && this.peek()?.value === '-') {
       this.consume();
-      return -toNum(this.parsePrimary());
+      return { kind: 'neg', operand: this.parsePrimary() };
     }
     return this.parsePrimary();
   }
 
-  private parsePrimary(): EvalValue {
+  private parsePrimary(): Node {
     const tok = this.peek();
     if (!tok) throw new Error('Unexpected end of expression');
 
@@ -363,17 +393,17 @@ class Parser {
 
     // String literal
     if (tok.type === 'string') {
-      return this.consume().value;
+      return { kind: 'lit', value: this.consume().value };
     }
 
     // Single-quoted field reference
     if (tok.type === 'field_ref') {
-      return this.getField(this.consume().value);
+      return { kind: 'field', name: this.consume().value };
     }
 
     // Number literal
     if (tok.type === 'number') {
-      return parseFloat(this.consume().value);
+      return { kind: 'lit', value: parseFloat(this.consume().value) };
     }
 
     // Function call or field reference
@@ -383,7 +413,7 @@ class Parser {
       // Check for function call
       if (this.peek()?.type === 'paren' && this.peek()?.value === '(') {
         this.consume(); // (
-        const args: EvalValue[] = [];
+        const args: Node[] = [];
         if (this.peek()?.type !== 'paren' || this.peek()?.value !== ')') {
           args.push(this.parseOr());
           while (this.peek()?.type === 'comma') {
@@ -392,264 +422,332 @@ class Parser {
           }
         }
         this.expect('paren', ')');
-        return this.callFunction(name, args);
+        return { kind: 'call', name, args };
       }
 
       // Boolean literals
-      if (name === 'true') return true;
-      if (name === 'false') return false;
+      if (name === 'true') return { kind: 'lit', value: true };
+      if (name === 'false') return { kind: 'lit', value: false };
 
       // Field reference
-      return this.getField(name);
+      return { kind: 'field', name };
     }
 
     throw new Error(`Unexpected token: ${tok.value}`);
   }
+}
 
-  private getField(name: string): EvalValue {
-    if (name === '_raw') return this.event._raw;
-    if (name === '_time') return this.event._time ? this.event._time.getTime() / 1000 : null;
-    const val = this.event.fields[name];
-    if (val === undefined) return null;
-    if (Array.isArray(val)) return val;
-    return val;
-  }
+// ── Evaluator ───────────────────────────────────────────
 
-  private callFunction(name: string, args: EvalValue[]): EvalValue {
-    const fn = name.toLowerCase();
-    switch (fn) {
-      // Conditional
-      case 'if': return toBool(args[0]) ? args[1] : (args[2] ?? null);
-      case 'case': {
-        for (let i = 0; i < args.length - 1; i += 2) {
-          if (toBool(args[i])) return args[i + 1];
-        }
-        return null;
-      }
-      case 'coalesce': return args.find((a) => a !== null && a !== undefined) ?? null;
-      case 'nullif': return toStr(args[0]) === toStr(args[1]) ? null : args[0];
-      case 'validate': {
-        for (let i = 0; i < args.length - 1; i += 2) {
-          if (!toBool(args[i])) return args[i + 1];
-        }
-        return null;
-      }
+interface EvalCtx {
+  event: SplunkEvent;
+  onStubWarning?: ((fn: string) => void) | undefined;
+}
 
-      // String
-      case 'lower': return toStr(args[0]).toLowerCase();
-      case 'upper': return toStr(args[0]).toUpperCase();
-      case 'len': return toStr(args[0]).length;
-      case 'substr': {
-        const s = toStr(args[0]);
-        const start = toNum(args[1]);
-        const startIdx = start > 0 ? start - 1 : s.length + start;
-        const len = args[2] !== undefined ? toNum(args[2]) : undefined;
-        return len !== undefined ? s.substring(startIdx, startIdx + len) : s.substring(startIdx);
-      }
-      case 'replace': {
-        const s = toStr(args[0]);
-        const regex = safeRegex(toStr(args[1]), 'g');
-        if (!regex) return s;
-        return s.replace(regex, toStr(args[2]));
-      }
-      case 'trim': return toStr(args[0]).trim();
-      case 'ltrim': {
-        const s = toStr(args[0]);
-        const chars = args[1] !== undefined ? toStr(args[1]) : ' \t\n\r';
-        let i = 0;
-        while (i < s.length && chars.includes(s[i])) i++;
-        return s.substring(i);
-      }
-      case 'rtrim': {
-        const s = toStr(args[0]);
-        const chars = args[1] !== undefined ? toStr(args[1]) : ' \t\n\r';
-        let i = s.length - 1;
-        while (i >= 0 && chars.includes(s[i])) i--;
-        return s.substring(0, i + 1);
-      }
-      case 'urldecode': {
-        try { return decodeURIComponent(toStr(args[0])); }
-        catch { return toStr(args[0]); }
-      }
-      case 'split': {
-        const s = toStr(args[0]);
-        const delim = toStr(args[1]);
-        return s.split(delim);
-      }
-      case 'mvjoin': {
-        const v = toMv(args[0]);
-        return v.join(toStr(args[1]));
-      }
+function getField(event: SplunkEvent, name: string): EvalValue {
+  if (name === '_raw') return event._raw;
+  if (name === '_time') return event._time ? event._time.getTime() / 1000 : null;
+  const val = event.fields[name];
+  if (val === undefined) return null;
+  if (Array.isArray(val)) return val;
+  return val;
+}
 
-      // Type
-      case 'tonumber': {
-        const val = toStr(args[0]).trim();
-        const base = args[1] !== undefined ? Math.floor(toNum(args[1])) : 10;
-        if (base === 10) {
-          if (!/^-?\d+(\.\d+)?$/.test(val)) return null;
-          return parseFloat(val);
-        }
-        const validChars = '0123456789abcdefghijklmnopqrstuvwxyz'.slice(0, base);
-        if (!new RegExp(`^[${validChars}]+$`, 'i').test(val)) return null;
-        const n = parseInt(val, base);
-        return isNaN(n) ? null : n;
-      }
-      case 'tostring': {
-        if (args[1] !== undefined) {
-          const format = toStr(args[1]);
-          const val = toNum(args[0]);
-          if (format === 'hex') return '0x' + Math.floor(val).toString(16);
-          if (format === 'commas') {
-            // Splunk always shows thousands separators and exactly two decimals.
-            return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-          }
-          if (format === 'duration') {
-            const pad = (n: number) => String(n).padStart(2, '0');
-            const total = Math.floor(Math.abs(val));
-            const days = Math.floor(total / 86400);
-            const h = Math.floor((total % 86400) / 3600);
-            const m = Math.floor((total % 3600) / 60);
-            const s = total % 60;
-            const sign = val < 0 ? '-' : '';
-            const hms = `${pad(h)}:${pad(m)}:${pad(s)}`;
-            return days > 0 ? `${sign}${days}+${hms}` : `${sign}${hms}`;
-          }
-        }
-        return toStr(args[0]);
-      }
-      case 'typeof': {
-        // Splunk returns "Number" | "String" | "Bool" | "Invalid"
-        // (a null / nonexistent field is "Invalid", not a separate null type).
-        if (args[0] === null || args[0] === undefined) return 'Invalid';
-        if (typeof args[0] === 'number') return 'Number';
-        if (typeof args[0] === 'boolean') return 'Bool';
-        if (Array.isArray(args[0])) return 'MultiValue';
-        return 'String';
-      }
-      case 'isnull': return args[0] === null || args[0] === undefined;
-      case 'isnotnull': return args[0] !== null && args[0] !== undefined;
-      case 'isint': return isNumericValue(args[0]) && Number.isInteger(Number(args[0]));
-      case 'isnum': return isNumericValue(args[0]);
-
-      // Math
-      case 'abs': return Math.abs(toNum(args[0]));
-      case 'ceiling': case 'ceil': return Math.ceil(toNum(args[0]));
-      case 'floor': return Math.floor(toNum(args[0]));
-      case 'round': {
-        const val = toNum(args[0]);
-        const decimals = args[1] !== undefined ? toNum(args[1]) : 0;
-        const factor = Math.pow(10, decimals);
-        // Splunk rounds halves away from zero; JS Math.round rounds toward +∞.
-        const scaled = val * factor;
-        return (Math.sign(scaled) * Math.round(Math.abs(scaled))) / factor;
-      }
-      case 'sqrt': return Math.sqrt(toNum(args[0]));
-      case 'pow': return Math.pow(toNum(args[0]), toNum(args[1]));
-      case 'log': {
-        const val = toNum(args[0]);
-        const base = args[1] !== undefined ? toNum(args[1]) : 10;
-        return Math.log(val) / Math.log(base);
-      }
-      case 'ln': return Math.log(toNum(args[0]));
-      case 'exp': return Math.exp(toNum(args[0]));
-      case 'pi': return Math.PI;
-      case 'exact': return toNum(args[0]);
-      case 'min': return minMax(args, 'min');
-      case 'max': return minMax(args, 'max');
-      case 'random': return Math.floor(Math.random() * 2147483648); // 0 .. 2^31-1, like Splunk
-      case 'sigfig': return toNum(args[0]);
-
-      // Multivalue
-      case 'mvcount': return toMv(args[0]).length;
-      case 'mvindex': {
-        const mv = toMv(args[0]);
-        const n = mv.length;
-        // Splunk mvindex is 0-based; negative indices count from the end (-1 = last).
-        const norm = (idx: number) => (idx < 0 ? n + idx : idx);
-        const start = norm(toNum(args[1]));
-        const end = args[2] !== undefined ? norm(toNum(args[2])) : start;
-        // Out-of-range or inverted ranges yield NULL.
-        if (start < 0 || start >= n || end < 0 || end >= n || end < start) return null;
-        return start === end ? mv[start] : mv.slice(start, end + 1);
-      }
-      case 'mvfilter':
-        this.onStubWarning?.('mvfilter');
-        return toMv(args[0]);
-      case 'mvappend': return args.flatMap(toMv);
-      case 'mvdedup': return [...new Set(toMv(args[0]))];
-      case 'mvfind': {
-        const mv = toMv(args[0]);
-        const regex = safeRegex(toStr(args[1]));
-        if (!regex) return null;
-        const idx = mv.findIndex((v) => regex.test(v));
-        return idx >= 0 ? idx : null;
-      }
-      case 'mvsort': return [...toMv(args[0])].sort();
-      case 'mvzip': {
-        const a = toMv(args[0]);
-        const b = toMv(args[1]);
-        const delim = args[2] !== undefined ? toStr(args[2]) : ',';
-        const len = Math.max(a.length, b.length);
-        const result: string[] = [];
-        for (let i = 0; i < len; i++) {
-          result.push((a[i] ?? '') + delim + (b[i] ?? ''));
-        }
-        return result;
-      }
-
-      // Crypto — not simulated (crypto.subtle is async; eval is sync).
-      // Return a visible placeholder so the field is set and users see the stub rather than a silent deletion.
-      case 'md5':   this.onStubWarning?.('md5');    return '[md5() not simulated]';
-      case 'sha1':  this.onStubWarning?.('sha1');   return '[sha1() not simulated]';
-      case 'sha256': this.onStubWarning?.('sha256'); return '[sha256() not simulated]';
-      case 'sha512': this.onStubWarning?.('sha512'); return '[sha512() not simulated]';
-
-      // Time
-      case 'now': return Math.floor(Date.now() / 1000);
-      case 'time': return Math.floor(Date.now() / 1000);
-      case 'strftime': {
-        const epoch = toNum(args[0]);
-        const format = toStr(args[1]);
-        const date = new Date(epoch * 1000);
-        return simpleStrftime(date, format);
-      }
-      case 'strptime':
-        this.onStubWarning?.('strptime');
-        return toStr(args[0]);
-      case 'relative_time':
-        this.onStubWarning?.('relative_time');
-        return toNum(args[0]);
-
-      // Other
-      case 'null': return null;
-      case 'like': {
-        const value = toStr(args[0]);
-        // Escape regex metacharacters first, then translate SQL-style wildcards
-        const pattern = toStr(args[1])
-          .replace(/[.+*?^${}()|[\]\\]/g, '\\$&')
-          .replace(/%/g, '.*')
-          .replace(/_/g, '.');
-        // Splunk's like() is case-sensitive.
-        const regex = safeRegex(`^${pattern}$`);
-        return regex ? regex.test(value) : false;
-      }
-      case 'match': {
-        const regex = safeRegex(toStr(args[1]));
-        return regex ? regex.test(toStr(args[0])) : false;
-      }
-      case 'cidrmatch':
-        this.onStubWarning?.('cidrmatch');
-        return false;
-      case 'searchmatch':
-        this.onStubWarning?.('searchmatch');
-        return false;
-
-      default:
-        // Unknown or not-yet-simulated function — surface a warning rather than
-        // silently returning null (which looks like the field just didn't compute).
-        this.onStubWarning?.(fn);
-        return null;
+function evalNode(node: Node, ctx: EvalCtx): EvalValue {
+  switch (node.kind) {
+    case 'lit':
+      return node.value;
+    case 'field':
+      return getField(ctx.event, node.name);
+    case 'concat':
+      return toStr(evalNode(node.left, ctx)) + toStr(evalNode(node.right, ctx));
+    case 'arith': {
+      const l = evalNode(node.left, ctx);
+      const r = evalNode(node.right, ctx);
+      return node.op === '+' ? addOrConcat(l, r) : arith(l, r, node.op as '-' | '*' | '/' | '%');
     }
+    case 'compare':
+      return compare(evalNode(node.left, ctx), evalNode(node.right, ctx), node.op);
+    case 'neg': {
+      const v = evalNode(node.operand, ctx);
+      // NULL propagates through arithmetic (Splunk): -null = null.
+      return v === null || v === undefined ? null : -toNum(v);
+    }
+    case 'not':
+      return !toBool(evalNode(node.operand, ctx));
+    case 'logical': {
+      // Short-circuit: Splunk does not evaluate the right operand once the left
+      // settles the result. Both operators yield a boolean.
+      const left = evalNode(node.left, ctx);
+      if (node.op === 'OR') return toBool(left) ? true : toBool(evalNode(node.right, ctx));
+      return !toBool(left) ? false : toBool(evalNode(node.right, ctx));
+    }
+    case 'in': {
+      const left = evalNode(node.value, ctx);
+      // `some` stops at the first match — no need to evaluate the rest of the list.
+      const match = node.list.some((n) => compare(left, evalNode(n, ctx), '='));
+      return node.negate ? !match : match;
+    }
+    case 'call':
+      return evalCall(node.name, node.args, ctx);
+  }
+}
+
+/**
+ * Dispatch a function call. Branching functions evaluate their argument *nodes*
+ * lazily (only the taken branch), matching Splunk; everything else evaluates all
+ * arguments first and hands the values to {@link evalBuiltin}.
+ */
+function evalCall(name: string, argNodes: Node[], ctx: EvalCtx): EvalValue {
+  const fn = name.toLowerCase();
+  switch (fn) {
+    case 'if':
+      if (toBool(evalNode(argNodes[0], ctx))) {
+        return argNodes[1] !== undefined ? evalNode(argNodes[1], ctx) : null;
+      }
+      return argNodes[2] !== undefined ? evalNode(argNodes[2], ctx) : null;
+    case 'case':
+      for (let i = 0; i + 1 < argNodes.length; i += 2) {
+        if (toBool(evalNode(argNodes[i], ctx))) return evalNode(argNodes[i + 1], ctx);
+      }
+      return null;
+    case 'validate':
+      for (let i = 0; i + 1 < argNodes.length; i += 2) {
+        if (!toBool(evalNode(argNodes[i], ctx))) return evalNode(argNodes[i + 1], ctx);
+      }
+      return null;
+    case 'coalesce':
+      for (const n of argNodes) {
+        const v = evalNode(n, ctx);
+        if (v !== null && v !== undefined) return v;
+      }
+      return null;
+    default:
+      return evalBuiltin(fn, argNodes.map((n) => evalNode(n, ctx)), ctx);
+  }
+}
+
+/** Non-branching functions: all arguments are already evaluated. */
+function evalBuiltin(fn: string, args: EvalValue[], ctx: EvalCtx): EvalValue {
+  switch (fn) {
+    case 'nullif': return toStr(args[0]) === toStr(args[1]) ? null : args[0];
+
+    // String
+    case 'lower': return toStr(args[0]).toLowerCase();
+    case 'upper': return toStr(args[0]).toUpperCase();
+    case 'len': return toStr(args[0]).length;
+    case 'substr': {
+      const s = toStr(args[0]);
+      const start = toNum(args[1]);
+      const startIdx = start > 0 ? start - 1 : s.length + start;
+      const len = args[2] !== undefined ? toNum(args[2]) : undefined;
+      return len !== undefined ? s.substring(startIdx, startIdx + len) : s.substring(startIdx);
+    }
+    case 'replace': {
+      const s = toStr(args[0]);
+      const regex = safeRegex(toStr(args[1]), 'g');
+      if (!regex) return s;
+      return s.replace(regex, toStr(args[2]));
+    }
+    case 'trim': return toStr(args[0]).trim();
+    case 'ltrim': {
+      const s = toStr(args[0]);
+      const chars = args[1] !== undefined ? toStr(args[1]) : ' \t\n\r';
+      let i = 0;
+      while (i < s.length && chars.includes(s[i])) i++;
+      return s.substring(i);
+    }
+    case 'rtrim': {
+      const s = toStr(args[0]);
+      const chars = args[1] !== undefined ? toStr(args[1]) : ' \t\n\r';
+      let i = s.length - 1;
+      while (i >= 0 && chars.includes(s[i])) i--;
+      return s.substring(0, i + 1);
+    }
+    case 'urldecode': {
+      try { return decodeURIComponent(toStr(args[0])); }
+      catch { return toStr(args[0]); }
+    }
+    case 'split': {
+      const s = toStr(args[0]);
+      const delim = toStr(args[1]);
+      return s.split(delim);
+    }
+    case 'mvjoin': {
+      const v = toMv(args[0]);
+      return v.join(toStr(args[1]));
+    }
+
+    // Type
+    case 'tonumber': {
+      const val = toStr(args[0]).trim();
+      const base = args[1] !== undefined ? Math.floor(toNum(args[1])) : 10;
+      if (base === 10) {
+        if (!/^-?\d+(\.\d+)?$/.test(val)) return null;
+        return parseFloat(val);
+      }
+      const validChars = '0123456789abcdefghijklmnopqrstuvwxyz'.slice(0, base);
+      if (!new RegExp(`^[${validChars}]+$`, 'i').test(val)) return null;
+      const n = parseInt(val, base);
+      return isNaN(n) ? null : n;
+    }
+    case 'tostring': {
+      if (args[1] !== undefined) {
+        const format = toStr(args[1]);
+        const val = toNum(args[0]);
+        if (format === 'hex') return '0x' + Math.floor(val).toString(16);
+        if (format === 'commas') {
+          // Thousands separators, up to two decimals. Splunk shows no decimals
+          // for integers (e.g. 12,345) but keeps fractional precision (rounded
+          // to 2 places) when present.
+          return val.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+        }
+        if (format === 'duration') {
+          const pad = (n: number) => String(n).padStart(2, '0');
+          const total = Math.floor(Math.abs(val));
+          const days = Math.floor(total / 86400);
+          const h = Math.floor((total % 86400) / 3600);
+          const m = Math.floor((total % 3600) / 60);
+          const s = total % 60;
+          const sign = val < 0 ? '-' : '';
+          const hms = `${pad(h)}:${pad(m)}:${pad(s)}`;
+          return days > 0 ? `${sign}${days}+${hms}` : `${sign}${hms}`;
+        }
+      }
+      return toStr(args[0]);
+    }
+    case 'typeof': {
+      // Splunk returns "Number" | "String" | "Bool" | "Invalid"
+      // (a null / nonexistent field is "Invalid", not a separate null type).
+      if (args[0] === null || args[0] === undefined) return 'Invalid';
+      if (typeof args[0] === 'number') return 'Number';
+      if (typeof args[0] === 'boolean') return 'Bool';
+      if (Array.isArray(args[0])) return 'MultiValue';
+      return 'String';
+    }
+    case 'isnull': return args[0] === null || args[0] === undefined;
+    case 'isnotnull': return args[0] !== null && args[0] !== undefined;
+    case 'isint': return isNumericValue(args[0]) && Number.isInteger(Number(args[0]));
+    case 'isnum': return isNumericValue(args[0]);
+
+    // Math
+    case 'abs': return Math.abs(toNum(args[0]));
+    case 'ceiling': case 'ceil': return Math.ceil(toNum(args[0]));
+    case 'floor': return Math.floor(toNum(args[0]));
+    case 'round': {
+      const val = toNum(args[0]);
+      const decimals = args[1] !== undefined ? toNum(args[1]) : 0;
+      const factor = Math.pow(10, decimals);
+      // Splunk rounds halves away from zero; JS Math.round rounds toward +∞.
+      const scaled = val * factor;
+      return (Math.sign(scaled) * Math.round(Math.abs(scaled))) / factor;
+    }
+    case 'sqrt': return Math.sqrt(toNum(args[0]));
+    case 'pow': return Math.pow(toNum(args[0]), toNum(args[1]));
+    case 'log': {
+      const val = toNum(args[0]);
+      const base = args[1] !== undefined ? toNum(args[1]) : 10;
+      return Math.log(val) / Math.log(base);
+    }
+    case 'ln': return Math.log(toNum(args[0]));
+    case 'exp': return Math.exp(toNum(args[0]));
+    case 'pi': return Math.PI;
+    case 'exact': return toNum(args[0]);
+    case 'min': return minMax(args, 'min');
+    case 'max': return minMax(args, 'max');
+    case 'random': return Math.floor(Math.random() * 2147483648); // 0 .. 2^31-1, like Splunk
+    case 'sigfig': return toNum(args[0]);
+
+    // Multivalue
+    case 'mvcount': return toMv(args[0]).length;
+    case 'mvindex': {
+      const mv = toMv(args[0]);
+      const n = mv.length;
+      // Splunk mvindex is 0-based; negative indices count from the end (-1 = last).
+      const norm = (idx: number) => (idx < 0 ? n + idx : idx);
+      const start = norm(toNum(args[1]));
+      const end = args[2] !== undefined ? norm(toNum(args[2])) : start;
+      // Out-of-range or inverted ranges yield NULL.
+      if (start < 0 || start >= n || end < 0 || end >= n || end < start) return null;
+      return start === end ? mv[start] : mv.slice(start, end + 1);
+    }
+    case 'mvfilter':
+      ctx.onStubWarning?.('mvfilter');
+      return toMv(args[0]);
+    case 'mvappend': return args.flatMap(toMv);
+    case 'mvdedup': return [...new Set(toMv(args[0]))];
+    case 'mvfind': {
+      const mv = toMv(args[0]);
+      const regex = safeRegex(toStr(args[1]));
+      if (!regex) return null;
+      const idx = mv.findIndex((v) => regex.test(v));
+      return idx >= 0 ? idx : null;
+    }
+    case 'mvsort': return [...toMv(args[0])].sort();
+    case 'mvzip': {
+      const a = toMv(args[0]);
+      const b = toMv(args[1]);
+      const delim = args[2] !== undefined ? toStr(args[2]) : ',';
+      const len = Math.max(a.length, b.length);
+      const result: string[] = [];
+      for (let i = 0; i < len; i++) {
+        result.push((a[i] ?? '') + delim + (b[i] ?? ''));
+      }
+      return result;
+    }
+
+    // Crypto — not simulated (crypto.subtle is async; eval is sync).
+    // Return a visible placeholder so the field is set and users see the stub rather than a silent deletion.
+    case 'md5':   ctx.onStubWarning?.('md5');    return '[md5() not simulated]';
+    case 'sha1':  ctx.onStubWarning?.('sha1');   return '[sha1() not simulated]';
+    case 'sha256': ctx.onStubWarning?.('sha256'); return '[sha256() not simulated]';
+    case 'sha512': ctx.onStubWarning?.('sha512'); return '[sha512() not simulated]';
+
+    // Time
+    case 'now': return Math.floor(Date.now() / 1000);
+    case 'time': return Math.floor(Date.now() / 1000);
+    case 'strftime': {
+      const epoch = toNum(args[0]);
+      const format = toStr(args[1]);
+      const date = new Date(epoch * 1000);
+      return simpleStrftime(date, format);
+    }
+    case 'strptime':
+      ctx.onStubWarning?.('strptime');
+      return toStr(args[0]);
+    case 'relative_time':
+      ctx.onStubWarning?.('relative_time');
+      return toNum(args[0]);
+
+    // Other
+    case 'null': return null;
+    case 'like': {
+      const value = toStr(args[0]);
+      // Escape regex metacharacters first, then translate SQL-style wildcards
+      const pattern = toStr(args[1])
+        .replace(/[.+*?^${}()|[\]\\]/g, '\\$&')
+        .replace(/%/g, '.*')
+        .replace(/_/g, '.');
+      // Splunk's like() is case-sensitive.
+      const regex = safeRegex(`^${pattern}$`);
+      return regex ? regex.test(value) : false;
+    }
+    case 'match': {
+      const regex = safeRegex(toStr(args[1]));
+      return regex ? regex.test(toStr(args[0])) : false;
+    }
+    case 'cidrmatch':
+      ctx.onStubWarning?.('cidrmatch');
+      return false;
+    case 'searchmatch':
+      ctx.onStubWarning?.('searchmatch');
+      return false;
+
+    default:
+      // Unknown or not-yet-simulated function — surface a warning rather than
+      // silently returning null (which looks like the field just didn't compute).
+      ctx.onStubWarning?.(fn);
+      return null;
   }
 }
 
@@ -680,6 +778,31 @@ function toStr(v: EvalValue): string {
   if (v === null || v === undefined) return '';
   if (Array.isArray(v)) return v.join(' ');
   return String(v);
+}
+
+/**
+ * The `+` operator. Splunk propagates NULL through arithmetic (null + x = null),
+ * adds when both operands are numeric, and otherwise CONCATENATES strings
+ * (`"a" + "b"` → "ab"). `.` is the dedicated concat operator, but `+` falls back
+ * to concatenation rather than coercing strings to 0.
+ */
+function addOrConcat(l: EvalValue, r: EvalValue): EvalValue {
+  if (l === null || l === undefined || r === null || r === undefined) return null;
+  if (isNumericValue(l) && isNumericValue(r)) return toNum(l) + toNum(r);
+  return toStr(l) + toStr(r);
+}
+
+/** `-`, `*`, `/`, `%` with NULL propagation (null operand → null result). */
+function arith(l: EvalValue, r: EvalValue, op: '-' | '*' | '/' | '%'): EvalValue {
+  if (l === null || l === undefined || r === null || r === undefined) return null;
+  const a = toNum(l);
+  const b = toNum(r);
+  switch (op) {
+    case '-': return a - b;
+    case '*': return a * b;
+    case '/': return b !== 0 ? a / b : null;
+    case '%': return b !== 0 ? a % b : null;
+  }
 }
 
 function toMv(v: EvalValue): string[] {
@@ -755,17 +878,53 @@ function compare(left: EvalValue, right: EvalValue, op: string): boolean {
   }
 }
 
+const STRFTIME_MONTHS_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const STRFTIME_MONTHS_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const STRFTIME_DAYS_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const STRFTIME_DAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/**
+ * Format a Date with a Splunk strftime string. Uses the browser's local timezone
+ * (a documented browser-tool divergence — real Splunk uses the configured/indexer
+ * TZ). Covers the common token set rather than the full strptime grammar.
+ */
 function simpleStrftime(date: Date, format: string): string {
   const pad = (n: number, w = 2) => String(n).padStart(w, '0');
-  return format
-    .replace(/%Y/g, String(date.getFullYear()))
-    .replace(/%m/g, pad(date.getMonth() + 1))
-    .replace(/%d/g, pad(date.getDate()))
-    .replace(/%H/g, pad(date.getHours()))
-    .replace(/%M/g, pad(date.getMinutes()))
-    .replace(/%S/g, pad(date.getSeconds()))
-    .replace(/%T/g, `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`)
-    .replace(/%F/g, `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`);
+  const h24 = date.getHours();
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  const startOfYear = new Date(date.getFullYear(), 0, 0);
+  const dayOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / 86_400_000);
+  const tokens: Record<string, string> = {
+    '%Y': String(date.getFullYear()),
+    '%y': pad(date.getFullYear() % 100),
+    '%m': pad(date.getMonth() + 1),
+    '%d': pad(date.getDate()),
+    '%e': String(date.getDate()).padStart(2, ' '),
+    '%H': pad(h24),
+    '%I': pad(h12),
+    '%M': pad(date.getMinutes()),
+    '%S': pad(date.getSeconds()),
+    '%p': h24 < 12 ? 'AM' : 'PM',
+    '%b': STRFTIME_MONTHS_ABBR[date.getMonth()],
+    '%B': STRFTIME_MONTHS_FULL[date.getMonth()],
+    '%a': STRFTIME_DAYS_ABBR[date.getDay()],
+    '%A': STRFTIME_DAYS_FULL[date.getDay()],
+    '%j': pad(dayOfYear, 3),
+    '%s': String(Math.floor(date.getTime() / 1000)),
+    '%3N': pad(date.getMilliseconds(), 3),
+    '%6N': pad(date.getMilliseconds(), 3) + '000',
+    '%T': `${pad(h24)}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`,
+    '%F': `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+    '%%': '%',
+  };
+  return format.replace(/%(?:3N|6N|[YymdeHIMSpbBaAjsTF%])/g, (m) => tokens[m] ?? m);
+}
+
+/** Parse an eval expression into an AST. Throws on a syntax error. */
+function parseExpression(expr: string): Node {
+  const tokens = tokenize(expr);
+  const parser = new Parser(tokens);
+  return parser.parse();
 }
 
 export function evaluateExpression(
@@ -773,7 +932,5 @@ export function evaluateExpression(
   event: SplunkEvent,
   onStubWarning?: (fn: string) => void,
 ): EvalValue {
-  const tokens = tokenize(expr);
-  const parser = new Parser(tokens, event, onStubWarning);
-  return parser.parse();
+  return evalNode(parseExpression(expr), { event, onStubWarning });
 }

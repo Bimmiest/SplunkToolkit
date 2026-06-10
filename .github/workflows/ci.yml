@@ -24,7 +24,9 @@ jobs:
         run: npm run lint
 
       - name: Type check
-        run: npx tsc --noEmit
+        # `tsc --noEmit` against the solution-style root tsconfig ("files": []) checks
+        # zero files. `tsc -b` builds every referenced project, so it actually type-checks.
+        run: npx tsc -b
 
       - name: Test
         run: npm test

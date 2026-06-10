@@ -91,18 +91,28 @@ describe('detectTimestamp', () => {
       '{"eventVersion":"1.08","userIdentity":{"userName":"Alice"},"eventTime":"2024-01-15T10:00:00Z"}\n' +
       '{"eventVersion":"1.08","userIdentity":{"userName":"Bob"},"eventTime":"2024-01-15T10:00:01Z"}';
     const out = detectTimestamp(splitLines(raw));
-    expect(byKey(out, 'TIME_FORMAT')?.value).toBe('%Y-%m-%dT%H:%M:%S');
+    // %z now matches the trailing ISO-8601 'Z' (UTC), so the suggested format
+    // captures the timezone rather than dropping it.
+    expect(byKey(out, 'TIME_FORMAT')?.value).toBe('%Y-%m-%dT%H:%M:%S%z');
     // The prefix is the eventTime key boundary — not the (per-event) Alice/Bob values.
     expect(byKey(out, 'TIME_PREFIX')?.value).toBe('"eventTime":"');
     expect(byKey(out, 'TIME_PREFIX')?.value).not.toContain('Alice');
-    // Lookahead is capped to the timestamp length (19) + 1, measured after the prefix.
-    expect(byKey(out, 'MAX_TIMESTAMP_LOOKAHEAD')?.value).toBe('20');
+    // Lookahead is capped to the timestamp length (20, incl. 'Z') + 1, after the prefix.
+    expect(byKey(out, 'MAX_TIMESTAMP_LOOKAHEAD')?.value).toBe('21');
   });
 
   it('recognises leading epoch as %s', () => {
     const raw = '1705312800 event one\n1705312801 event two';
     const out = detectTimestamp(splitLines(raw));
     expect(byKey(out, 'TIME_FORMAT')?.value).toBe('%s');
+  });
+
+  // A 13-digit value is a millisecond epoch; real Splunk's %s reads only whole
+  // seconds, so it needs %s%3N.
+  it('recognises a 13-digit millisecond epoch as %s%3N', () => {
+    const raw = '1705312800123 event one\n1705312801456 event two';
+    const out = detectTimestamp(splitLines(raw));
+    expect(byKey(out, 'TIME_FORMAT')?.value).toBe('%s%3N');
   });
 
   it('returns nothing when no timestamp is present', () => {

@@ -2,6 +2,9 @@ import { useMemo, useState } from 'react';
 import { useAppStore } from '../../../store/useAppStore';
 import { safeRegex } from '../../../utils/splunkRegex';
 import { strftimeToRegex, parseTimestamp } from '../../../utils/strftime';
+import { parseConf } from '../../../engine/parser/confParser';
+import { matchStanzas, mergeDirectives } from '../../../engine/parser/stanzaMatcher';
+import type { EventMetadata } from '../../../engine/types';
 import type { EnrichedEvent } from '../PreviewPanel';
 
 interface TimestampTabProps {
@@ -163,19 +166,20 @@ interface TimestampMatch {
   matchedText: string;
 }
 
-function parseTimeConfig(propsConf: string): TimeConfig {
-  const config: TimeConfig = { timePrefix: null, timeFormat: null, maxLookahead: 128, tz: null };
-  for (const match of propsConf.matchAll(/^\s*(\w+)\s*=\s*(.+)$/gm)) {
-    const key = match[1].trim();
-    const value = match[2].trim();
-    switch (key) {
-      case 'TIME_PREFIX': config.timePrefix = value; break;
-      case 'TIME_FORMAT': config.timeFormat = value; break;
-      case 'MAX_TIMESTAMP_LOOKAHEAD': config.maxLookahead = parseInt(value, 10) || 128; break;
-      case 'TZ': config.tz = value; break;
-    }
-  }
-  return config;
+// Resolve the time directives the ENGINE would actually apply for the current
+// metadata — using the same parse → stanza-match → merge path as the pipeline —
+// rather than flat-scanning every line. A flat scan would surface a TIME_FORMAT
+// from a stanza that never matched this event's sourcetype/host/source.
+function parseTimeConfig(propsConf: string, metadata: EventMetadata): TimeConfig {
+  const directives = mergeDirectives(matchStanzas(parseConf(propsConf, 'props.conf').stanzas, metadata));
+  const get = (key: string) => directives.find((d) => d.key === key)?.value.trim();
+  const lookahead = parseInt(get('MAX_TIMESTAMP_LOOKAHEAD') ?? '', 10);
+  return {
+    timePrefix: get('TIME_PREFIX') ?? null,
+    timeFormat: get('TIME_FORMAT') ?? null,
+    maxLookahead: Number.isFinite(lookahead) && lookahead > 0 ? lookahead : 128,
+    tz: get('TZ') ?? null,
+  };
 }
 
 function matchTimestamp(raw: string, config: TimeConfig): TimestampMatch | null {
@@ -237,10 +241,11 @@ function extractDirectives(format: string): { directive: string; description: st
 
 export function TimestampTab({ items, currentPage, eventsPerPage }: TimestampTabProps) {
   const propsConf = useAppStore((s) => s.propsConf);
+  const metadata = useAppStore((s) => s.metadata);
   const [refOpen, setRefOpen] = useState(false);
   const [refSearch, setRefSearch] = useState('');
 
-  const config = useMemo(() => parseTimeConfig(propsConf), [propsConf]);
+  const config = useMemo(() => parseTimeConfig(propsConf, metadata), [propsConf, metadata]);
 
   const directives = useMemo(
     () => config.timeFormat ? extractDirectives(config.timeFormat) : [],
