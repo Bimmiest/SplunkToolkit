@@ -12,6 +12,7 @@ import type {
   ParsedConf,
   ValidationDiagnostic,
 } from '../types';
+import { getCanonicalDirectiveKey } from '../directiveRegistry';
 
 // ---------------------------------------------------------------------------
 // Regex patterns
@@ -206,6 +207,25 @@ export function parseConf(
       const rawValue = directiveMatch[2];
 
       const { directiveType, className } = parseDirectiveKey(rawKey);
+
+      // Splunk attribute names are case-sensitive, so a mis-cased name (e.g.
+      // `kv_mode` instead of `KV_MODE`) is silently ignored — the default applies.
+      // Flag case-only mismatches (a canonical name exists but the casing differs)
+      // so the config bug surfaces. Class directives (EXTRACT-*, …) have a className
+      // and are skipped; unknown attributes return no canonical and are not flagged.
+      if (className === undefined) {
+        const canonical = getCanonicalDirectiveKey(rawKey, fileName);
+        if (canonical && canonical !== rawKey) {
+          errors.push({
+            level: 'warning',
+            message: `"${rawKey}" is ignored — attribute names are case-sensitive. Did you mean "${canonical}"?`,
+            file: fileName,
+            line: lineNumber,
+            directiveKey: rawKey,
+            suggestion: `Change "${rawKey}" to "${canonical}".`,
+          });
+        }
+      }
 
       const directive: ConfDirective = {
         key: rawKey,

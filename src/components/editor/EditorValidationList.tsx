@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useAppStore } from '../../store/useAppStore';
-import type { ValidationDiagnostic } from '../../engine/types';
+import type { ValidationDiagnostic, DiagnosticTarget } from '../../engine/types';
 import { Icon } from '../ui/Icon';
 import { getEditor } from './editorRegistry';
 
 interface EditorValidationListProps {
-  file: 'props.conf' | 'transforms.conf';
+  file: DiagnosticTarget;
 }
 
 export function EditorValidationList({ file }: EditorValidationListProps) {

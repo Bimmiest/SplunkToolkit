@@ -1,7 +1,11 @@
-import type { SplunkEvent, ConfDirective } from '../types';
+import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 import { flattenJson, flattenArray } from '../utils/flattenJson';
 
-export function applyKvMode(events: SplunkEvent[], directives: ConfDirective[]): SplunkEvent[] {
+export function applyKvMode(
+  events: SplunkEvent[],
+  directives: ConfDirective[],
+  diagnostics?: ValidationDiagnostic[],
+): SplunkEvent[] {
   const kvModeDir = directives.find((d) => d.key === 'KV_MODE');
   const mode = kvModeDir?.value.trim().toLowerCase() ?? 'auto';
 
@@ -12,15 +16,24 @@ export function applyKvMode(events: SplunkEvent[], directives: ConfDirective[]):
   const autoKvJsonDir = directives.find((d) => d.key === 'AUTO_KV_JSON');
   const autoKvJson = autoKvJsonDir ? autoKvJsonDir.value.trim().toLowerCase() !== 'false' : true;
 
-  return events.map((event) => {
+  // Collected across events: data that looks like JSON (starts with { or [) but
+  // fails to parse. Surfaced as a single diagnostic so a malformed paste doesn't
+  // silently yield partial/empty extractions with no explanation.
+  const parseFailures: { line: number; error: string }[] = [];
+
+  const result = events.map((event) => {
     const newFields = { ...event.fields };
     const added: string[] = [];
     let depthWarning = false;
+    let parseError: string | undefined;
 
     switch (mode) {
-      case 'json':
-        depthWarning = extractJson(event._raw, newFields, added);
+      case 'json': {
+        const r = extractJson(event._raw, newFields, added);
+        depthWarning = r.depthLimited;
+        parseError = r.parseError;
         break;
+      }
       case 'xml':
         extractXml(event._raw, newFields, added);
         break;
@@ -33,13 +46,16 @@ export function applyKvMode(events: SplunkEvent[], directives: ConfDirective[]):
         // Auto JSON extraction runs first so its leaf fields take precedence; the
         // key=value pass then fills in anything outside the JSON structure.
         if (autoKvJson) {
-          const parsed = parseWholeJson(event._raw);
-          if (parsed !== undefined) depthWarning = flattenParsed(parsed, newFields, added);
+          const whole = parseWholeJson(event._raw);
+          if (whole.kind === 'parsed') depthWarning = flattenParsed(whole.value, newFields, added);
+          else if (whole.kind === 'invalid') parseError = whole.error;
         }
         extractKeyValue(event._raw, newFields, added, mode === 'auto_escaped');
         break;
       }
     }
+
+    if (parseError) parseFailures.push({ line: event.lineNumbers.start, error: parseError });
 
     if (added.length === 0) return event;
 
@@ -57,6 +73,23 @@ export function applyKvMode(events: SplunkEvent[], directives: ConfDirective[]):
       ],
     };
   });
+
+  if (parseFailures.length > 0 && diagnostics) {
+    const first = parseFailures[0];
+    const n = parseFailures.length;
+    // This is a problem with the raw event data, not the config — surface it under
+    // the Raw Log panel and point `line` at the offending input line so the user
+    // can jump straight to it.
+    diagnostics.push({
+      level: 'warning',
+      file: 'raw',
+      line: first.line,
+      message: `KV_MODE = ${mode}: ${n} event${n === 1 ? '' : 's'} not valid JSON — JSON fields skipped (${first.error}).`,
+      suggestion: 'Check for unquoted values, trailing commas, or placeholders like <ID>.',
+    });
+  }
+
+  return result;
 }
 
 function* jsonObjectCandidates(raw: string): Generator<string> {
@@ -87,14 +120,26 @@ function* jsonObjectCandidates(raw: string): Generator<string> {
   }
 }
 
-/** Parse the whole event as JSON (object or array), or undefined if it isn't JSON. */
-function parseWholeJson(raw: string): unknown | undefined {
+/**
+ * Result of attempting to parse the whole event as JSON.
+ * - `notJson`  — the event does not begin with `{`/`[`; it was never meant to be JSON.
+ * - `invalid`  — it begins like JSON but `JSON.parse` rejected it (malformed data).
+ * - `parsed`   — a valid JSON value (object or array).
+ * Distinguishing `notJson` from `invalid` lets the caller warn about malformed JSON
+ * without spamming a diagnostic for ordinary non-JSON events.
+ */
+type WholeJsonResult =
+  | { kind: 'parsed'; value: unknown }
+  | { kind: 'notJson' }
+  | { kind: 'invalid'; error: string };
+
+function parseWholeJson(raw: string): WholeJsonResult {
   const trimmed = raw.trim();
-  if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return undefined;
+  if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return { kind: 'notJson' };
   try {
-    return JSON.parse(trimmed);
-  } catch {
-    return undefined;
+    return { kind: 'parsed', value: JSON.parse(trimmed) };
+  } catch (e) {
+    return { kind: 'invalid', error: e instanceof Error ? e.message : 'invalid JSON' };
   }
 }
 
@@ -107,24 +152,47 @@ function flattenParsed(parsed: unknown, fields: Record<string, string | string[]
   return false;
 }
 
-function extractJson(raw: string, fields: Record<string, string | string[]>, added: string[]): boolean {
-  // KV_MODE=json treats the event as structured JSON, so try to parse the whole
-  // event first — this also covers top-level arrays, which the embedded-object
-  // scan below would otherwise reduce to just their first element.
-  const whole = parseWholeJson(raw);
-  if (whole !== undefined) return flattenParsed(whole, fields, added);
+interface JsonExtractResult {
+  /** True if the depth limit was hit during flattening. */
+  depthLimited: boolean;
+  /** Set when the event looks like JSON but could not be parsed (for diagnostics). */
+  parseError?: string;
+}
 
-  for (const candidate of jsonObjectCandidates(raw)) {
+function extractJson(
+  raw: string,
+  fields: Record<string, string | string[]>,
+  added: string[],
+): JsonExtractResult {
+  // KV_MODE=json treats the event as structured JSON, so try to parse the whole
+  // event first — this also covers top-level arrays.
+  const whole = parseWholeJson(raw);
+  if (whole.kind === 'parsed') return { depthLimited: flattenParsed(whole.value, fields, added) };
+
+  // The whole event isn't valid JSON. Try ONLY the first/outermost embedded object.
+  // This legitimately covers JSON wrapped in surrounding text ("level=info payload={...}")
+  // or with trailing junk after a complete object.
+  //
+  // We deliberately do NOT descend into *nested* objects: recovering an inner
+  // fragment (e.g. a deeply-nested "alert" block) and flattening it without its
+  // ancestor path invents bare field names Splunk never produces (`action` instead
+  // of `event.alert.action`) and silently drops every sibling and parent field.
+  // Splunk's spath extracts nothing from JSON it cannot parse, so when the outer
+  // object is malformed we extract nothing and report the parse error instead.
+  const candidate = jsonObjectCandidates(raw).next().value;
+  if (candidate !== undefined) {
     try {
       const obj = JSON.parse(candidate);
       if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
-        return flattenJson(obj, fields, added);
+        return { depthLimited: flattenJson(obj, fields, added) };
       }
     } catch {
-      // Not valid JSON at this position — try next candidate
+      // The outermost embedded object is itself malformed — fall through to the
+      // diagnostic rather than scavenging a misleading inner fragment.
     }
   }
-  return false;
+
+  return { depthLimited: false, parseError: whole.kind === 'invalid' ? whole.error : undefined };
 }
 
 function addMvField(fields: Record<string, string | string[]>, added: string[], key: string, value: string): void {

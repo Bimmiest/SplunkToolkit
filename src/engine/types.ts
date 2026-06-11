@@ -49,10 +49,18 @@ export interface ProcessingResult {
 
 export type DiagnosticLevel = 'error' | 'warning' | 'info';
 
+/**
+ * Which panel a diagnostic belongs to. `props.conf`/`transforms.conf` are config
+ * problems shown under their editors; `raw` is a data-quality problem (e.g. an
+ * event that isn't valid JSON) shown under the Raw Log panel, with `line` pointing
+ * at the offending input line rather than a config line.
+ */
+export type DiagnosticTarget = 'props.conf' | 'transforms.conf' | 'raw';
+
 export interface ValidationDiagnostic {
   level: DiagnosticLevel;
   message: string;
-  file: 'props.conf' | 'transforms.conf';
+  file: DiagnosticTarget;
   line?: number;
   column?: number;
   directiveKey?: string;

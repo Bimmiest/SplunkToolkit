@@ -26,6 +26,33 @@ describe('parseConf — basic structure', () => {
   });
 });
 
+describe('parseConf — case-sensitive attribute names', () => {
+  it('warns when a known attribute is mis-cased (Splunk ignores it)', () => {
+    const parsed = parseConf('[aws]\nkv_mode = json', 'props.conf');
+    const warn = parsed.errors.find((e) => e.directiveKey === 'kv_mode');
+    expect(warn).toBeDefined();
+    expect(warn!.level).toBe('warning');
+    expect(warn!.message).toMatch(/case-sensitive/);
+    expect(warn!.suggestion).toBe('Change "kv_mode" to "KV_MODE".');
+    expect(warn!.line).toBe(2);
+  });
+
+  it('does not warn when the attribute is cased correctly', () => {
+    const parsed = parseConf('[aws]\nKV_MODE = json', 'props.conf');
+    expect(parsed.errors).toHaveLength(0);
+  });
+
+  it('does not warn for unknown attributes (avoids false positives)', () => {
+    const parsed = parseConf('[s]\nMY_CUSTOM_THING = 1', 'props.conf');
+    expect(parsed.errors).toHaveLength(0);
+  });
+
+  it('does not warn for class directives like EXTRACT-foo regardless of class-name case', () => {
+    const parsed = parseConf('[s]\nEXTRACT-myField = (?<a>\\d+)', 'props.conf');
+    expect(parsed.errors).toHaveLength(0);
+  });
+});
+
 describe('parseConf — line continuation (SEM-18)', () => {
   it('joins a value continued with a trailing backslash', () => {
     const text = '[s]\nLINE_BREAKER = part1\\\npart2';
