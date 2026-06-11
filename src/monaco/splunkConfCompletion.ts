@@ -1,5 +1,5 @@
 import type { languages, editor, Position, CancellationToken } from 'monaco-editor';
-import { getDirectivesForFile, getDirectivesByCategory, type DirectiveInfo } from './directiveRegistry';
+import { getDirectivesForFile, getDirectivesByCategory, type DirectiveInfo } from '../engine/directiveRegistry';
 
 // Monaco CompletionItemKind numeric values (monaco-editor doesn't export the enum at runtime
 // when imported as `type`, so we maintain this local mapping for readability).

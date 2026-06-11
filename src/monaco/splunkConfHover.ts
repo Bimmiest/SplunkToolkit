@@ -1,5 +1,5 @@
 import type { languages, editor, Position, CancellationToken } from 'monaco-editor';
-import { getDirectiveInfo, getClassBasedDirectiveBase } from './directiveRegistry';
+import { getDirectiveInfo, getClassBasedDirectiveBase } from '../engine/directiveRegistry';
 
 export function createHoverProvider(fileType: 'props.conf' | 'transforms.conf'): languages.HoverProvider {
   return {
@@ -60,7 +60,7 @@ export function createHoverProvider(fileType: 'props.conf' | 'transforms.conf'):
   };
 }
 
-function formatDirectiveHover(info: import('./directiveRegistry').DirectiveInfo, actualKey: string): string {
+function formatDirectiveHover(info: import('../engine/directiveRegistry').DirectiveInfo, actualKey: string): string {
   const parts: string[] = [];
 
   parts.push(`### ${actualKey}`);

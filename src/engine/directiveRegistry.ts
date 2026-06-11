@@ -1153,6 +1153,9 @@ const DIRECTIVES: DirectiveInfo[] = [
  * we keep both entries, so the lookup helpers filter by file at runtime.
  */
 const directivesByKey = new Map<string, DirectiveInfo[]>();
+// Same directives keyed by lowercased name, for case-insensitive lookups that
+// detect case typos (Splunk attribute names are case-sensitive).
+const directivesByLowerKey = new Map<string, DirectiveInfo[]>();
 
 for (const d of DIRECTIVES) {
   const existing = directivesByKey.get(d.key);
@@ -1160,6 +1163,13 @@ for (const d of DIRECTIVES) {
     existing.push(d);
   } else {
     directivesByKey.set(d.key, [d]);
+  }
+  const lower = d.key.toLowerCase();
+  const existingLower = directivesByLowerKey.get(lower);
+  if (existingLower) {
+    existingLower.push(d);
+  } else {
+    directivesByLowerKey.set(lower, [d]);
   }
 }
 
@@ -1261,4 +1271,18 @@ export function getClassBasedDirectiveBase(
  */
 export function getAllDirectives(): DirectiveInfo[] {
   return [...DIRECTIVES];
+}
+
+/**
+ * Case-insensitive lookup → the canonical (correctly-cased) directive key, scoped
+ * to a file. Returns undefined if no known directive matches case-insensitively.
+ * Used to detect case typos: Splunk attribute names are case-sensitive, so a
+ * mis-cased name (e.g. `kv_mode`) is silently ignored and the default applies.
+ */
+export function getCanonicalDirectiveKey(
+  key: string,
+  file: 'props.conf' | 'transforms.conf',
+): string | undefined {
+  const matches = directivesByLowerKey.get(key.toLowerCase());
+  return matches?.find((d) => d.appliesTo === file || d.appliesTo === 'both')?.key;
 }

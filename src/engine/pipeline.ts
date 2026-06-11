@@ -271,7 +271,7 @@ export function runPipeline(
       // Splunk's search-time order is EXTRACT → REPORT → automatic KV (KV_MODE) → FIELDALIAS → EVAL.
       ev = safeProcessor('EXTRACT', ev, () => extractFields(ev, evDirs, diagnostics), diagnostics);
       ev = safeProcessor('REPORT', ev, () => applyTransforms(ev, evDirs, transformsConf, 'search-time'), diagnostics, 'transforms.conf');
-      ev = safeProcessor('KV_MODE', ev, () => applyKvMode(ev, evDirs), diagnostics);
+      ev = safeProcessor('KV_MODE', ev, () => applyKvMode(ev, evDirs, diagnostics), diagnostics);
       ev = safeProcessor('FIELDALIAS', ev, () => applyFieldAliases(ev, evDirs, diagnostics), diagnostics);
       ev = safeProcessor('EVAL', ev, () => applyEvalExpressions(ev, evDirs, diagnostics), diagnostics);
       processed.push(...ev);
@@ -300,7 +300,7 @@ export function runPipeline(
     events = safeProcessor('REPORT', events, () => applyTransforms(events, directives, transformsConf, 'search-time'), diagnostics, 'transforms.conf');
 
     // Step 10: KV_MODE (automatic key-value extraction)
-    events = safeProcessor('KV_MODE', events, () => applyKvMode(events, directives), diagnostics);
+    events = safeProcessor('KV_MODE', events, () => applyKvMode(events, directives, diagnostics), diagnostics);
 
     // Step 11: FIELDALIAS
     events = safeProcessor('FIELDALIAS', events, () => applyFieldAliases(events, directives, diagnostics), diagnostics);

@@ -1,5 +1,5 @@
 import type { editor } from 'monaco-editor';
-import { getDirectiveInfo, getClassBasedDirectiveBase } from './directiveRegistry';
+import { getDirectiveInfo, getClassBasedDirectiveBase } from '../engine/directiveRegistry';
 import { validateRegex } from '../utils/splunkRegex';
 
 export interface DiagnosticMarker {

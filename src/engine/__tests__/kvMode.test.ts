@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { applyKvMode } from '../processors/kvMode';
-import type { SplunkEvent, ConfDirective } from '../types';
+import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 
 function event(raw: string): SplunkEvent {
   return {
@@ -46,6 +46,54 @@ describe('applyKvMode — json', () => {
   it('extracts a top-level JSON array rather than just its first element', () => {
     const [r] = applyKvMode([event('[1,2,3]')], [dir('json')]);
     expect(r.fields['{}']).toEqual(['1', '2', '3']);
+  });
+
+  it('does NOT scavenge bare leaf fields from a nested object when the outer JSON is malformed', () => {
+    // The whole event fails JSON.parse (`<ID>` is not a valid token), but the nested
+    // `alert` object is locally well-formed. The old behaviour flattened that inner
+    // object without its path prefix, inventing bare `action`/`category` fields that
+    // Splunk never produces. It must now extract nothing and report the parse error.
+    const malformed =
+      '{"firewall_name":"fw","event":{"app_proto":"ntp",' +
+      '"alert":{"action":"blocked","signature_id":3,"rev":0,"signature":"s","category":"","severity":3},' +
+      '"flow_id":<ID>}}';
+    const diagnostics: ValidationDiagnostic[] = [];
+    const [r] = applyKvMode([event(malformed)], [dir('json')], diagnostics);
+
+    expect(r.fields['action']).toBeUndefined();
+    expect(r.fields['category']).toBeUndefined();
+    expect(r.fields['event.alert.action']).toBeUndefined();
+    expect(Object.keys(r.fields)).toHaveLength(0);
+
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].level).toBe('warning');
+    expect(diagnostics[0].message).toMatch(/not valid JSON/);
+    // The warning is a data problem: it targets the Raw Log panel, not props.conf,
+    // and points at the offending input line.
+    expect(diagnostics[0].file).toBe('raw');
+    expect(diagnostics[0].line).toBe(1);
+  });
+
+  it('extracts the full dotted field set once the malformed JSON is valid', () => {
+    const valid =
+      '{"firewall_name":"fw","event":{"app_proto":"ntp",' +
+      '"alert":{"action":"blocked","signature_id":3},"flow_id":123}}';
+    const diagnostics: ValidationDiagnostic[] = [];
+    const [r] = applyKvMode([event(valid)], [dir('json')], diagnostics);
+
+    expect(r.fields['firewall_name']).toBe('fw');
+    expect(r.fields['event.app_proto']).toBe('ntp');
+    expect(r.fields['event.alert.action']).toBe('blocked');
+    expect(r.fields['event.flow_id']).toBe('123');
+    expect(diagnostics).toHaveLength(0);
+  });
+
+  it('warns (without scavenging) when malformed JSON is seen in default auto mode', () => {
+    const diagnostics: ValidationDiagnostic[] = [];
+    const [r] = applyKvMode([event('{"a":1,"b":<ID>}')], [], diagnostics);
+    expect(Object.keys(r.fields)).toHaveLength(0);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].message).toMatch(/KV_MODE = auto/);
   });
 });
 

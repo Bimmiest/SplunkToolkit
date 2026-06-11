@@ -1,16 +1,32 @@
-import { useMemo } from 'react';
-import Editor from '@monaco-editor/react';
+import { useMemo, useEffect, useRef } from 'react';
+import Editor, { type OnMount } from '@monaco-editor/react';
+import type { editor } from 'monaco-editor';
 import { useAppStore } from '../../store/useAppStore';
 import { MetadataPanel } from '../metadata/MetadataPanel';
 import { Icon } from '../ui/Icon';
 import { ClearButton } from '../editor/ClearButton';
 import { ensureSplunkMonaco } from '../editor/splunkMonacoSetup';
+import { registerEditor, unregisterEditor } from '../editor/editorRegistry';
+import { EditorValidationList } from '../editor/EditorValidationList';
 
 export function RawPanel() {
   const rawData = useAppStore((s) => s.rawData);
   const setRawData = useAppStore((s) => s.setRawData);
   const theme = useAppStore((s) => s.theme);
   const toggleScaffold = useAppStore((s) => s.toggleScaffold);
+
+  // Register the raw-log editor so data-quality diagnostics (e.g. malformed JSON)
+  // can focus and reveal the offending input line, the same way conf editors do.
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const handleMount: OnMount = (instance) => {
+    editorRef.current = instance;
+    registerEditor('raw', instance);
+  };
+  useEffect(() => {
+    return () => {
+      if (editorRef.current) unregisterEditor('raw', editorRef.current);
+    };
+  }, []);
 
   const lineCount = useMemo(() => {
     if (!rawData) return 0;
@@ -39,6 +55,7 @@ export function RawPanel() {
           language="plaintext"
           value={rawData}
           onChange={(val) => setRawData(val ?? '')}
+          onMount={handleMount}
           beforeMount={ensureSplunkMonaco}
           theme={theme === 'dark' ? 'splunk-dark' : 'splunk-light'}
           options={{
@@ -89,6 +106,10 @@ export function RawPanel() {
           {rawData.length.toLocaleString()} chars
         </span>
         {rawData && <ClearButton onClear={() => setRawData('')} label="Clear" />}
+      </div>
+
+      <div className="flex-shrink-0">
+        <EditorValidationList file="raw" />
       </div>
 
       <div className="flex-shrink-0 border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
