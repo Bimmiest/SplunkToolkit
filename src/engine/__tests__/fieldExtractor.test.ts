@@ -72,6 +72,15 @@ describe('extractFields — fieldOffsets provenance', () => {
     expect(e.fieldOffsets?.['v']).toBeUndefined();
   });
 
+  it('resolves a single-quoted "in" source field (nested JSON name with a period)', () => {
+    const [e] = extractFields(
+      [event('raw', { 'event.message': 'key=value' })],
+      [dir('key', "(?<k>\\w+)=(?<v>\\w+) in 'event.message'")],
+    );
+    expect(e.fields['k']).toBe('key');
+    expect(e.fields['v']).toBe('value');
+  });
+
   it('distinguishes repeated identical values by capture position (double-highlight fix)', () => {
     // The reported bug: a regex-extracted value also happens to appear elsewhere in _raw.
     // With offsets, the highlighter targets exactly the capture position — not every indexOf hit.

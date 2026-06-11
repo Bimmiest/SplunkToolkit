@@ -2,6 +2,7 @@ import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types'
 import { safeRegex, convertSplunkToJsRegex } from '../../utils/splunkRegex';
 import { isInternalField } from '../utils/internalFields';
 import { byClassName } from '../utils/asciiCompare';
+import { unquoteFieldName } from '../utils/fieldRef';
 
 export function extractFields(
   events: SplunkEvent[],
@@ -124,10 +125,12 @@ export function extractFields(
 function parseExtractValue(value: string): { pattern: string; sourceField?: string } {
   const trimmed = value.trim();
   // Greedy match: consume as much as possible before the last " in <field>" suffix.
-  // This avoids mis-splitting on regex bodies that contain the word "in".
-  const inMatch = trimmed.match(/^([\s\S]+)\s+in\s+([\w.]+)\s*$/);
+  // This avoids mis-splitting on regex bodies that contain the word "in". The source
+  // field may be single/double-quoted so a nested-JSON name with a period survives
+  // as one token (Splunk requires quoting for such names); strip the quotes here.
+  const inMatch = trimmed.match(/^([\s\S]+)\s+in\s+('[^']*'|"[^"]*"|[\w.]+)\s*$/);
   if (inMatch) {
-    return { pattern: inMatch[1], sourceField: inMatch[2] };
+    return { pattern: inMatch[1], sourceField: unquoteFieldName(inMatch[2]) };
   }
   return { pattern: trimmed };
 }

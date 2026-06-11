@@ -1,7 +1,12 @@
 import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 import { isInternalField } from '../utils/internalFields';
-import { safeRegex, escapeRegex } from '../../utils/splunkRegex';
 import { byClassName } from '../utils/asciiCompare';
+import {
+  unquoteFieldName,
+  isQuotedFieldName,
+  fieldNameNeedsQuoting,
+  fieldQuotingWarning,
+} from '../utils/fieldRef';
 
 interface AliasMapping {
   source: string;
@@ -11,8 +16,6 @@ interface AliasMapping {
 
 interface CompiledAlias extends AliasMapping {
   directive: ConfDirective;
-  /** Present when the alias uses `*` wildcards (positional, equal count both sides). */
-  wildcard?: { sourceRegex: RegExp; targetSegments: string[] };
 }
 
 export function applyFieldAliases(
@@ -36,11 +39,6 @@ export function applyFieldAliases(
     const added: string[] = [];
 
     for (const alias of aliases) {
-      if (alias.wildcard) {
-        applyWildcardAlias(alias, event, newFields, added);
-        continue;
-      }
-
       const sourceValue = event.fields[alias.source];
       if (sourceValue === undefined) {
         maybeWarnStrippedRef(alias, event, diagnostics, reportedStrippedRefs);
@@ -73,63 +71,49 @@ export function applyFieldAliases(
   });
 }
 
-/**
- * Apply a wildcard alias against every field on the event whose name matches the
- * source pattern. Each `*` in the source maps positionally to the corresponding
- * `*` in the target (e.g. `src_* AS dest_*` turns `src_ip` into `dest_ip`).
- */
-function applyWildcardAlias(
-  alias: CompiledAlias,
-  event: SplunkEvent,
-  newFields: Record<string, string | string[]>,
-  added: string[],
-): void {
-  const { sourceRegex, targetSegments } = alias.wildcard!;
-  for (const fieldName of Object.keys(event.fields)) {
-    const m = sourceRegex.exec(fieldName);
-    if (!m) continue;
-    const captures = m.slice(1);
-    let target = targetSegments[0];
-    for (let i = 0; i < captures.length; i++) {
-      target += captures[i] + (targetSegments[i + 1] ?? '');
-    }
-    if (!target || target === fieldName) continue;
-    if (alias.mode === 'ASNEW' && newFields[target] !== undefined) continue;
-    newFields[target] = event.fields[fieldName];
-    added.push(`${target} (from ${fieldName})`);
-  }
-}
-
 function compileAliases(
   aliasDirectives: ConfDirective[],
   diagnostics?: ValidationDiagnostic[],
 ): CompiledAlias[] {
   const compiled: CompiledAlias[] = [];
+  const warnedWildcard = new Set<string>();
+  const warnedQuoting = new Set<string>();
   for (const dir of aliasDirectives) {
     for (const a of parseAliases(dir.value)) {
-      const srcStars = (a.source.match(/\*/g) ?? []).length;
-      const tgtStars = (a.target.match(/\*/g) ?? []).length;
+      const source = unquoteFieldName(a.source);
+      const target = unquoteFieldName(a.target);
 
-      if (srcStars === 0 && tgtStars === 0) {
-        compiled.push({ ...a, directive: dir });
+      // Splunk FIELDALIAS does NOT support wildcards (unlike the search-time
+      // `rename` command, which is the usual source of this confusion). A `*` in
+      // either name means the alias silently does nothing on the search head — so
+      // surface that rather than simulating a rename Splunk won't perform.
+      if (source.includes('*') || target.includes('*')) {
+        const key = `${dir.line}|${a.source}|${a.target}`;
+        if (diagnostics && !warnedWildcard.has(key)) {
+          warnedWildcard.add(key);
+          diagnostics.push({
+            level: 'warning',
+            message:
+              `FIELDALIAS does not support wildcards — "${a.source} ${a.mode} ${a.target}" will not take effect on the search head. ` +
+              `Use explicit "orig AS new" pairs, or rename at search time (| rename ${a.source} AS ${a.target}).`,
+            file: 'props.conf',
+            line: dir.line,
+            directiveKey: dir.key,
+          });
+        }
         continue;
       }
 
-      // Splunk requires the number of wildcards to match on both sides.
-      if (srcStars !== tgtStars) {
-        diagnostics?.push({
-          level: 'warning',
-          message: `FIELDALIAS "${a.source} ${a.mode} ${a.target}" has mismatched wildcards — the number of "*" in the original (${srcStars}) and new (${tgtStars}) field names must be equal. Splunk skips this alias.`,
-          file: 'props.conf',
-          line: dir.line,
-          directiveKey: dir.key,
-        });
-        continue;
+      // A bare field name containing special characters (e.g. a nested-JSON
+      // field like `event.field`) won't resolve unquoted on the search head.
+      if (diagnostics && !isQuotedFieldName(a.source) && fieldNameNeedsQuoting(source) && !warnedQuoting.has(source)) {
+        warnedQuoting.add(source);
+        diagnostics.push(
+          fieldQuotingWarning(dir, source, 'contains characters that must be quoted to reference a field'),
+        );
       }
 
-      const sourceRegex = safeRegex('^' + a.source.split('*').map(escapeRegex).join('(.*)') + '$');
-      if (!sourceRegex) continue;
-      compiled.push({ ...a, directive: dir, wildcard: { sourceRegex, targetSegments: a.target.split('*') } });
+      compiled.push({ source, target, mode: a.mode, directive: dir });
     }
   }
   return compiled;
@@ -165,8 +149,12 @@ function maybeWarnStrippedRef(
 
 function parseAliases(value: string): AliasMapping[] {
   const aliases: AliasMapping[] = [];
-  // Match patterns: field1 AS field2, field1 ASNEW field2
-  const regex = /(\S+)\s+\b(AS(?:NEW)?)\b\s+(\S+)/gi;
+  // Match `field1 AS field2` / `field1 ASNEW field2`. Each name may be a quoted
+  // token ('a.b' or "a.b") so field names with periods/spaces survive as one
+  // capture; compileAliases unquotes them. Raw (quoted) text is kept here so the
+  // quoting check can tell whether the user already quoted the name.
+  const token = `'[^']*'|"[^"]*"|\\S+`;
+  const regex = new RegExp(`(${token})\\s+\\b(AS(?:NEW)?)\\b\\s+(${token})`, 'gi');
   let match;
 
   while ((match = regex.exec(value)) !== null) {

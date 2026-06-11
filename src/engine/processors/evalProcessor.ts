@@ -1,5 +1,6 @@
 import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 import { safeRegex } from '../../utils/splunkRegex';
+import { fieldQuotingWarning } from '../utils/fieldRef';
 
 type EvalValue = string | number | boolean | null | string[];
 
@@ -34,14 +35,9 @@ export function applyEvalExpressions(
       const hit = dottedRefs.find((r) => allFieldNames.has(r));
       if (hit && !reportedDotted.has(`${fieldName}|${hit}`)) {
         reportedDotted.add(`${fieldName}|${hit}`);
-        diagnostics.push({
-          level: 'warning',
-          message: `EVAL-${fieldName}: "${hit}" is read as concatenation (. is the concat operator), not the field "${hit}". Single-quote it: '${hit}'.`,
-          file: 'props.conf',
-          line: dir.line,
-          directiveKey: dir.key,
-          suggestion: `Use '${hit}' instead of ${hit}.`,
-        });
+        diagnostics.push(
+          fieldQuotingWarning(dir, hit, 'is read as concatenation (. is the concat operator), not a field reference'),
+        );
       }
     }
   }
