@@ -18,6 +18,41 @@ function evalDir(className: string, value: string): ConfDirective {
   return { key: `EVAL-${className}`, value, line: 1, directiveType: 'EVAL', className };
 }
 
+describe('applyEvalExpressions — dotted (nested JSON) field names', () => {
+  it('treats an unquoted dotted name as concatenation, NOT a field reference', () => {
+    // `event.field` is `event . field` (concat of two missing fields) → empty,
+    // matching Splunk. It must NOT resolve to the value of the `event.field` field.
+    const [result] = applyEvalExpressions(
+      [event({ 'event.field': 'NESTED' })],
+      [evalDir('x', 'event.field')],
+    );
+    expect(result.fields['x']).not.toBe('NESTED');
+  });
+
+  it('resolves a single-quoted dotted field reference', () => {
+    const [result] = applyEvalExpressions(
+      [event({ 'event.field': 'NESTED' })],
+      [evalDir('x', "'event.field'")],
+    );
+    expect(result.fields['x']).toBe('NESTED');
+  });
+
+  it('warns when an unquoted dotted name matches an extracted field', () => {
+    const diagnostics: import('../types').ValidationDiagnostic[] = [];
+    applyEvalExpressions([event({ 'event.field': 'NESTED' })], [evalDir('x', 'event.field')], diagnostics);
+    const warn = diagnostics.find((d) => d.message.includes('event.field'));
+    expect(warn).toBeDefined();
+    expect(warn!.level).toBe('warning');
+    expect(warn!.suggestion).toBe("Use 'event.field' instead of event.field.");
+  });
+
+  it('does NOT warn for the correctly-quoted form', () => {
+    const diagnostics: import('../types').ValidationDiagnostic[] = [];
+    applyEvalExpressions([event({ 'event.field': 'NESTED' })], [evalDir('x', "'event.field'")], diagnostics);
+    expect(diagnostics).toHaveLength(0);
+  });
+});
+
 describe('applyEvalExpressions — arithmetic', () => {
   it('adds two numbers', () => {
     const [result] = applyEvalExpressions([event({ a: '3', b: '4' })], [evalDir('sum', 'a + b')]);

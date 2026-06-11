@@ -15,6 +15,36 @@ export function applyEvalExpressions(
   // Collect per-directive errors/warnings once to avoid O(events) duplicates.
   const reportedErrors = new Set<string>();
   const reportedStubs = new Set<string>();
+  const reportedDotted = new Set<string>();
+
+  // Hint for the common mistake of referencing a nested JSON field unquoted: the
+  // `.` is the concat operator, so `event.field` won't read the field named
+  // `event.field`. Only warn when the bare dotted name (outside quotes) actually
+  // matches an extracted field — high precision, no false positives on real concat.
+  if (diagnostics) {
+    const allFieldNames = new Set<string>();
+    for (const ev of events) {
+      for (const k of Object.keys(ev.fields)) allFieldNames.add(k);
+    }
+    for (const dir of evalDirectives) {
+      const fieldName = dir.className ?? '';
+      if (!fieldName) continue;
+      const outsideQuotes = dir.value.replace(/'[^']*'|"[^"]*"/g, '');
+      const dottedRefs = outsideQuotes.match(/[A-Za-z_]\w*(?:\.\w+)+/g) ?? [];
+      const hit = dottedRefs.find((r) => allFieldNames.has(r));
+      if (hit && !reportedDotted.has(`${fieldName}|${hit}`)) {
+        reportedDotted.add(`${fieldName}|${hit}`);
+        diagnostics.push({
+          level: 'warning',
+          message: `EVAL-${fieldName}: "${hit}" is read as concatenation (. is the concat operator), not the field "${hit}". Single-quote it: '${hit}'.`,
+          file: 'props.conf',
+          line: dir.line,
+          directiveKey: dir.key,
+          suggestion: `Use '${hit}' instead of ${hit}.`,
+        });
+      }
+    }
+  }
 
   const pushStub = (dir: ConfDirective, fn: string) => {
     if (diagnostics && !reportedStubs.has(fn)) {
@@ -193,10 +223,14 @@ function tokenize(expr: string): Token[] {
       tokens.push({ type: 'comma', value: ',' }); i++; continue;
     }
 
-    // Identifiers and keywords
+    // Identifiers and keywords. A bare identifier stops at `.` — in Splunk eval the
+    // period is the concatenation operator, so `event.field` is `event . field`
+    // (concat the fields `event` and `field`), NOT a reference to a field literally
+    // named `event.field`. Field names containing a period must be single-quoted
+    // ('event.field'), which the field_ref branch above handles.
     if (/[a-zA-Z_]/.test(expr[i])) {
       let ident = '';
-      while (i < expr.length && /[\w.]/.test(expr[i])) {
+      while (i < expr.length && /\w/.test(expr[i])) {
         ident += expr[i]; i++;
       }
       const upper = ident.toUpperCase();
