@@ -36,45 +36,53 @@ describe('applyFieldAliases — literal', () => {
   });
 });
 
-describe('applyFieldAliases — wildcards', () => {
-  it('maps a single wildcard positionally across matching fields', () => {
-    const [e] = applyFieldAliases(
-      [event({ src_ip: '10.0.0.1', src_port: '443', other: 'x' })],
-      [dir('w', 'src_* AS dest_*')],
-    );
-    expect(e.fields['dest_ip']).toBe('10.0.0.1');
-    expect(e.fields['dest_port']).toBe('443');
-    // Originals are kept; non-matching fields are untouched.
-    expect(e.fields['src_ip']).toBe('10.0.0.1');
-    expect(e.fields['other']).toBe('x');
-    expect(e.fields['dest_other']).toBeUndefined();
-  });
-
-  it('can reposition the captured text in the target', () => {
-    const [e] = applyFieldAliases([event({ error_count: '5' })], [dir('w', '*_count AS count_*')]);
-    expect(e.fields['count_error']).toBe('5');
-  });
-
-  it('handles multiple wildcards positionally', () => {
-    const [e] = applyFieldAliases(
-      [event({ start_X_mid_Y: 'v' })],
-      [dir('w', 'start_*_mid_* AS s_*_m_*')],
-    );
-    expect(e.fields['s_X_m_Y']).toBe('v');
-  });
-
-  it('emits a diagnostic and skips when wildcard counts do not match', () => {
+describe('applyFieldAliases — wildcards are not supported (Splunk parity)', () => {
+  // Splunk FIELDALIAS has no wildcard support (unlike the search-time `rename`
+  // command). The tool must not simulate it; it warns and creates nothing.
+  it('does NOT create wildcard aliases and warns instead', () => {
     const diags: ValidationDiagnostic[] = [];
-    const [e] = applyFieldAliases([event({ src_ip: '10.0.0.1' })], [dir('w', 'src_* AS dest')], diags);
-    expect(e.fields['dest']).toBeUndefined();
-    expect(diags.some((d) => d.message.includes('mismatched wildcards'))).toBe(true);
+    const [e] = applyFieldAliases(
+      [event({ src_ip: '10.0.0.1', src_port: '443' })],
+      [dir('w', 'src_* AS dest_*')],
+      diags,
+    );
+    expect(e.fields['dest_ip']).toBeUndefined();
+    expect(e.fields['dest_port']).toBeUndefined();
+    expect(e.fields['src_ip']).toBe('10.0.0.1'); // originals untouched
+    expect(diags.some((d) => d.message.includes('does not support wildcards'))).toBe(true);
   });
 
-  it('wildcard ASNEW does not overwrite an existing target', () => {
+  it('warns for a prefix-strip wildcard (event.* AS *) and creates nothing', () => {
+    const diags: ValidationDiagnostic[] = [];
     const [e] = applyFieldAliases(
-      [event({ src_ip: '10.0.0.1', dest_ip: 'keep' })],
-      [dir('w', 'src_* ASNEW dest_*')],
+      [event({ 'event.field1': 'A', 'event.field2': 'B' })],
+      [dir('w', 'event.* AS *')],
+      diags,
     );
-    expect(e.fields['dest_ip']).toBe('keep');
+    expect(e.fields['field1']).toBeUndefined();
+    expect(e.fields['field2']).toBeUndefined();
+    expect(diags.some((d) => d.message.includes('does not support wildcards'))).toBe(true);
+  });
+});
+
+describe('applyFieldAliases — dotted (nested JSON) field names', () => {
+  it('resolves a single-quoted dotted source field', () => {
+    const [e] = applyFieldAliases([event({ 'event.field': 'V' })], [dir('a', "'event.field' AS myfield")]);
+    expect(e.fields['myfield']).toBe('V');
+  });
+
+  it('warns when an unquoted dotted source name is used', () => {
+    const diags: ValidationDiagnostic[] = [];
+    applyFieldAliases([event({ 'event.field': 'V' })], [dir('a', 'event.field AS myfield')], diags);
+    const warn = diags.find((d) => d.message.includes('event.field'));
+    expect(warn).toBeDefined();
+    expect(warn!.level).toBe('warning');
+    expect(warn!.suggestion).toBe("Use 'event.field' instead of event.field.");
+  });
+
+  it('does not warn for a plain unquoted source with no special characters', () => {
+    const diags: ValidationDiagnostic[] = [];
+    applyFieldAliases([event({ ip: '1' })], [dir('a', 'ip AS addr')], diags);
+    expect(diags).toHaveLength(0);
   });
 });
