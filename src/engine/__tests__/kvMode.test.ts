@@ -48,6 +48,25 @@ describe('applyKvMode — json', () => {
     expect(r.fields['{}']).toEqual(['1', '2', '3']);
   });
 
+  it('extracts keys named after Object.prototype members without corruption', () => {
+    // `fields` is a plain object that inherits Object.prototype, so a naive
+    // `fields[name] === undefined` check would read back the inherited function
+    // for keys like `toString`/`valueOf`, mangle the value into a multivalue,
+    // and silently drop the field from the extracted list.
+    const [r] = applyKvMode(
+      [event('{"toString":"x","valueOf":"y","hasOwnProperty":"z"}')],
+      [dir('json')],
+    );
+    expect(r.fields['toString']).toBe('x');
+    expect(r.fields['valueOf']).toBe('y');
+    expect(r.fields['hasOwnProperty']).toBe('z');
+  });
+
+  it('still promotes genuinely repeated prototype-named keys to multivalue', () => {
+    const [r] = applyKvMode([event('{"items":[{"toString":"a"},{"toString":"b"}]}')], [dir('json')]);
+    expect(r.fields['items{}.toString']).toEqual(['a', 'b']);
+  });
+
   it('does NOT scavenge bare leaf fields from a nested object when the outer JSON is malformed', () => {
     // The whole event fails JSON.parse (`<ID>` is not a valid token), but the nested
     // `alert` object is locally well-formed. The old behaviour flattened that inner

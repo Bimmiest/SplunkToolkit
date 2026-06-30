@@ -44,6 +44,24 @@ describe('applyIndexedExtractions — JSON', () => {
     expect(events[0].fields).toEqual({});
   });
 
+  it('extracts a key named after a prototype member instead of mangling it', () => {
+    const events = applyIndexedExtractions([event('{"toString":"v"}')], [dir('json')]);
+    expect(events[0].fields['toString']).toBe('v');
+  });
+
+  it('guards reserved keys after leading-underscore stripping', () => {
+    // INDEXED_EXTRACTIONS strips leading underscores, so `_constructor` would
+    // become `constructor`; the reserved-key guard must run after stripping.
+    const events = applyIndexedExtractions(
+      [event('{"_constructor":"bad","keep":"ok"}')],
+      [dir('json')]
+    );
+    // Reading `fields['constructor']` would return the inherited Object constructor,
+    // so assert the guard prevented an *own* property from being written.
+    expect(Object.prototype.hasOwnProperty.call(events[0].fields, 'constructor')).toBe(false);
+    expect(events[0].fields['keep']).toBe('ok');
+  });
+
   it('names array-of-object fields with {} multivalue notation (not positional)', () => {
     const events = applyIndexedExtractions(
       [event('{"items":[{"id":1,"n":"a"},{"id":2,"n":"b"}]}')],
