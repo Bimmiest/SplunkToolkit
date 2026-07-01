@@ -415,3 +415,72 @@ describe('applyEvalExpressions — complex nested case() with OR', () => {
     expect(result.fields['auth_method']).toBe('SFA');
   });
 });
+
+// #9: the lexer folded a `-` after ANY paren into a negative literal, and the
+// parser never checked for leftover tokens — so `len(x) - 1` silently became
+// `len(x)` and malformed input was accepted.
+describe('applyEvalExpressions — parser correctness (#9)', () => {
+  it('subtracts after a closing paren instead of lexing a negative literal', () => {
+    const [r] = applyEvalExpressions([event({ x: 'hello' })], [evalDir('n', 'len(x) - 1')]);
+    expect(r.fields['n']).toBe('4'); // len("hello") = 5, minus 1
+  });
+
+  it('subtracts after a parenthesised expression', () => {
+    const [r] = applyEvalExpressions([event({ a: '10' })], [evalDir('n', '(a) - 1')]);
+    expect(r.fields['n']).toBe('9');
+  });
+
+  it('still folds a genuine negative literal at the start / after an operator', () => {
+    const [r1] = applyEvalExpressions([event({})], [evalDir('n', '-5 * 2')]);
+    expect(r1.fields['n']).toBe('-10');
+    const [r2] = applyEvalExpressions([event({ a: '5' })], [evalDir('n', 'a - -1')]);
+    expect(r2.fields['n']).toBe('6');
+  });
+
+  it('reports an error on leftover tokens rather than silently truncating', () => {
+    const diags: import('../types').ValidationDiagnostic[] = [];
+    const [r] = applyEvalExpressions([event({})], [evalDir('n', '1 + 2 foo')], diags);
+    expect(r.fields['n']).toBeUndefined();
+    expect(diags.some((d) => d.level === 'error')).toBe(true);
+  });
+
+  it('rejects a number with two decimal points as malformed', () => {
+    const diags: import('../types').ValidationDiagnostic[] = [];
+    const [r] = applyEvalExpressions([event({})], [evalDir('n', '1.2.3')], diags);
+    expect(r.fields['n']).toBeUndefined();
+    expect(diags.some((d) => d.level === 'error')).toBe(true);
+  });
+});
+
+// #10: non-numeric values coerced to 0 diverged from Splunk NULL semantics.
+describe('applyEvalExpressions — numeric NULL semantics (#10)', () => {
+  it('does not treat a non-numeric string as 0 in comparison', () => {
+    const [r] = applyEvalExpressions([event({ a: 'abc' })], [evalDir('n', 'if(a == 0, "eq", "ne")')]);
+    expect(r.fields['n']).toBe('ne');
+  });
+
+  it('still compares numeric strings numerically', () => {
+    const [r] = applyEvalExpressions([event({ a: '5' })], [evalDir('n', 'if(a == 5, "eq", "ne")')]);
+    expect(r.fields['n']).toBe('eq');
+  });
+
+  it('propagates NULL through arithmetic on a non-numeric operand', () => {
+    const [r] = applyEvalExpressions([event({ a: 'abc' })], [evalDir('n', 'a * 2')]);
+    expect(r.fields['n']).toBeUndefined(); // null → field not set
+  });
+
+  it('returns NULL from a math function given non-numeric input', () => {
+    const [r] = applyEvalExpressions([event({})], [evalDir('n', 'abs("foo")')]);
+    expect(r.fields['n']).toBeUndefined();
+  });
+
+  it('passes a non-numeric value through tostring(...) unchanged', () => {
+    const [r] = applyEvalExpressions([event({})], [evalDir('n', 'tostring("abc", "commas")')]);
+    expect(r.fields['n']).toBe('abc');
+  });
+
+  it('binds NOT below comparison: NOT 1 = 2 is NOT (1 = 2)', () => {
+    const [r] = applyEvalExpressions([event({})], [evalDir('n', 'if(NOT 1 = 2, "Y", "N")')]);
+    expect(r.fields['n']).toBe('Y');
+  });
+});

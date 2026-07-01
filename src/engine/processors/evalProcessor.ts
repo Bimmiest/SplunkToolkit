@@ -180,11 +180,28 @@ function tokenize(expr: string): Token[] {
       continue;
     }
 
-    // Numbers
-    if (/\d/.test(expr[i]) || (expr[i] === '-' && i + 1 < expr.length && /\d/.test(expr[i + 1]) && (tokens.length === 0 || tokens[tokens.length - 1].type === 'op' || tokens[tokens.length - 1].type === 'paren' || tokens[tokens.length - 1].type === 'comma'))) {
+    // Numbers. A leading `-` is folded into a numeric literal only when a value
+    // cannot already be in progress — at the start, after an operator or comma,
+    // or after an OPENING paren. After a CLOSING paren `-` is subtraction, so
+    // `len(x) - 1` must not lex `-1` as a negative literal.
+    const prevTok = tokens[tokens.length - 1];
+    const unaryMinus =
+      expr[i] === '-' &&
+      i + 1 < expr.length &&
+      /\d/.test(expr[i + 1]) &&
+      (!prevTok ||
+        prevTok.type === 'op' ||
+        prevTok.type === 'comma' ||
+        (prevTok.type === 'paren' && prevTok.value === '('));
+    if (/\d/.test(expr[i]) || unaryMinus) {
       let num = '';
       if (expr[i] === '-') { num += '-'; i++; }
+      let seenDot = false;
       while (i < expr.length && /[\d.]/.test(expr[i])) {
+        if (expr[i] === '.') {
+          if (seenDot) break; // at most one decimal point: 1.2.3 → 1.2 then .3
+          seenDot = true;
+        }
         num += expr[i]; i++;
       }
       tokens.push({ type: 'number', value: num });
@@ -293,7 +310,14 @@ class Parser {
   }
 
   parse(): Node {
-    return this.parseOr();
+    const node = this.parseOr();
+    // Reject leftover tokens rather than silently discarding them — a malformed
+    // expression like `1 + 2 foo` or `len(x) y` is an error, not a truncated OK.
+    const leftover = this.peek();
+    if (leftover) {
+      throw new Error(`Unexpected token: ${leftover.value}`);
+    }
+    return node;
   }
 
   private parseOr(): Node {
@@ -499,9 +523,9 @@ function evalNode(node: Node, ctx: EvalCtx): EvalValue {
     case 'compare':
       return compare(evalNode(node.left, ctx), evalNode(node.right, ctx), node.op);
     case 'neg': {
-      const v = evalNode(node.operand, ctx);
-      // NULL propagates through arithmetic (Splunk): -null = null.
-      return v === null || v === undefined ? null : -toNum(v);
+      // NULL and non-numeric operands propagate as NULL (Splunk): -null, -"abc" = null.
+      const n = numArg(evalNode(node.operand, ctx));
+      return n === null ? null : -n;
     }
     case 'not':
       return !toBool(evalNode(node.operand, ctx));
@@ -622,9 +646,11 @@ function evalBuiltin(fn: string, args: EvalValue[], ctx: EvalCtx): EvalValue {
       return isNaN(n) ? null : n;
     }
     case 'tostring': {
-      if (args[1] !== undefined) {
+      const val = numArg(args[0]);
+      // The numeric formats only apply to numeric input; a non-numeric value is
+      // passed through unchanged rather than coerced to 0 (tostring("abc","commas") → "abc").
+      if (args[1] !== undefined && val !== null) {
         const format = toStr(args[1]);
-        const val = toNum(args[0]);
         if (format === 'hex') return '0x' + Math.floor(val).toString(16);
         if (format === 'commas') {
           // Thousands separators, up to two decimals. Splunk shows no decimals
@@ -664,33 +690,38 @@ function evalBuiltin(fn: string, args: EvalValue[], ctx: EvalCtx): EvalValue {
     case 'isbool': return typeof args[0] === 'boolean';
     case 'isstr': return typeof args[0] === 'string';
 
-    // Math
-    case 'abs': return Math.abs(toNum(args[0]));
-    case 'ceiling': case 'ceil': return Math.ceil(toNum(args[0]));
-    case 'floor': return Math.floor(toNum(args[0]));
+    // Math — a non-numeric (or NULL) argument yields NULL rather than 0.
+    case 'abs': { const n = numArg(args[0]); return n === null ? null : Math.abs(n); }
+    case 'ceiling': case 'ceil': { const n = numArg(args[0]); return n === null ? null : Math.ceil(n); }
+    case 'floor': { const n = numArg(args[0]); return n === null ? null : Math.floor(n); }
     case 'round': {
-      const val = toNum(args[0]);
-      const decimals = args[1] !== undefined ? toNum(args[1]) : 0;
+      const val = numArg(args[0]);
+      if (val === null) return null;
+      const decimals = args[1] !== undefined ? numArg(args[1]) ?? 0 : 0;
       const factor = Math.pow(10, decimals);
       // Splunk rounds halves away from zero; JS Math.round rounds toward +∞.
       const scaled = val * factor;
       return (Math.sign(scaled) * Math.round(Math.abs(scaled))) / factor;
     }
-    case 'sqrt': return Math.sqrt(toNum(args[0]));
-    case 'pow': return Math.pow(toNum(args[0]), toNum(args[1]));
-    case 'log': {
-      const val = toNum(args[0]);
-      const base = args[1] !== undefined ? toNum(args[1]) : 10;
-      return Math.log(val) / Math.log(base);
+    case 'sqrt': { const n = numArg(args[0]); return n === null ? null : Math.sqrt(n); }
+    case 'pow': {
+      const base = numArg(args[0]);
+      const exp = numArg(args[1]);
+      return base === null || exp === null ? null : Math.pow(base, exp);
     }
-    case 'ln': return Math.log(toNum(args[0]));
-    case 'exp': return Math.exp(toNum(args[0]));
+    case 'log': {
+      const val = numArg(args[0]);
+      const base = args[1] !== undefined ? numArg(args[1]) : 10;
+      return val === null || base === null ? null : Math.log(val) / Math.log(base);
+    }
+    case 'ln': { const n = numArg(args[0]); return n === null ? null : Math.log(n); }
+    case 'exp': { const n = numArg(args[0]); return n === null ? null : Math.exp(n); }
     case 'pi': return Math.PI;
-    case 'exact': return toNum(args[0]);
+    case 'exact': return numArg(args[0]);
     case 'min': return minMax(args, 'min');
     case 'max': return minMax(args, 'max');
     case 'random': return Math.floor(Math.random() * 2147483648); // 0 .. 2^31-1, like Splunk
-    case 'sigfig': return toNum(args[0]);
+    case 'sigfig': return numArg(args[0]);
 
     // Multivalue
     case 'mvcount': {
@@ -832,11 +863,25 @@ function addOrConcat(l: EvalValue, r: EvalValue): EvalValue {
   return toStr(l) + toStr(r);
 }
 
-/** `-`, `*`, `/`, `%` with NULL propagation (null operand → null result). */
+/**
+ * Numeric operand for arithmetic and math functions. Unlike {@link toNum} it
+ * does NOT coerce a non-numeric value to 0 — it returns null so the caller can
+ * propagate NULL the way Splunk does (`"abc" * 2` and `abs("foo")` are null, not
+ * 0). Booleans still coerce (true→1, false→0), matching Splunk.
+ */
+function numArg(v: EvalValue): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  if (Array.isArray(v)) return v.length > 0 ? numArg(v[0]) : null;
+  return isNumericString(v) ? Number(v) : null;
+}
+
+/** `-`, `*`, `/`, `%` with NULL propagation (null or non-numeric operand → null). */
 function arith(l: EvalValue, r: EvalValue, op: '-' | '*' | '/' | '%'): EvalValue {
-  if (l === null || l === undefined || r === null || r === undefined) return null;
-  const a = toNum(l);
-  const b = toNum(r);
+  const a = numArg(l);
+  const b = numArg(r);
+  if (a === null || b === null) return null;
   switch (op) {
     case '-': return a - b;
     case '*': return a * b;
@@ -897,15 +942,14 @@ function minMax(args: EvalValue[], which: 'min' | 'max'): EvalValue {
 }
 
 function compare(left: EvalValue, right: EvalValue, op: string): boolean {
-  // Splunk eval: compare numerically if either side is a number, or if both
-  // sides are strings that look numeric (e.g. field values from parsed events).
-  const bothNumeric =
-    typeof left === 'number' ||
-    typeof right === 'number' ||
-    (isNumericString(left) && isNumericString(right));
+  // Splunk eval: compare numerically only when BOTH sides are numeric (a number
+  // or a string that parses cleanly as one). Otherwise compare as strings. This
+  // avoids coercing a non-numeric operand to 0 — `"abc" == 0` must be false, not
+  // true (which is what `0 === toNum("abc")` used to produce).
+  const bothNumeric = isNumericValue(left) && isNumericValue(right);
 
-  const l = bothNumeric ? toNum(left) : toStr(left);
-  const r = bothNumeric ? toNum(right) : toStr(right);
+  const l = bothNumeric ? Number(left) : toStr(left);
+  const r = bothNumeric ? Number(right) : toStr(right);
 
   switch (op) {
     case '==': case '=': return l === r;
