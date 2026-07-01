@@ -8,6 +8,7 @@ All notable changes to Splunk Toolkit are documented here, newest first.
 
 ### Fixed
 
+- **`SEDCMD` left a stray backslash when a delimiter was escaped in the replacement** — `s/b/x\/y/` produced `ax\/yc` instead of GNU sed's `ax/yc`. The parser preserves backslashes verbatim, but the replacement builder never unescaped them. Replacement construction is now a single left-to-right pass that resolves sed escapes correctly: `\1`–`\9` stay backreferences, any other `\<char>` (an escaped delimiter, `\\` → `\`, etc.) drops the backslash, and a bare `$` is still escaped so JS doesn't read it as a substitution pattern. This also fixes `\\1` being mis-read as capture-group 1 rather than a literal `\1`. ([src/engine/processors/sedCmd.ts](src/engine/processors/sedCmd.ts))
 - **eval `mvzip` padded to the longer field instead of stopping at the shorter** — it now behaves like a true zip, producing only as many values as the shorter field. `mvzip(["a","b","c"], ["1","2"])` → `["a,1","b,2"]` (previously `["a,1","b,2","c,"]`). ([src/engine/processors/evalProcessor.ts](src/engine/processors/evalProcessor.ts))
 - **eval `mvcount` returned `0` for a field with no values** — Splunk returns NULL (a single value → 1, multiple → count, no values → NULL). `mvcount` now returns NULL when the field is empty/missing.
 
