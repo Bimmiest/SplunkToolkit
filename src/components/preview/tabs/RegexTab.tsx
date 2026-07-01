@@ -93,11 +93,6 @@ const REGEX_REFERENCE: RegexCategory[] = [
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Convert Splunk Python-style (?P<name>...) to JS (?<name>...) */
-function convertSplunkToJsRegex(pattern: string): string {
-  return pattern.replace(/\(\?P<(\w+)>/g, '(?<$1>');
-}
-
 /** Extract named capture group names from either Splunk or JS syntax */
 function extractNamedGroups(pattern: string): string[] {
   const groups: string[] = [];
@@ -133,12 +128,13 @@ export function RegexTab({ items, currentPage, eventsPerPage }: RegexTabProps) {
   const [refSearch, setRefSearch] = useState('');
   const [copied, setCopied] = useState(false);
 
-  const jsPattern = useMemo(() => convertSplunkToJsRegex(pattern), [pattern]);
-
+  // Pass the raw Splunk pattern straight to the canonical helpers; safeRegex /
+  // validateRegex run the single Splunk→JS translation (translatePcreToJs)
+  // internally. Translating here first would run it twice.
   const validationError = useMemo(() => {
     if (!pattern) return null;
-    return validateRegex(jsPattern);
-  }, [pattern, jsPattern]);
+    return validateRegex(pattern);
+  }, [pattern]);
 
   const namedGroups = useMemo(() => extractNamedGroups(pattern), [pattern]);
   const groupColorMap = useMemo(() => buildGroupColorMap(namedGroups), [namedGroups]);
@@ -164,10 +160,10 @@ export function RegexTab({ items, currentPage, eventsPerPage }: RegexTabProps) {
 
   const matchedItems = useMemo(() => {
     if (!pattern || validationError) return [];
-    const re = safeRegex(jsPattern);
+    const re = safeRegex(pattern);
     if (!re) return [];
     return items.filter((item) => re.test(item.event._raw));
-  }, [pattern, validationError, items, jsPattern]);
+  }, [pattern, validationError, items]);
 
   const matchStats = useMemo(() => {
     return { matched: matchedItems.length, total: items.length };
@@ -358,7 +354,7 @@ export function RegexTab({ items, currentPage, eventsPerPage }: RegexTabProps) {
                 raw={item.event._raw}
                 globalIdx={globalIdx}
                 hasPattern={!!pattern}
-                jsPattern={jsPattern}
+                pattern={pattern}
                 groupColorMap={groupColorMap}
               />
             );
@@ -413,20 +409,20 @@ function RegexEventCard({
   raw,
   globalIdx,
   hasPattern,
-  jsPattern,
+  pattern,
   groupColorMap,
 }: {
   raw: string;
   globalIdx: number;
   hasPattern: boolean;
-  jsPattern: string;
+  pattern: string;
   groupColorMap: Map<string, string>;
 }) {
   const matchResult = useMemo(() => {
-    const regex = safeRegex(jsPattern, 'd' as string);
+    const regex = safeRegex(pattern, 'd');
     if (!regex) return null;
     return regex.exec(raw);
-  }, [raw, jsPattern]);
+  }, [raw, pattern]);
 
   const capturedFields = useMemo(() => {
     if (!matchResult?.groups) return [];

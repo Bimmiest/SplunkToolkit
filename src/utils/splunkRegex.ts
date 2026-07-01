@@ -70,17 +70,29 @@ export function translatePcreToJs(pattern: string, flags = ''): { source: string
 }
 
 /**
- * Patterns that exhibit catastrophic backtracking when applied to long input.
- * Reject these before compiling to prevent main-thread hangs.
+ * Best-effort detection of patterns that exhibit catastrophic backtracking on
+ * long input. These are rejected before compiling so they never execute — the
+ * live regex testers (RegexTab / ExtractNameDialog) run on the main thread,
+ * where the 5 s Web Worker watchdog does NOT apply, so a hang there freezes the
+ * tab with no recovery.
  *
- * Heuristic: an unescaped capturing or non-capturing group whose body itself
- * contains a `+` or `*` quantifier, followed by another `+` or `*` on the group.
- * Examples: (a+)+  (\w+)+  (.+)+  (?:\d*)*
+ * This is a heuristic, not a complete ReDoS analysis. It catches:
+ *  1. A quantified group whose body has its own `*`/`+` (nested/grouped
+ *     ambiguity), where the outer quantifier is `*`, `+`, or a `{n[,m]}` bound.
+ *     Examples: `(a+)+`, `(\w+)*`, `(.+)+`, `(?:\d*)*`, `(.*,){20}`.
+ *  2. Two adjacent unbounded quantifiers on the SAME atom. Examples: `a*a*`,
+ *     `\d+\d+` — and by extension long runs like `a*a*a*a*c`.
+ *
+ * It does NOT catch alternation-overlap forms such as `(a|aa)+`: flagging those
+ * without also rejecting benign alternations like `(foo|bar)+` needs a real
+ * overlap analysis. Such patterns remain covered by the worker watchdog for the
+ * main pipeline, but not for the main-thread live testers.
  */
-const REDOS_RE = /\((?:[^()\\]|\\.)*[+*][^()]*\)[+*]/;
+const REDOS_NESTED_GROUP = /\((?:[^()\\]|\\.)*[*+][^()]*\)(?:[*+]|\{\d+,?\d*\})/;
+const REDOS_ADJACENT_QUANTIFIER = /(\\?[A-Za-z0-9.])[*+]\1[*+]/;
 
 export function hasReDoSRisk(pattern: string): boolean {
-  return REDOS_RE.test(pattern);
+  return REDOS_NESTED_GROUP.test(pattern) || REDOS_ADJACENT_QUANTIFIER.test(pattern);
 }
 
 /**
