@@ -107,6 +107,24 @@ describe('matchStanzas — wildcard patterns', () => {
     const result = matchStanzas([s], META);
     expect(result).toHaveLength(1);
   });
+
+  // #30.1: a literal `.` is part of the pattern (only `*`, `?`, `...` are
+  // wildcards), so it must count toward specificity.
+  it('counts literal dots toward host specificity', () => {
+    const meta = { ...META, host: 'a.b.c.d' };
+    const literal: ConfStanza = {
+      name: 'host::a.b.c.d', type: 'host', hostPattern: 'a.b.c.d',
+      directives: [], lineRange: { start: 1, end: 2 },
+    };
+    const wild: ConfStanza = {
+      name: 'host::a?b?c?d', type: 'host', hostPattern: 'a?b?c?d',
+      directives: [], lineRange: { start: 1, end: 2 },
+    };
+    // Wildcard listed first: a tie (dots uncounted) would leave it ahead. The
+    // literal must rank first because its four literal dots make it more specific.
+    const result = matchStanzas([wild, literal], meta);
+    expect(result.map((s) => s.name)).toEqual(['host::a.b.c.d', 'host::a?b?c?d']);
+  });
 });
 
 describe('mergeDirectives — duplicate keys', () => {

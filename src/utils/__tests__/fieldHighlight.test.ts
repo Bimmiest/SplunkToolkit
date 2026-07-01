@@ -81,6 +81,23 @@ describe('findFieldValuePositions — underscore-stripped JSON keys (originalKey
   });
 });
 
+describe('findFieldValuePositions — offset accuracy (#28)', () => {
+  it('highlights the value, not the key, when they share the same text', () => {
+    const raw = '{"name":"name"}';
+    const pos = findFieldValuePositions(raw, 'name', 'name');
+    // Offset 9 is the value; offset 2 (inside the key "name") is wrong.
+    expect(pos).toEqual([9]);
+  });
+
+  it('numeric fallback requires a boundary, not a substring inside a larger number', () => {
+    const raw = '{"port":100,"other":10}';
+    // Field name doesn't context-match, so this exercises the fallback. "10" must
+    // land on the standalone value (offset 20), not inside "100" (offset 8).
+    const pos = findFieldValuePositions(raw, 'nomatch', '10');
+    expect(pos).toEqual([20]);
+  });
+});
+
 describe('findFieldValuePositions — collision prevention', () => {
   it('fields sharing a value do not steal each other\'s positions when originalKey provided', () => {
     const raw = '{"_UID":"1000","_FSUID":"1000","_EUID":"1000"}';

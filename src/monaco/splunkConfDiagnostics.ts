@@ -20,20 +20,27 @@ export function computeDiagnostics(
   const seenStanzas = new Set<string>();
 
   // Splunk continues a directive onto the next line when the line ends with a
-  // trailing backslash (NOT when the next line begins with whitespace). Track it
-  // so continuation lines are treated as value, not flagged as malformed.
-  let prevEndedWithBackslash = false;
+  // trailing backslash (NOT when the next line begins with whitespace). Only a
+  // line that is actually a DIRECTIVE (or an ongoing continuation of one) can
+  // start a continuation — a stanza header or a malformed line ending in `\`
+  // must not. This mirrors confParser's `lastDirective` gating; without it the
+  // line after any backslash-terminated header/garbage line was silently skipped.
+  let inDirectiveValue = false;
 
   for (let i = 1; i <= lineCount; i++) {
     const line = model.getLineContent(i);
     const trimmed = line.trim();
+    const endsWithBackslash = line.trimEnd().endsWith('\\');
 
-    const isContinuation = prevEndedWithBackslash && trimmed !== '';
-    prevEndedWithBackslash =
-      trimmed !== '' && !trimmed.startsWith('#') && line.trimEnd().endsWith('\\');
+    if (inDirectiveValue && trimmed !== '') {
+      // Part of the previous directive's value — skip it. It continues the
+      // value further only if it too ends with a trailing backslash.
+      inDirectiveValue = endsWithBackslash;
+      continue;
+    }
 
-    // A continuation line is part of the previous directive's value — skip it.
-    if (isContinuation) continue;
+    // Not a continuation: reset. Only the directive branch below re-arms it.
+    inDirectiveValue = false;
 
     // Skip comments and blank lines. Splunk .conf uses `#` only — `;` is NOT a comment.
     if (trimmed === '' || trimmed.startsWith('#')) continue;
@@ -83,6 +90,10 @@ export function computeDiagnostics(
       }
       continue;
     }
+
+    // This line is a directive — a trailing backslash now legitimately starts a
+    // continuation onto the next line.
+    inDirectiveValue = endsWithBackslash;
 
     const key = line.substring(0, eqIdx).trim();
     const value = line.substring(eqIdx + 1).trim();

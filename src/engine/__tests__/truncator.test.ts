@@ -40,6 +40,19 @@ describe('truncateEvents', () => {
     const diags: ValidationDiagnostic[] = [];
     const [e] = truncateEvents([event('keep me intact')], truncateDir('abc'), diags);
     expect(e._raw).toBe('keep me intact');
-    expect(diags.some((d) => d.message.includes('not a number'))).toBe(true);
+    expect(diags.some((d) => d.message.includes('not a valid byte count'))).toBe(true);
   });
+
+  // #30.2: parseInt is too lenient — these forms must be rejected, not silently
+  // truncating with a wrong length (1e3→1) or disabling truncation (0x10→0).
+  it.each(['0x10', '1e3', '100abc', '1.5', '-5'])(
+    'ignores a malformed TRUNCATE value %s',
+    (bad) => {
+      const diags: ValidationDiagnostic[] = [];
+      const long = 'x'.repeat(50);
+      const [e] = truncateEvents([event(long)], truncateDir(bad), diags);
+      expect(e._raw).toBe(long); // unchanged
+      expect(diags.some((d) => d.message.includes('not a valid byte count'))).toBe(true);
+    },
+  );
 });
