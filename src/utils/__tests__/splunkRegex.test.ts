@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { safeRegex, translatePcreToJs } from '../splunkRegex';
+import { safeRegex, translatePcreToJs, hasReDoSRisk } from '../splunkRegex';
 
 describe('translatePcreToJs', () => {
   it('hoists a leading inline flag group into the flags', () => {
@@ -57,5 +57,34 @@ describe('safeRegex with PCRE syntax', () => {
 
   it('still rejects nested-quantifier ReDoS patterns', () => {
     expect(safeRegex('(\\d+)+')).toBeNull();
+  });
+});
+
+describe('hasReDoSRisk — strengthened heuristic (#11/#34)', () => {
+  // Catastrophic families that previously slipped through and could freeze the
+  // main-thread live regex testers.
+  it.each([
+    '(\\d+)+',        // nested quantified group (existing)
+    '(.+)*x',         // nested group, star outer
+    '(.*,){20}',      // bounded repetition of a group with an inner quantifier
+    'a*a*',           // adjacent same-atom quantifiers
+    '\\d+\\d+',       // adjacent same-atom quantifiers (escaped atom)
+    'a*a*a*a*a*a*a*c', // long adjacent run
+  ])('flags catastrophic pattern %s', (p) => {
+    expect(hasReDoSRisk(p)).toBe(true);
+    expect(safeRegex(p)).toBeNull();
+  });
+
+  // Benign patterns must still compile — no false positives.
+  it.each([
+    '(foo|bar)+',     // benign alternation (NOT flagged — needs real overlap analysis)
+    'a+b+',           // different atoms
+    '\\d+\\.\\d+',    // digits.digits (dot between, not adjacent same atom)
+    '(ab){3}',        // bounded group with no inner quantifier
+    '\\d{2,3}',       // a plain bound
+    '(?<num>\\d+)',   // a single named group
+  ])('does not flag benign pattern %s', (p) => {
+    expect(hasReDoSRisk(p)).toBe(false);
+    expect(safeRegex(p)).not.toBeNull();
   });
 });

@@ -179,7 +179,7 @@ Places where the simulator diverges from real Splunk. Verify anything suspicious
 
 ### Other
 
-- **ReDoS protection is narrow.** `safeRegex()` rejects a limited class of catastrophically backtracking patterns (nested quantifiers); it misses common forms like `(a|a)*b`, `(a+|b)+`, `(.*)*x`, and `a*a*b`. The 5 s worker watchdog backs this — patterns that slip through are killed and the worker auto-restarts.
+- **ReDoS protection is heuristic, and the main-thread testers aren't watchdog-backed.** `safeRegex()` rejects a best-effort class of catastrophically backtracking patterns before compiling them — nested/grouped quantifiers (`(a+)+`, `(.*)*x`, `(.*,){20}`) and adjacent same-atom quantifiers (`a*a*`, `\d+\d+`) — but it does **not** catch alternation-overlap forms like `(a|aa)+` or `(a+|b)+` (detecting those without rejecting benign alternations such as `(foo|bar)+` needs a real overlap analysis). The 5 s watchdog kills and restarts patterns that slip through **in the Web Worker pipeline**, but the live regex testers (Regex tab, Create-EXTRACT dialog) execute on the **main thread**, where the watchdog does not apply — a pattern that slips past the heuristic there can slow that view until you change the pattern.
 - **Raw data capped at 1 MB.** Large inputs are rejected at the store boundary.
 - **Sourcetype stanzas match by strict equality.** This matches real Splunk — sourcetype names are literal, no wildcards — noted here so contributors don't add wildcard support by analogy with `source::` / `host::`.
 - **Monaco find-widget tooltip flicker.** Upstream bug in Monaco's hover service ([microsoft/monaco-editor#5208](https://github.com/microsoft/monaco-editor/issues/5208)); no local fix.
