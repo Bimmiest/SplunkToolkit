@@ -6,6 +6,10 @@ All notable changes to Splunk Toolkit are documented here, newest first.
 
 ## 2026-07-01
 
+### Changed
+
+- **The Regex tab's live tester now runs matching in a terminatable Web Worker** — user regexes previously executed on the main thread (on every keystroke, against every event), where the pipeline's watchdog does not apply, so a catastrophic pattern that slipped the ReDoS heuristic froze the tab with no recovery. Matching now runs in a dedicated worker with a 2 s watchdog: a runaway pattern hangs the worker (not the UI), which is terminated and restarted, and the tab shows a "too slow to evaluate" message and stays responsive. New `matchInputs` engine helper + `useRegexMatch` hook; falls back to inline matching where `Worker` is unavailable (tests/SSR). ([src/engine/regexMatch.ts](src/engine/regexMatch.ts), [src/hooks/useRegexMatch.ts](src/hooks/useRegexMatch.ts), [src/components/preview/tabs/RegexTab.tsx](src/components/preview/tabs/RegexTab.tsx))
+
 ### Fixed
 
 - **`safeRegex()`'s ReDoS heuristic missed common catastrophic families, and the Regex tab translated patterns twice** — the heuristic only caught a nested quantified group (`(a+)+`). It now also catches a quantified group with a `{n[,m]}` outer bound (`(.*,){20}`) and adjacent same-atom quantifiers (`a*a*`, `\d+\d+`, long `a*a*a*…` runs), so those documented catastrophic patterns are refused *before* they run on the main thread (where the Web Worker watchdog doesn't apply) rather than freezing the tab. Alternation-overlap forms like `(a|aa)+` are still not heuristically detected (flagging them without rejecting benign `(foo|bar)+` needs a real overlap analysis) — documented in the README. The Regex tab now passes the raw pattern to `safeRegex`/`validateRegex` once instead of pre-translating it itself (the duplicate `convertSplunkToJsRegex` and a stray `'d' as string` cast are gone). ([src/utils/splunkRegex.ts](src/utils/splunkRegex.ts), [src/components/preview/tabs/RegexTab.tsx](src/components/preview/tabs/RegexTab.tsx))
