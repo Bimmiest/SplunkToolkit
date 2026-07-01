@@ -41,23 +41,24 @@ describe('RegexTab', () => {
     expect(screen.queryByText(/Event #/)).not.toBeInTheDocument();
   });
 
-  it('renders only matching events when pattern is typed', () => {
+  it('renders only matching events when pattern is typed', async () => {
     render(<RegexTab items={items} currentPage={1} eventsPerPage={10} />);
     const input = screen.getByPlaceholderText(/\\d\+/);
     fireEvent.change(input, { target: { value: '\\d+\\.\\d+\\.\\d+\\.\\d+' } });
 
-    // Only two events match (third has no IP)
-    const cards = screen.getAllByText(/Event #/);
+    // Matching is debounced and runs off the render path, so wait for it.
+    // Only two events match (third has no IP).
+    const cards = await screen.findAllByText(/Event #/);
     expect(cards).toHaveLength(2);
     expect(screen.getByText('2/3 events matched')).toBeInTheDocument();
   });
 
-  it('shows "No events matched" when pattern is valid but has no hits', () => {
+  it('shows "No events matched" when pattern is valid but has no hits', async () => {
     render(<RegexTab items={items} currentPage={1} eventsPerPage={10} />);
     const input = screen.getByPlaceholderText(/\\d\+/);
     fireEvent.change(input, { target: { value: 'this_text_does_not_appear' } });
 
-    expect(screen.getByText(/No events matched/i)).toBeInTheDocument();
+    expect(await screen.findByText(/No events matched/i)).toBeInTheDocument();
     expect(screen.queryByText(/Event #/)).not.toBeInTheDocument();
   });
 

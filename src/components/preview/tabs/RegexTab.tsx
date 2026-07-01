@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
-import { safeRegex, validateRegex } from '../../../utils/splunkRegex';
+import { validateRegex } from '../../../utils/splunkRegex';
 import { copyToClipboard } from '../../../utils/clipboard';
+import { useRegexMatch } from '../../../hooks/useRegexMatch';
+import type { RegexMatchInfo } from '../../../engine/regexMatch';
 import type { EnrichedEvent } from '../PreviewPanel';
 import { FIELD_COLORS } from './shared/fieldColors';
 
@@ -128,9 +130,9 @@ export function RegexTab({ items, currentPage, eventsPerPage }: RegexTabProps) {
   const [refSearch, setRefSearch] = useState('');
   const [copied, setCopied] = useState(false);
 
-  // Pass the raw Splunk pattern straight to the canonical helpers; safeRegex /
-  // validateRegex run the single Splunk→JS translation (translatePcreToJs)
-  // internally. Translating here first would run it twice.
+  // Compile-only validation (safe on the main thread — compiling can't backtrack).
+  // Pass the raw Splunk pattern so validateRegex runs the single canonical
+  // Splunk→JS translation internally. Actual matching happens in the worker below.
   const validationError = useMemo(() => {
     if (!pattern) return null;
     return validateRegex(pattern);
@@ -158,12 +160,21 @@ export function RegexTab({ items, currentPage, eventsPerPage }: RegexTabProps) {
     })).filter((cat) => cat.directives.length > 0);
   }, [refSearch]);
 
+  // Run the live matching in a terminatable Web Worker so a catastrophic pattern
+  // that slips the ReDoS heuristic can't freeze this tab — the watchdog kills the
+  // worker and reports a timeout instead. A pattern with a known validation error
+  // is not sent (we already show that error).
+  const rawInputs = useMemo(() => items.map((item) => item.event._raw), [items]);
+  const { status, results } = useRegexMatch(validationError ? '' : pattern, rawInputs);
+
+  // Aligned to `items`: results[i] is the match info (or null) for items[i].
+  const matchInfoFor = (idx: number): RegexMatchInfo | null =>
+    status === 'ok' ? results[idx] ?? null : null;
+
   const matchedItems = useMemo(() => {
-    if (!pattern || validationError) return [];
-    const re = safeRegex(pattern);
-    if (!re) return [];
-    return items.filter((item) => re.test(item.event._raw));
-  }, [pattern, validationError, items]);
+    if (!pattern || validationError || status !== 'ok') return [];
+    return items.filter((_, i) => results[i] != null);
+  }, [pattern, validationError, status, items, results]);
 
   const matchStats = useMemo(() => {
     return { matched: matchedItems.length, total: items.length };
@@ -340,6 +351,17 @@ export function RegexTab({ items, currentPage, eventsPerPage }: RegexTabProps) {
           <div className="flex items-center justify-center py-12 text-[var(--color-text-muted)] text-sm">
             Enter a pattern above to test matches against your events
           </div>
+        ) : status === 'timeout' ? (
+          <div className="flex flex-col items-center justify-center gap-1 py-12 text-[var(--color-error)] text-sm text-center px-4">
+            <span className="font-medium">This pattern is too slow to evaluate and was stopped.</span>
+            <span className="text-[var(--color-text-muted)] text-xs">
+              It likely triggers catastrophic backtracking (ReDoS). Simplify it — e.g. avoid nested or overlapping quantifiers.
+            </span>
+          </div>
+        ) : status === 'pending' ? (
+          <div className="flex items-center justify-center py-12 text-[var(--color-text-muted)] text-sm">
+            Testing pattern…
+          </div>
         ) : matchedItems.length === 0 ? (
           <div className="flex items-center justify-center py-12 text-[var(--color-text-muted)] text-sm">
             No events matched
@@ -354,7 +376,7 @@ export function RegexTab({ items, currentPage, eventsPerPage }: RegexTabProps) {
                 raw={item.event._raw}
                 globalIdx={globalIdx}
                 hasPattern={!!pattern}
-                pattern={pattern}
+                matchInfo={matchInfoFor(originalIdx)}
                 groupColorMap={groupColorMap}
               />
             );
@@ -409,39 +431,31 @@ function RegexEventCard({
   raw,
   globalIdx,
   hasPattern,
-  pattern,
+  matchInfo,
   groupColorMap,
 }: {
   raw: string;
   globalIdx: number;
   hasPattern: boolean;
-  pattern: string;
+  matchInfo: RegexMatchInfo | null;
   groupColorMap: Map<string, string>;
 }) {
-  const matchResult = useMemo(() => {
-    const regex = safeRegex(pattern, 'd');
-    if (!regex) return null;
-    return regex.exec(raw);
-  }, [raw, pattern]);
-
-  const capturedFields = useMemo(() => {
-    if (!matchResult?.groups) return [];
-    return Object.entries(matchResult.groups)
-      .filter(([, v]) => v !== undefined)
-      .map(([name, value]) => ({ name, value: value as string }));
-  }, [matchResult]);
+  const capturedFields = useMemo(
+    () => Object.entries(matchInfo?.groups ?? {}).map(([name, value]) => ({ name, value })),
+    [matchInfo],
+  );
 
   return (
     <div className="border border-[var(--color-border)] rounded bg-[var(--color-bg-secondary)]">
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-[var(--color-border)] bg-[var(--color-bg-tertiary)]">
         <span className="text-xs font-medium text-[var(--color-text-muted)]">Event #{globalIdx}</span>
         <div className="flex items-center gap-2">
-          {hasPattern && matchResult && (
+          {hasPattern && matchInfo && (
             <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-success)]/20 text-[var(--color-success)] font-medium">
               Matched{capturedFields.length > 0 && ` \u2013 ${capturedFields.length} group${capturedFields.length !== 1 ? 's' : ''}`}
             </span>
           )}
-          {hasPattern && !matchResult && (
+          {hasPattern && !matchInfo && (
             <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-error)]/20 text-[var(--color-error)] font-medium">
               No match
             </span>
@@ -450,7 +464,7 @@ function RegexEventCard({
       </div>
 
       <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-all">
-        <RegexHighlightedRaw raw={raw} matchResult={matchResult} groupColorMap={groupColorMap} />
+        <RegexHighlightedRaw raw={raw} matchInfo={matchInfo} groupColorMap={groupColorMap} />
       </pre>
 
       {capturedFields.length > 0 && (
@@ -484,18 +498,18 @@ function RegexEventCard({
 
 function RegexHighlightedRaw({
   raw,
-  matchResult,
+  matchInfo,
   groupColorMap,
 }: {
   raw: string;
-  matchResult: RegExpExecArray | null;
+  matchInfo: RegexMatchInfo | null;
   groupColorMap: Map<string, string>;
 }) {
   const segments = useMemo(() => {
-    if (!matchResult) return null;
+    if (!matchInfo) return null;
 
-    const fullMatchStart = matchResult.index;
-    const fullMatchEnd = matchResult.index + matchResult[0].length;
+    const fullMatchStart = matchInfo.index;
+    const fullMatchEnd = matchInfo.index + matchInfo.match.length;
     const result: React.ReactNode[] = [];
 
     // Text before match
@@ -507,9 +521,8 @@ function RegexHighlightedRaw({
       );
     }
 
-    // Build sub-highlights for named groups using indices (d flag)
-    const indices = (matchResult as RegExpExecArray & { indices?: { groups?: Record<string, [number, number]> } }).indices;
-    const groupIndices = indices?.groups;
+    // Build sub-highlights for named groups using their captured spans.
+    const groupIndices = matchInfo.groupSpans;
 
     if (groupIndices && Object.keys(groupIndices).length > 0) {
       const groupHighlights: { start: number; end: number; name: string; color: string }[] = [];
@@ -585,7 +598,7 @@ function RegexHighlightedRaw({
     }
 
     return result;
-  }, [raw, matchResult, groupColorMap]);
+  }, [raw, matchInfo, groupColorMap]);
 
   if (!segments) {
     return <span className="text-[var(--color-text-primary)] opacity-60">{raw}</span>;
