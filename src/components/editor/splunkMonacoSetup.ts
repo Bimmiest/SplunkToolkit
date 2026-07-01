@@ -64,7 +64,7 @@ function registerSplunkConfLanguage(monaco: MonacoApi) {
       'if', 'case', 'coalesce', 'nullif', 'validate',
       'lower', 'upper', 'len', 'substr', 'replace', 'trim', 'ltrim', 'rtrim',
       'urldecode', 'split', 'mvjoin', 'tonumber', 'tostring', 'typeof',
-      'isnull', 'isnotnull', 'isint', 'isnum',
+      'isnull', 'isnotnull', 'isint', 'isnum', 'isbool', 'isstr',
       'abs', 'ceiling', 'ceil', 'floor', 'round', 'sqrt', 'pow',
       'log', 'ln', 'exp', 'pi', 'min', 'max', 'random',
       'mvcount', 'mvindex', 'mvfilter', 'mvappend', 'mvdedup', 'mvfind', 'mvsort', 'mvzip',

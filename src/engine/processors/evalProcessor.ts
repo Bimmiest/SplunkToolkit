@@ -659,6 +659,10 @@ function evalBuiltin(fn: string, args: EvalValue[], ctx: EvalCtx): EvalValue {
     case 'isnotnull': return args[0] !== null && args[0] !== undefined;
     case 'isint': return isNumericValue(args[0]) && Number.isInteger(Number(args[0]));
     case 'isnum': return isNumericValue(args[0]);
+    // Informational functions mirror `typeof`'s type model: they report the
+    // value's actual type rather than what it could be coerced to.
+    case 'isbool': return typeof args[0] === 'boolean';
+    case 'isstr': return typeof args[0] === 'string';
 
     // Math
     case 'abs': return Math.abs(toNum(args[0]));
@@ -689,7 +693,11 @@ function evalBuiltin(fn: string, args: EvalValue[], ctx: EvalCtx): EvalValue {
     case 'sigfig': return toNum(args[0]);
 
     // Multivalue
-    case 'mvcount': return toMv(args[0]).length;
+    case 'mvcount': {
+      // Splunk: a single value → 1, multiple → count, no values → NULL (not 0).
+      const m = toMv(args[0]);
+      return m.length === 0 ? null : m.length;
+    }
     case 'mvindex': {
       const mv = toMv(args[0]);
       const n = mv.length;
@@ -718,10 +726,12 @@ function evalBuiltin(fn: string, args: EvalValue[], ctx: EvalCtx): EvalValue {
       const a = toMv(args[0]);
       const b = toMv(args[1]);
       const delim = args[2] !== undefined ? toStr(args[2]) : ',';
-      const len = Math.max(a.length, b.length);
+      // Splunk mvzip behaves like a zip: it stops at the shorter field rather
+      // than padding out to the longer one.
+      const len = Math.min(a.length, b.length);
       const result: string[] = [];
       for (let i = 0; i < len; i++) {
-        result.push((a[i] ?? '') + delim + (b[i] ?? ''));
+        result.push(a[i] + delim + b[i]);
       }
       return result;
     }
