@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { buildExtractFromSelection } from '../../../../engine/scaffold/fromSelection';
+import { buildExtractFromSelection, toCaptureGroupName } from '../../../../engine/scaffold/fromSelection';
 import { safeRegex } from '../../../../utils/splunkRegex';
 import { DirectiveDialog } from './DirectiveDialog';
 
@@ -25,8 +25,6 @@ function runCapture(pattern: string, raw: string): Capture {
   return { state: 'ok', groups };
 }
 
-const cleanFieldName = (s: string) => s.trim().replace(/\s+/g, '_');
-
 /**
  * In-app dialog for "Create EXTRACT from selection". The field name and the regex
  * pattern are both editable; the pattern stays derived from the field name until the
@@ -36,18 +34,20 @@ const cleanFieldName = (s: string) => s.trim().replace(/\s+/g, '_');
 export function ExtractNameDialog({
   raw,
   selection,
+  selectionStart,
   stanza,
   onApply,
   onClose,
 }: {
   raw: string;
   selection: string;
+  selectionStart?: number;
   stanza: string;
   onApply: (key: string, value: string) => void;
   onClose: () => void;
 }) {
   const [name, setName] = useState('new_field');
-  const [pattern, setPattern] = useState(() => buildExtractFromSelection(raw, selection, 'new_field')?.value ?? '');
+  const [pattern, setPattern] = useState(() => buildExtractFromSelection(raw, selection, 'new_field', selectionStart)?.value ?? '');
   const [patternDirty, setPatternDirty] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -64,12 +64,16 @@ export function ExtractNameDialog({
     // Keep the generated pattern (and its named group) in sync until the user takes
     // manual control of the regex.
     if (!patternDirty) {
-      const regen = buildExtractFromSelection(raw, selection, cleanFieldName(v) || 'field');
+      const regen = buildExtractFromSelection(raw, selection, v, selectionStart);
       setPattern(regen?.value ?? '');
     }
   };
 
-  const cleanName = cleanFieldName(name) || 'field';
+  // The capture-group name (and thus the extracted field) must be a valid
+  // identifier — hyphens/dots/leading digits get sanitised. Surface that so the
+  // user isn't surprised the applied field name differs from what they typed.
+  const cleanName = toCaptureGroupName(name);
+  const nameAdjusted = name.trim() !== '' && cleanName !== name.trim();
   const capture = useMemo(() => runCapture(pattern, raw), [pattern, raw]);
   const valid = pattern.trim().length > 0 && capture.state !== 'invalid';
 
@@ -94,6 +98,11 @@ export function ExtractNameDialog({
           spellCheck={false}
           className="mt-1 w-full px-2.5 py-1.5 rounded-md text-sm font-mono outline-none bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] border border-[var(--color-border)] focus:border-[var(--color-accent)]"
         />
+        {nameAdjusted && (
+          <div className="mt-1 text-xs" style={{ color: 'var(--color-warning)' }}>
+            Field will be named <code className="font-mono">{cleanName}</code> — capture groups allow only letters, digits, and <code className="font-mono">_</code>.
+          </div>
+        )}
       </div>
 
       <div>

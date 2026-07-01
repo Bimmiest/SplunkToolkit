@@ -11,19 +11,21 @@ import { DirectiveDialog } from './DirectiveDialog';
 export function TimePrefixDialog({
   raw,
   selection,
+  selectionStart,
   stanza,
   onApply,
   onClose,
 }: {
   raw: string;
   selection: string;
+  selectionStart?: number;
   stanza: string;
   onApply: (value: string) => void;
   onClose: () => void;
 }) {
   // Best-effort default from the shared, tested helper (may be null at the start of
   // the event or when no stable boundary precedes the selection).
-  const [value, setValue] = useState(() => timePrefixFromSelection(raw, selection) ?? '');
+  const [value, setValue] = useState(() => timePrefixFromSelection(raw, selection, selectionStart) ?? '');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -34,7 +36,7 @@ export function TimePrefixDialog({
     return () => cancelAnimationFrame(id);
   }, []);
 
-  const idx = raw.indexOf(selection);
+  const idx = selectionStart !== undefined && selectionStart >= 0 ? selectionStart : raw.indexOf(selection);
   const before = idx > 0 ? raw.slice(0, idx) : '';
   const contextHint = before.slice(-32);
 
