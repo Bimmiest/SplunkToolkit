@@ -27,7 +27,7 @@ function currentSelection(): string {
  * `selectionText`, when provided (the Raw tab's React-controlled token selection),
  * takes precedence over the native window.getSelection fallback used elsewhere.
  */
-export function EventContextMenu({ event, children, selectionText }: { event: SplunkEvent; children: ReactNode; selectionText?: string }) {
+export function EventContextMenu({ event, children, selectionText, selectionStart }: { event: SplunkEvent; children: ReactNode; selectionText?: string; selectionStart?: number }) {
   const propsConf = useAppStore((s) => s.propsConf);
   const setPropsConf = useAppStore((s) => s.setPropsConf);
   const sourcetype = useAppStore((s) => s.metadata.sourcetype);
@@ -40,7 +40,19 @@ export function EventContextMenu({ event, children, selectionText }: { event: Sp
   const [extractOpen, setExtractOpen] = useState(false);
   const [timePrefixOpen, setTimePrefixOpen] = useState(false);
 
-  const selection = (selectionText ?? '').trim() || nativeSelection;
+  const controlled = selectionText ?? '';
+  const trimmedControlled = controlled.trim();
+  const usingControlled = trimmedControlled.length > 0;
+  const selection = usingControlled ? trimmedControlled : nativeSelection;
+
+  // The controlled (token) selection carries its real offset in _raw, so the
+  // scaffolded regex anchors on the exact occurrence the user picked rather than
+  // the first match. Adjust for any leading whitespace removed by trim(). The
+  // native-selection fallback has no reliable offset and stays on indexOf.
+  const effectiveStart =
+    usingControlled && selectionStart !== undefined
+      ? selectionStart + (controlled.length - controlled.trimStart().length)
+      : undefined;
 
   return (
     <>
@@ -68,6 +80,7 @@ export function EventContextMenu({ event, children, selectionText }: { event: Sp
         <ExtractNameDialog
           raw={event._raw}
           selection={selection}
+          selectionStart={effectiveStart}
           stanza={stanza}
           onApply={(key, value) => setPropsConf(upsertDirectiveInStanza(propsConf, stanza, key, value))}
           onClose={() => setExtractOpen(false)}
@@ -77,6 +90,7 @@ export function EventContextMenu({ event, children, selectionText }: { event: Sp
         <TimePrefixDialog
           raw={event._raw}
           selection={selection}
+          selectionStart={effectiveStart}
           stanza={stanza}
           onApply={(value) => setPropsConf(upsertDirectiveInStanza(propsConf, stanza, 'TIME_PREFIX', value))}
           onClose={() => setTimePrefixOpen(false)}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generalize, buildExtractFromSelection, timePrefixFromSelection } from '../fromSelection';
+import { generalize, buildExtractFromSelection, timePrefixFromSelection, toCaptureGroupName } from '../fromSelection';
 import { upsertDirectiveInStanza } from '../serialize';
 
 describe('generalize', () => {
@@ -28,6 +28,42 @@ describe('buildExtractFromSelection', () => {
   it('defaults the field name and returns null for empty selection', () => {
     expect(buildExtractFromSelection('x=1', '1', '')?.key).toBe('EXTRACT-field');
     expect(buildExtractFromSelection('x=1', '', 'f')).toBeNull();
+  });
+
+  // #33: anchor on the selection's real offset, not the first occurrence.
+  it('anchors on the selection offset rather than the first match', () => {
+    const raw = 'status=200 code=200';
+    // Selecting the second "200" (in code=200, offset 16).
+    const d = buildExtractFromSelection(raw, '200', 'rc', 16);
+    expect(d?.value).toBe('code=(?<rc>\\d+)');
+    // Without the offset it wrongly anchors on status=.
+    const noOffset = buildExtractFromSelection(raw, '200', 'rc');
+    expect(noOffset?.value).toBe('status=(?<rc>\\d+)');
+  });
+
+  // #32: an illegal field name is sanitised into a valid capture group so the
+  // regex compiles (instead of the dialog reporting a misleading "invalid regex").
+  it('sanitises an illegal field name into a valid capture group', () => {
+    const d = buildExtractFromSelection('a-b=200', '200', 'client-ip');
+    expect(d?.key).toBe('EXTRACT-client_ip');
+    expect(d?.value).toContain('(?<client_ip>');
+    expect(() => new RegExp(d!.value)).not.toThrow();
+  });
+
+  it('prefixes a leading-digit field name', () => {
+    const d = buildExtractFromSelection('x=1', '1', '2nd');
+    expect(d?.value).toContain('(?<_2nd>');
+    expect(() => new RegExp(d!.value)).not.toThrow();
+  });
+});
+
+describe('toCaptureGroupName', () => {
+  it('replaces illegal characters and prefixes a leading digit', () => {
+    expect(toCaptureGroupName('client-ip')).toBe('client_ip');
+    expect(toCaptureGroupName('user.name')).toBe('user_name');
+    expect(toCaptureGroupName('2nd')).toBe('_2nd');
+    expect(toCaptureGroupName('  ')).toBe('field');
+    expect(toCaptureGroupName('ok_1')).toBe('ok_1');
   });
 });
 
