@@ -9,6 +9,33 @@ interface SedCommand {
   global: boolean;
 }
 
+/**
+ * Turn a parsed sed replacement string into a JS `String.replace` replacement.
+ * The parser preserves backslashes verbatim, so this single left-to-right pass
+ * resolves the escapes with sed's semantics:
+ *   - `\1`..`\9`  → capture-group backreferences (`$1`..`$9`)
+ *   - `\<char>`   → the escaped literal, with the backslash dropped (this covers
+ *                   an escaped delimiter like `s/b/x\/y/` → `x/y`, plus `\\` → `\`)
+ *   - a bare `$`  → escaped to `$$` so JS doesn't read it as a substitution
+ *                   pattern (sed treats `$` as an ordinary character)
+ */
+function buildReplacement(raw: string): string {
+  let out = '';
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (c === '\\' && i + 1 < raw.length) {
+      const next = raw[i + 1];
+      // \0..\9 stay backreferences (mirrors the previous \\(\d) → $n behaviour);
+      // any other escaped character becomes the bare literal.
+      out += next >= '0' && next <= '9' ? '$' + next : next === '$' ? '$$' : next;
+      i++;
+      continue;
+    }
+    out += c === '$' ? '$$' : c;
+  }
+  return out;
+}
+
 function parseSedExpression(
   value: string,
   dir?: ConfDirective,
@@ -61,14 +88,7 @@ function parseSedExpression(
   if (parts.length < 2) return null;
 
   const patternStr = parts[0];
-  // Convert sed/Splunk backreferences (\1..\9) to JS replacement syntax ($1..$9).
-  // First escape any literal `$` to `$$` — in sed `$` is a literal character, but
-  // JS String.replace treats `$1`/`$&` as substitution patterns, so an un-escaped
-  // `$` (e.g. s/price/$5.00/) would mangle the output. Escape before introducing
-  // our own `$n` backrefs so they survive.
-  const replacement = (parts[1] ?? '')
-    .replace(/\$/g, '$$$$')
-    .replace(/\\(\d)/g, '$$$1');
+  const replacement = buildReplacement(parts[1] ?? '');
   const flags = parts[2] ?? '';
   const isGlobal = flags.includes('g');
 

@@ -41,6 +41,25 @@ describe('applySedCommands', () => {
     expect(e._raw).toBe('$5.00');
   });
 
+  // #21: an escaped delimiter in the replacement drops the backslash (GNU sed:
+  // `echo abc | sed 's/b/x\/y/'` → `ax/yc`), rather than leaving a stray `\`.
+  it('unescapes an escaped delimiter in the replacement', () => {
+    const [e] = applySedCommands([event('abc')], [sedDir('x', 's/b/x\\/y/')]);
+    expect(e._raw).toBe('ax/yc');
+  });
+
+  it('unescapes a doubled backslash to a single backslash', () => {
+    const [e] = applySedCommands([event('a')], [sedDir('x', 's/a/x\\\\y/')]);
+    expect(e._raw).toBe('x\\y');
+  });
+
+  // A backslash-escaped backslash before a digit is a literal backslash, not a
+  // backreference: `\\1` → literal `\1`, never capture group 1.
+  it('does not treat an escaped backslash before a digit as a backreference', () => {
+    const [e] = applySedCommands([event('foo')], [sedDir('x', 's/(o)/\\\\1/g')]);
+    expect(e._raw).toBe('f\\1\\1');
+  });
+
   it('applies multiple SEDCMD classes in ASCII order', () => {
     // class "a" runs before class "b": a turns X→Y, then b turns Y→Z.
     const [e] = applySedCommands([event('X')], [sedDir('b', 's/Y/Z/'), sedDir('a', 's/X/Y/')]);
