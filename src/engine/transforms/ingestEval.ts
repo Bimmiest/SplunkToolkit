@@ -13,7 +13,13 @@ function splitAssignments(s: string): string[] {
     const c = s[i];
     if (quote) {
       // Inside a string literal: only the matching quote (when not escaped) ends it.
-      if (c === quote && s[i - 1] !== '\\') quote = null;
+      // Count the run of preceding backslashes — an odd count escapes the quote,
+      // an even count (e.g. a value ending in `\\`) leaves it free to close.
+      if (c === quote) {
+        let bs = 0;
+        for (let j = i - 1; j >= 0 && s[j] === '\\'; j--) bs++;
+        if (bs % 2 === 0) quote = null;
+      }
       continue;
     }
     if (c === '"' || c === "'") quote = c;

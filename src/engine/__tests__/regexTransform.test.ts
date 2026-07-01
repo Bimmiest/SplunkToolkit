@@ -162,6 +162,30 @@ describe('applyRegexTransform — numbered groups with FORMAT', () => {
     const result = applyRegexTransform(event('user@host'), s);
     expect(result.destValue).toBe('host/user');
   });
+
+  // #26: with a single group, `$10` is group 1 followed by a literal `0`, not
+  // the non-existent group 10 (which used to collapse the whole output to '').
+  it('treats a digit after a single-digit group ref as a literal', () => {
+    const s = stanza('grab', {
+      REGEX: '(AA)',
+      FORMAT: '$10',
+      DEST_KEY: '_raw',
+    });
+    const result = applyRegexTransform(event('AA'), s);
+    expect(result.destValue).toBe('AA0');
+  });
+
+  // With enough groups present, `$10` still resolves to group 10.
+  it('resolves a genuine two-digit group reference when the group exists', () => {
+    const s = stanza('grab', {
+      // 10 single-char groups; group 10 captures "J".
+      REGEX: '(A)(B)(C)(D)(E)(F)(G)(H)(I)(J)',
+      FORMAT: '$10',
+      DEST_KEY: '_raw',
+    });
+    const result = applyRegexTransform(event('ABCDEFGHIJ'), s);
+    expect(result.destValue).toBe('J');
+  });
 });
 
 describe('applyRegexTransform — DELIMS / FIELDS', () => {

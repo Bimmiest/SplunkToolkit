@@ -87,6 +87,20 @@ describe('applyDestKey — _raw replacement', () => {
   });
 });
 
+// #29: an empty FORMAT expansion (destValue === '') must still route, rather
+// than being treated as "no routing" by a falsy check.
+describe('applyDestKey — empty destValue still routes', () => {
+  it('sets a target field to an empty string', () => {
+    const event = applyDestKey(baseEvent(), result('anon_field', ''));
+    expect(event.fields.anon_field).toBe('');
+  });
+
+  it('blanks _raw when FORMAT expands to empty', () => {
+    const event = applyDestKey(baseEvent(), result('_raw', ''));
+    expect(event._raw).toBe('');
+  });
+});
+
 describe('applyDestKey — _meta (SEM-11)', () => {
   it('parses space-separated key::value pairs', () => {
     const event = applyDestKey(baseEvent(), result('_meta', 'a::1 b::2'));

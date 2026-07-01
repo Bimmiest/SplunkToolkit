@@ -40,4 +40,13 @@ describe('applyIngestEval', () => {
     const [e] = applyIngestEval([event('x')], ingestDir('n=if(1==1,"yes","no")'));
     expect(e.fields.n).toBe('yes');
   });
+
+  // #25: a value ending in an escaped backslash (\\) closes the quote — the
+  // following top-level comma must still split, not be swallowed.
+  it('closes a literal ending in an escaped backslash and splits the next assignment', () => {
+    // a = the Windows path `c:\` (written `c:\\` in the config), then b=2.
+    const [e] = applyIngestEval([event('x')], ingestDir('a="c:\\\\", b=2'));
+    expect(e.fields.a).toBe('c:\\');
+    expect(e.fields.b).toBe('2');
+  });
 });

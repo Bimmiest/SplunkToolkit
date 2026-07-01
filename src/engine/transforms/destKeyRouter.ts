@@ -2,8 +2,11 @@ import type { SplunkEvent } from '../types';
 import type { TransformResult } from './regexTransform';
 
 export function applyDestKey(event: SplunkEvent, result: TransformResult): SplunkEvent {
-  if (!result.matched || !result.destKey || !result.destValue) {
-    // No routing, just add extracted fields
+  if (!result.matched || result.destKey === undefined || result.destValue === undefined) {
+    // No routing, just add extracted fields.
+    // Test for `undefined` rather than falsiness: a FORMAT that legitimately
+    // expands to "" (e.g. blanking _raw, or anonymising a field to empty) must
+    // still route — only an absent destKey/destValue means "no routing".
     return {
       ...event,
       fields: { ...event.fields, ...result.fields },
