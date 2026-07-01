@@ -10,11 +10,14 @@ function buildContextPatterns(key: string, value: string): RegExp[] {
   if (cached) return cached;
   const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const escapedVal = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // The value is wrapped in a capture group and the `d` flag records its start
+  // offset, so we highlight the value itself even when the same text also
+  // appears in the key (e.g. {"name":"name"}).
   const patterns = [
-    new RegExp(`"${escapedKey}"\\s*:\\s*"${escapedVal}"`, 'g'),           // "key":"value"
-    new RegExp(`"${escapedKey}"\\s*:\\s*${escapedVal}(?=[,}\\s])`, 'g'),  // "key":numvalue
-    new RegExp(`(?:^|[\\s,;])${escapedKey}="${escapedVal}"`, 'gm'),       // key="value"
-    new RegExp(`(?:^|[\\s,;])${escapedKey}=${escapedVal}(?=[,;\\s]|$)`, 'gm'), // key=value
+    new RegExp(`"${escapedKey}"\\s*:\\s*"(${escapedVal})"`, 'gd'),           // "key":"value"
+    new RegExp(`"${escapedKey}"\\s*:\\s*(${escapedVal})(?=[,}\\s])`, 'gd'),  // "key":numvalue
+    new RegExp(`(?:^|[\\s,;])${escapedKey}="(${escapedVal})"`, 'gdm'),       // key="value"
+    new RegExp(`(?:^|[\\s,;])${escapedKey}=(${escapedVal})(?=[,;\\s]|$)`, 'gdm'), // key=value
   ];
   if (_patternCache.size >= PATTERN_CACHE_LIMIT) {
     const oldest = _patternCache.keys().next().value;
@@ -54,10 +57,9 @@ export function findFieldValuePositions(
     for (const pattern of buildContextPatterns(key, value)) {
       let match: RegExpExecArray | null;
       while ((match = pattern.exec(raw)) !== null) {
-        const valIdx = raw.indexOf(value, match.index);
-        if (valIdx !== -1 && valIdx < match.index + match[0].length) {
-          contextPositions.push(valIdx);
-        }
+        // indices[1] is the [start, end] of the captured value group.
+        const valIdx = match.indices?.[1]?.[0];
+        if (valIdx !== undefined) contextPositions.push(valIdx);
       }
     }
     if (contextPositions.length > 0) break; // original key matched — no need to try stripped name
@@ -71,6 +73,11 @@ export function findFieldValuePositions(
   // Only return the first occurrence to prevent double-highlighting of coincidental matches
   // (e.g. a regex-extracted field value that also appears elsewhere in unstructured raw text).
   if (value.length < 2) return [];
-  const idx = raw.indexOf(value);
-  return idx !== -1 ? [idx] : [];
+  // Require a word boundary around the value so a bare substring match doesn't
+  // land inside a larger token — e.g. value "10" must not match the "10" inside
+  // "100". Falls back to the first delimiter-bounded occurrence only.
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const bounded = new RegExp(`(?<![\\w.])${escaped}(?![\\w.])`);
+  const m = bounded.exec(raw);
+  return m ? [m.index] : [];
 }

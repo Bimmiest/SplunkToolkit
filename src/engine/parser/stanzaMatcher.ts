@@ -78,10 +78,21 @@ function patternToRegex(pattern: string): string {
 }
 
 function getPatternSpecificity(pattern: string): number {
+  // Score literal characters; wildcards contribute nothing. Mirror
+  // patternToRegex's tokenisation exactly: only `*`, `?`, and the `...`
+  // multi-segment wildcard are wildcards — a lone `.` is a LITERAL dot (Splunk
+  // source::/host:: syntax), so it must count. Otherwise `host::a.b.c.d` scores
+  // below a shorter all-literal pattern and can wrongly lose precedence.
   let score = 0;
-  for (const ch of pattern) {
-    if (ch !== '*' && ch !== '?' && ch !== '.') {
+  let i = 0;
+  while (i < pattern.length) {
+    if (pattern.substring(i, i + 3) === '...') {
+      i += 3;
+    } else if (pattern[i] === '*' || pattern[i] === '?') {
+      i++;
+    } else {
       score++;
+      i++;
     }
   }
   return score;
