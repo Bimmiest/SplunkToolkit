@@ -129,6 +129,21 @@ describe('applyKvMode — auto (AUTO_KV_JSON)', () => {
     expect(r.fields['count']).toBe('3');
   });
 
+  // #22: a key=value substring inside a quoted value must NOT become a field.
+  it('does not extract phantom fields from inside a quoted value', () => {
+    const [r] = applyKvMode([event('msg="error code=42 occurred"')], [dir('auto')]);
+    expect(r.fields['msg']).toBe('error code=42 occurred');
+    expect(r.fields['code']).toBeUndefined();
+  });
+
+  it('still extracts real bare pairs that follow a quoted value', () => {
+    const [r] = applyKvMode([event('msg="x=1 y=2" status=ok')], [dir('auto')]);
+    expect(r.fields['msg']).toBe('x=1 y=2');
+    expect(r.fields['status']).toBe('ok');
+    expect(r.fields['x']).toBeUndefined();
+    expect(r.fields['y']).toBeUndefined();
+  });
+
   it('does not auto-extract JSON when AUTO_KV_JSON=false', () => {
     const [r] = applyKvMode(
       [event('{"action":"login"}')],

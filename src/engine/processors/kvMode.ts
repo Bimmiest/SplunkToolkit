@@ -288,14 +288,19 @@ function extractKeyValue(
     : /(?:^|[\s,;])([\w.\-:]+)='([^']*)'/g;
   const bare = /(?:^|[\s,;])([\w.\-:]+)=([\w.:\-/\\@#+]+)/g;
 
-  const patterns: Array<{ re: RegExp; unescape: boolean }> = [
-    { re: doubleQuoted, unescape: escaped },
-    { re: singleQuoted, unescape: escaped },
-    { re: bare, unescape: false },
-  ];
+  // Working copy for the bare pass. Quoted key=value spans are blanked out here
+  // so that a `key=value` substring *inside* a quoted value (e.g.
+  // msg="error code=42") isn't mis-extracted as its own field. Blanking with
+  // same-length spaces preserves the [\s,;] boundaries the bare pattern anchors on.
+  let bareScan = raw;
 
-  for (const { re, unescape } of patterns) {
+  const runQuoted = (re: RegExp, unescape: boolean): void => {
     for (const match of raw.matchAll(re)) {
+      const start = match.index ?? 0;
+      bareScan =
+        bareScan.slice(0, start) +
+        ' '.repeat(match[0].length) +
+        bareScan.slice(start + match[0].length);
       const key = match[1];
       let value = match[2];
       if (key && value !== undefined && fields[key] === undefined) {
@@ -303,6 +308,18 @@ function extractKeyValue(
         fields[key] = value;
         added.push(key);
       }
+    }
+  };
+
+  runQuoted(doubleQuoted, escaped);
+  runQuoted(singleQuoted, escaped);
+
+  for (const match of bareScan.matchAll(bare)) {
+    const key = match[1];
+    const value = match[2];
+    if (key && value !== undefined && fields[key] === undefined) {
+      fields[key] = value;
+      added.push(key);
     }
   }
 }

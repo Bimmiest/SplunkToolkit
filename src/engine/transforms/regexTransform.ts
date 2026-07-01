@@ -41,7 +41,21 @@ function getCompiledRegex(transformStanza: ConfStanza, jsPattern: string): { pla
 }
 
 function expandFormat(format: string, match: RegExpExecArray): string {
-  let result = format.replace(CAPTURE_REF_PATTERN, (_, idx) => match[parseInt(idx)] ?? '');
+  // match[0] is the whole match; match[1..maxIndex] are the capture groups.
+  const maxIndex = match.length - 1;
+  let result = format.replace(CAPTURE_REF_PATTERN, (whole, digits) => {
+    // The pattern greedily grabs every trailing digit, but a reference resolves
+    // to at most `maxIndex`. Mirror PCRE/JS `$nn` fallback: take the LONGEST
+    // leading digit-run that names an existing group; any remaining digits are
+    // literal text. (So with one group, `$10` → group 1 followed by a literal
+    // `0`, not the non-existent group 10.)
+    for (let len = digits.length; len > 0; len--) {
+      const idx = parseInt(digits.slice(0, len), 10);
+      if (idx <= maxIndex) return (match[idx] ?? '') + digits.slice(len);
+    }
+    // No leading digit-run names a real group — leave the `$N` text untouched.
+    return whole;
+  });
   if (match.groups) {
     const groups = match.groups;
     result = result.replace(NAMED_REF_PATTERN, (_, name) => groups[name] ?? '');
