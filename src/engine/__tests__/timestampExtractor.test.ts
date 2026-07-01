@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { extractTimestamps } from '../processors/timestampExtractor';
-import type { SplunkEvent, ConfDirective } from '../types';
+import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 
 function event(raw: string): SplunkEvent {
   return {
@@ -84,5 +84,68 @@ describe('extractTimestamps — auto recognition (no TIME_FORMAT)', () => {
   it('leaves _time null when no timestamp is recognisable', () => {
     const [e] = extractTimestamps([event('no timestamp anywhere here')], []);
     expect(e._time).toBeNull();
+  });
+
+  // #12: position-scored recognition — the timestamp at the front of the region
+  // wins over a more-specific one embedded later in the message body.
+  it('prefers the earliest timestamp over a more-specific one deeper in the text', () => {
+    const [e] = extractTimestamps([event('01/02/2024 note 2023-06-15T08:00:00 tail')], []);
+    expect(iso(e._time)).toBe('2024-01-02T00:00:00.000Z');
+  });
+});
+
+// #12: out-of-range fields are a parse failure, not a silent Date rollover.
+describe('extractTimestamps — range validation (#12)', () => {
+  const fmt = dir('TIME_FORMAT', '%Y-%m-%d %H:%M:%S');
+
+  it('rejects an impossible day (Feb 30) instead of rolling into March', () => {
+    const [e] = extractTimestamps([event('2024-02-30 10:00:00 x')], [fmt]);
+    expect(e._time).toBeNull();
+  });
+
+  it('rejects an out-of-range month (13)', () => {
+    const [e] = extractTimestamps([event('2024-13-01 10:00:00 x')], [fmt]);
+    expect(e._time).toBeNull();
+  });
+
+  it('rejects an out-of-range hour (25)', () => {
+    const [e] = extractTimestamps([event('2024-01-15 25:00:00 x')], [fmt]);
+    expect(e._time).toBeNull();
+  });
+
+  it('still accepts a valid leap day', () => {
+    const [e] = extractTimestamps([event('2024-02-29 10:00:00 x')], [fmt]);
+    expect(iso(e._time)).toBe('2024-02-29T10:00:00.000Z');
+  });
+});
+
+// #12: an unresolvable timezone is treated as UTC but now warns instead of
+// drifting silently.
+describe('extractTimestamps — timezone resolution (#12)', () => {
+  const fmt = dir('TIME_FORMAT', '%Y-%m-%d %H:%M:%S');
+
+  it('warns when the TZ cannot be resolved and falls back to UTC', () => {
+    const diags: ValidationDiagnostic[] = [];
+    const [e] = extractTimestamps([event('2024-01-15 10:00:00 x')], [fmt, dir('TZ', 'Europe/London')], diags);
+    expect(iso(e._time)).toBe('2024-01-15T10:00:00.000Z');
+    expect(diags.some((d) => d.level === 'warning' && /Europe\/London/.test(d.message))).toBe(true);
+  });
+
+  it('does not warn for a resolvable numeric TZ offset', () => {
+    const diags: ValidationDiagnostic[] = [];
+    const [e] = extractTimestamps([event('2024-01-15 10:00:00 x')], [fmt, dir('TZ', '-0500')], diags);
+    // TZ=-0500 → local 10:00 is 15:00 UTC.
+    expect(iso(e._time)).toBe('2024-01-15T15:00:00.000Z');
+    expect(diags).toHaveLength(0);
+  });
+
+  it('warns only once for the same unresolved TZ across many events', () => {
+    const diags: ValidationDiagnostic[] = [];
+    extractTimestamps(
+      [event('2024-01-15 10:00:00 a'), event('2024-01-16 11:00:00 b')],
+      [fmt, dir('TZ', 'Europe/London')],
+      diags,
+    );
+    expect(diags.filter((d) => /Europe\/London/.test(d.message))).toHaveLength(1);
   });
 });

@@ -1,4 +1,4 @@
-import type { SplunkEvent, ConfDirective } from '../types';
+import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 import { safeRegex } from '../../utils/splunkRegex';
 import { parseTimestamp, strftimeToRegex } from '../../utils/strftime';
 
@@ -30,14 +30,31 @@ const AUTO_PATTERNS = AUTO_TIME_FORMATS.map((fmt) => ({ fmt, regex: strftimeToRe
 /**
  * Try to find a timestamp in `region` using the auto-recognition patterns, then
  * a leading-epoch fallback. Returns the parsed date plus the format that matched.
+ *
+ * Splunk's datetime recognition is positional, so candidates are scored by match
+ * position (earliest wins) and then by format specificity (the priority order of
+ * AUTO_TIME_FORMATS). This prevents a more-specific format that matches deep in a
+ * message body from beating the intended timestamp at the front of the region.
  */
-function autoRecognize(region: string, tz?: string): { date: Date; format: string } | null {
-  for (const { fmt, regex } of AUTO_PATTERNS) {
+function autoRecognize(
+  region: string,
+  tz?: string,
+  onUnresolvedTz?: (tz: string) => void,
+): { date: Date; format: string } | null {
+  let best: { index: number; priority: number; date: Date; format: string } | null = null;
+  for (let priority = 0; priority < AUTO_PATTERNS.length; priority++) {
+    const { fmt, regex } = AUTO_PATTERNS[priority];
     const m = regex.exec(region);
     if (!m) continue;
-    const date = parseTimestamp(m[0], fmt, tz);
-    if (date && !isNaN(date.getTime())) return { date, format: fmt };
+    const date = parseTimestamp(m[0], fmt, tz, onUnresolvedTz);
+    if (!date || isNaN(date.getTime())) continue;
+    // Earliest match wins; a tie is broken by the more specific (lower-priority-
+    // index) format.
+    if (best === null || m.index < best.index) {
+      best = { index: m.index, priority, date, format: fmt };
+    }
   }
+  if (best) return { date: best.date, format: best.format };
   // Epoch seconds (10 digits) or milliseconds (13) at the very start of the region.
   // Anchored to avoid mistaking arbitrary long numbers elsewhere for a timestamp.
   const epoch = /^\s*(\d{13}|\d{10})(?![0-9])/.exec(region);
@@ -50,7 +67,11 @@ function autoRecognize(region: string, tz?: string): { date: Date; format: strin
   return null;
 }
 
-export function extractTimestamps(events: SplunkEvent[], directives: ConfDirective[]): SplunkEvent[] {
+export function extractTimestamps(
+  events: SplunkEvent[],
+  directives: ConfDirective[],
+  diagnostics?: ValidationDiagnostic[],
+): SplunkEvent[] {
   const timePrefixDir = directives.find((d) => d.key === 'TIME_PREFIX');
   const timeFormatDir = directives.find((d) => d.key === 'TIME_FORMAT');
   const maxLookaheadDir = directives.find((d) => d.key === 'MAX_TIMESTAMP_LOOKAHEAD');
@@ -61,6 +82,25 @@ export function extractTimestamps(events: SplunkEvent[], directives: ConfDirecti
   const parsedLookahead = maxLookaheadDir ? parseInt(maxLookaheadDir.value.trim(), 10) : 128;
   const maxLookahead = Number.isFinite(parsedLookahead) && parsedLookahead > 0 ? parsedLookahead : 128;
   const tz = tzDir?.value.trim();
+
+  // Surface a warning (once per distinct value) when a %Z zone name or the TZ
+  // directive can't be resolved to an offset and the event is silently treated
+  // as UTC. Anchored to the TZ directive when present, else the TIME_FORMAT line.
+  const reportedTz = new Set<string>();
+  const onUnresolvedTz = diagnostics
+    ? (value: string) => {
+        if (reportedTz.has(value)) return;
+        reportedTz.add(value);
+        const anchor = tzDir ?? timeFormatDir;
+        diagnostics.push({
+          level: 'warning',
+          message: `Timezone "${value}" could not be resolved to an offset and was treated as UTC. Use a numeric offset (e.g. -0500) or a supported abbreviation for an accurate _time.`,
+          file: 'props.conf',
+          line: anchor?.line,
+          directiveKey: anchor?.key,
+        });
+      }
+    : undefined;
 
   const timePrefixRegex = timePrefixDir ? safeRegex(timePrefixDir.value.trim()) : null;
   const formatRegex = timeFormat ? strftimeToRegex(timeFormat) : null;
@@ -87,7 +127,7 @@ export function extractTimestamps(events: SplunkEvent[], directives: ConfDirecti
       if (!formatMatch) return event;
 
       const timestampStr = formatMatch[0];
-      const parsedTime = parseTimestamp(timestampStr, timeFormat, tz);
+      const parsedTime = parseTimestamp(timestampStr, timeFormat, tz, onUnresolvedTz);
 
       return {
         ...event,
@@ -106,7 +146,7 @@ export function extractTimestamps(events: SplunkEvent[], directives: ConfDirecti
     }
 
     // No TIME_FORMAT → automatic timestamp recognition (datetime.xml-style).
-    const auto = autoRecognize(searchRegion, tz);
+    const auto = autoRecognize(searchRegion, tz, onUnresolvedTz);
     if (!auto) return event;
 
     return {

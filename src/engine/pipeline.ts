@@ -215,7 +215,7 @@ export function runPipeline(
   events = safeProcessor('TRUNCATE', events, () => truncateEvents(events, directives, diagnostics), diagnostics);
 
   // Step 4: Timestamp extraction
-  events = safeProcessor('Timestamp', events, () => extractTimestamps(events, directives), diagnostics);
+  events = safeProcessor('Timestamp', events, () => extractTimestamps(events, directives, diagnostics), diagnostics);
 
   // Step 5: Indexed extractions
   events = safeProcessor('INDEXED_EXTRACTIONS', events, () => applyIndexedExtractions(events, directives), diagnostics);

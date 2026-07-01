@@ -194,9 +194,11 @@ const TZ_OFFSETS: Record<string, number> = {
  *  - Named abbreviations recognised by the internal table (e.g. "PST").
  *  - Numeric offsets in the form "+HHMM" or "-HHMM" (with optional colon).
  *
- * Returns 0 (UTC) when the value cannot be resolved.
+ * Returns `null` when the value cannot be resolved (e.g. an IANA name like
+ * "Europe/London", or an abbreviation not in the table). Callers decide how to
+ * surface that rather than silently treating an unknown zone as UTC.
  */
-function resolveTzOffsetMinutes(tz: string): number {
+function resolveTzOffsetMinutes(tz: string): number | null {
   const upper = tz.toUpperCase();
   // ISO-8601 "Z" (Zulu) designates UTC.
   if (upper === 'Z') return 0;
@@ -211,7 +213,7 @@ function resolveTzOffsetMinutes(tz: string): number {
     return sign * (parseInt(m[2], 10) * 60 + (m[3] ? parseInt(m[3], 10) : 0));
   }
 
-  return 0;
+  return null;
 }
 
 /**
@@ -221,9 +223,17 @@ function resolveTzOffsetMinutes(tz: string): number {
  * @param format - A strftime format string (e.g. `%Y-%m-%dT%H:%M:%S.%3N`).
  * @param tz     - Optional fallback timezone name or offset used when the
  *                 format itself does not contain %Z / %z.  Defaults to UTC.
+ * @param onUnresolvedTz - Called with the offending value when a named zone
+ *                 (%Z or the `tz` fallback) can't be resolved and is treated as
+ *                 UTC, so callers can surface a diagnostic instead of silent drift.
  * @returns A `Date` object if parsing succeeded, or `null` otherwise.
  */
-export function parseTimestamp(text: string, format: string, tz?: string): Date | null {
+export function parseTimestamp(
+  text: string,
+  format: string,
+  tz?: string,
+  onUnresolvedTz?: (tz: string) => void,
+): Date | null {
   const { regex, captures } = tokenise(format);
   const match = text.match(regex);
   if (!match) {
@@ -318,6 +328,21 @@ export function parseTimestamp(text: string, format: string, tz?: string): Date 
   const minute = bag.minute ? parseInt(bag.minute, 10) : 0;
   const second = bag.second ? parseInt(bag.second, 10) : 0;
 
+  // Reject out-of-range components rather than letting Date.UTC silently roll
+  // over (e.g. %m=13 → the next January, %d=32 → the next month, %H=25 → the
+  // next day). Splunk treats an out-of-range field as a parse failure.
+  const isLeapYear = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const daysInMonth = [31, isLeapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (
+    month < 0 || month > 11 ||
+    day < 1 || day > daysInMonth[month] ||
+    hour < 0 || hour > 23 ||
+    minute < 0 || minute > 59 ||
+    second < 0 || second > 60 // allow a leap second
+  ) {
+    return null;
+  }
+
   let milliseconds = 0;
   if (bag.milliseconds) {
     milliseconds = parseInt(bag.milliseconds, 10);
@@ -337,12 +362,24 @@ export function parseTimestamp(text: string, format: string, tz?: string): Date 
   let offsetMinutes: number | null = null;
 
   if (bag.tzOffset) {
-    offsetMinutes = resolveTzOffsetMinutes(bag.tzOffset);
+    // %z only ever matches Z or a numeric offset, so this always resolves.
+    offsetMinutes = resolveTzOffsetMinutes(bag.tzOffset) ?? 0;
   } else if (bag.tzName) {
     const resolved = resolveTzOffsetMinutes(bag.tzName);
-    offsetMinutes = resolved; // 0 if unrecognised -- treat as UTC
+    if (resolved === null) {
+      onUnresolvedTz?.(bag.tzName);
+      offsetMinutes = 0; // unresolved abbreviation -- treat as UTC, but signal it
+    } else {
+      offsetMinutes = resolved;
+    }
   } else if (tz) {
-    offsetMinutes = resolveTzOffsetMinutes(tz);
+    const resolved = resolveTzOffsetMinutes(tz);
+    if (resolved === null) {
+      onUnresolvedTz?.(tz);
+      offsetMinutes = 0;
+    } else {
+      offsetMinutes = resolved;
+    }
   }
 
   // -----------------------------------------------------------------------
