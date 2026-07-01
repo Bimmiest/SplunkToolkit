@@ -4,6 +4,19 @@ All notable changes to Splunk Toolkit are documented here, newest first.
 
 ---
 
+## 2026-07-01
+
+### Fixed
+
+- **eval `mvzip` padded to the longer field instead of stopping at the shorter** — it now behaves like a true zip, producing only as many values as the shorter field. `mvzip(["a","b","c"], ["1","2"])` → `["a,1","b,2"]` (previously `["a,1","b,2","c,"]`). ([src/engine/processors/evalProcessor.ts](src/engine/processors/evalProcessor.ts))
+- **eval `mvcount` returned `0` for a field with no values** — Splunk returns NULL (a single value → 1, multiple → count, no values → NULL). `mvcount` now returns NULL when the field is empty/missing.
+
+### Added
+
+- **eval `isbool()` and `isstr()`** — previously unimplemented (they fell through to the stub default and silently returned null). They now report the value's actual type, mirroring `typeof`'s type model. Both are registered in the Monaco eval-function list. ([src/engine/processors/evalProcessor.ts](src/engine/processors/evalProcessor.ts))
+
+---
+
 ## 2026-05-31
 
 ### Added

@@ -145,6 +145,34 @@ describe('applyEvalExpressions — function fidelity', () => {
     expect(oor.fields['x']).toBeUndefined(); // null → field deleted
   });
 
+  it('mvzip stops at the shorter field (no padding)', () => {
+    const [r] = applyEvalExpressions(
+      [event({})],
+      [evalDir('z', 'mvjoin(mvzip(split("a,b,c", ","), split("1,2", ",")), "|")')],
+    );
+    expect(r.fields['z']).toBe('a,1|b,2');
+  });
+
+  it('mvcount returns NULL for no values and 1 for a single value', () => {
+    // No values → null → field not set.
+    const [none] = applyEvalExpressions([event({})], [evalDir('c', 'mvcount(missing)')]);
+    expect(none.fields['c']).toBeUndefined();
+    // Single value → 1.
+    const [one] = applyEvalExpressions([event({ a: 'x' })], [evalDir('c', 'mvcount(a)')]);
+    expect(one.fields['c']).toBe('1');
+    // Multivalue → count.
+    const [many] = applyEvalExpressions([event({})], [evalDir('c', 'mvcount(split("a,b,c", ","))')]);
+    expect(many.fields['c']).toBe('3');
+  });
+
+  it('isbool and isstr report the value type like typeof', () => {
+    const [r] = applyEvalExpressions(
+      [event({ a: 'hi' })],
+      [evalDir('t', 'isstr(a) . "," . isstr(1==1) . "," . isbool(1==1) . "," . isbool("x")')],
+    );
+    expect(r.fields['t']).toBe('true,false,true,false');
+  });
+
   it('max() treats strings as greater than numbers; min() picks the number', () => {
     const [mx] = applyEvalExpressions([event({})], [evalDir('m', 'max(5, "apple", 10)')]);
     expect(mx.fields['m']).toBe('apple');
