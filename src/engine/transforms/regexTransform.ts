@@ -41,6 +41,14 @@ function getCompiledRegex(transformStanza: ConfStanza, jsPattern: string): { pla
   return result;
 }
 
+/** Last directive with the given key in a stanza (Splunk last-definition-wins), or undefined. */
+function lastDirective(stanza: ConfStanza, key: string): ConfDirective | undefined {
+  for (let i = stanza.directives.length - 1; i >= 0; i--) {
+    if (stanza.directives[i].key === key) return stanza.directives[i];
+  }
+  return undefined;
+}
+
 function expandFormat(format: string, match: RegExpExecArray, priorDestValue?: string): string {
   // match[0] is the whole match; match[1..maxIndex] are the capture groups.
   const maxIndex = match.length - 1;
@@ -192,7 +200,7 @@ function applyDelimsExtraction(
       addMultiValue(result.fields, key, value);
     }
   } else {
-    const fieldsDir = stanza.directives.find((d) => d.key === 'FIELDS');
+    const fieldsDir = lastDirective(stanza, 'FIELDS');
     if (!fieldsDir) return result;
     const names = parseDelimList(fieldsDir.value);
     const values = splitOnAnyChar(sourceValue, delimSets[0]);
@@ -213,22 +221,24 @@ export function applyRegexTransform(
   transformStanza: ConfStanza,
   onInvalidRegex?: (pattern: string) => void,
 ): TransformResult {
-  const regexDir = transformStanza.directives.find((d) => d.key === 'REGEX');
-  const formatDir = transformStanza.directives.find((d) => d.key === 'FORMAT');
-  const sourceKeyDir = transformStanza.directives.find((d) => d.key === 'SOURCE_KEY');
-  const destKeyDir = transformStanza.directives.find((d) => d.key === 'DEST_KEY');
-  const writeMetaDir = transformStanza.directives.find((d) => d.key === 'WRITE_META');
+  // Splunk's last-definition-wins rule: a repeated key within a stanza (including
+  // one produced by merging duplicate same-name stanzas) takes its LAST value.
+  const regexDir = lastDirective(transformStanza, 'REGEX');
+  const formatDir = lastDirective(transformStanza, 'FORMAT');
+  const sourceKeyDir = lastDirective(transformStanza, 'SOURCE_KEY');
+  const destKeyDir = lastDirective(transformStanza, 'DEST_KEY');
+  const writeMetaDir = lastDirective(transformStanza, 'WRITE_META');
   const writeMeta = writeMetaDir?.value.trim().toLowerCase() === 'true';
   // REPEAT_MATCH: re-run the regex to find every match (default: first match only).
   // MV_ADD: when a field is extracted more than once, accumulate into a multivalue
   // field rather than discarding the later value (default: keep the first).
-  const repeatMatch = transformStanza.directives.find((d) => d.key === 'REPEAT_MATCH')?.value.trim().toLowerCase() === 'true';
-  const mvAdd = transformStanza.directives.find((d) => d.key === 'MV_ADD')?.value.trim().toLowerCase() === 'true';
+  const repeatMatch = lastDirective(transformStanza, 'REPEAT_MATCH')?.value.trim().toLowerCase() === 'true';
+  const mvAdd = lastDirective(transformStanza, 'MV_ADD')?.value.trim().toLowerCase() === 'true';
 
   const result: TransformResult = { fields: {}, matched: false };
 
   // DELIMS-based (delimiter) extraction is used in place of REGEX.
-  const delimsDir = transformStanza.directives.find((d) => d.key === 'DELIMS');
+  const delimsDir = lastDirective(transformStanza, 'DELIMS');
   if (delimsDir) {
     return applyDelimsExtraction(event, transformStanza, delimsDir, sourceKeyDir, writeMeta);
   }
