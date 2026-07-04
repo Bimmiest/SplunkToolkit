@@ -41,7 +41,7 @@ function getCompiledRegex(transformStanza: ConfStanza, jsPattern: string): { pla
   return result;
 }
 
-function expandFormat(format: string, match: RegExpExecArray): string {
+function expandFormat(format: string, match: RegExpExecArray, priorDestValue?: string): string {
   // match[0] is the whole match; match[1..maxIndex] are the capture groups.
   const maxIndex = match.length - 1;
   let result = format.replace(CAPTURE_REF_PATTERN, (whole, digits) => {
@@ -52,7 +52,14 @@ function expandFormat(format: string, match: RegExpExecArray): string {
     // `0`, not the non-existent group 10.)
     for (let len = digits.length; len > 0; len--) {
       const idx = parseInt(digits.slice(0, len), 10);
-      if (idx <= maxIndex) return (match[idx] ?? '') + digits.slice(len);
+      if (idx <= maxIndex) {
+        // transforms.conf.spec: `$0` is "what was in the DEST_KEY before the
+        // REGEX was performed", not the whole match. Use the prior DEST_KEY value
+        // when one is known; fall back to the whole match otherwise (e.g. field
+        // extractions with no DEST_KEY).
+        const base = idx === 0 && priorDestValue !== undefined ? priorDestValue : (match[idx] ?? '');
+        return base + digits.slice(len);
+      }
     }
     // No leading digit-run names a real group — leave the `$N` text untouched.
     return whole;
@@ -62,6 +69,24 @@ function expandFormat(format: string, match: RegExpExecArray): string {
     result = result.replace(NAMED_REF_PATTERN, (_, name) => groups[name] ?? '');
   }
   return result;
+}
+
+/**
+ * Resolve the current contents of DEST_KEY (used for `$0` in FORMAT). Returns
+ * `undefined` when there is no DEST_KEY, so `$0` falls back to the whole match.
+ */
+function resolvePriorDestValue(event: SplunkEvent, destKey: string | undefined): string | undefined {
+  if (!destKey) return undefined;
+  if (destKey === '_raw') return event._raw;
+  const norm = destKey.replace(/^_(?=MetaData:)/i, '');
+  switch (norm) {
+    case 'MetaData:Host': return event.metadata.host;
+    case 'MetaData:Index': return event.metadata.index;
+    case 'MetaData:Source': return event.metadata.source;
+    case 'MetaData:Sourcetype': return event.metadata.sourcetype;
+  }
+  const v = event.fields[destKey];
+  return (Array.isArray(v) ? v[0] : v) ?? '';
 }
 
 function addMultiValue(
@@ -221,13 +246,22 @@ export function applyRegexTransform(
     return result;
   }
 
-  // Quick match check using plain (non-global) regex to avoid mutating lastIndex here.
-  if (!compiled.plain.test(sourceValue)) return result;
+  // Match once with the plain (non-global) regex; reused below to decide named vs
+  // numbered handling and as the first match for non-REPEAT_MATCH extraction.
+  const firstMatch = compiled.plain.exec(sourceValue);
+  if (!firstMatch) return result;
 
   result.matched = true;
 
   const destKey = destKeyDir?.value.trim();
-  const format = formatDir?.value.trim();
+  const priorDestValue = resolvePriorDestValue(event, destKey);
+  const hasNamedGroups = firstMatch.groups !== undefined;
+  // Index-time FORMAT defaults to `<stanza-name>::$1` when omitted (transforms.conf.spec).
+  // Named capture groups auto-extract without a FORMAT, so the default only applies
+  // to a REGEX that uses numbered groups (at least group 1 must exist to reference).
+  const format =
+    formatDir?.value.trim() ??
+    (!hasNamedGroups && firstMatch.length > 1 ? `${transformStanza.name}::$1` : undefined);
 
   if (format) {
     if (destKey === '_raw') {
@@ -238,7 +272,7 @@ export function applyRegexTransform(
       const m = compiled.plain.exec(sourceValue);
       if (m) {
         result.destKey = destKey;
-        result.destValue = expandFormat(format, m);
+        result.destValue = expandFormat(format, m, priorDestValue);
       }
     } else if (destKey) {
       // Normalise _MetaData:X alias so lookup works for both forms.
@@ -249,7 +283,7 @@ export function applyRegexTransform(
         const m = compiled.plain.exec(sourceValue);
         if (m) {
           result.destKey = destKey;
-          result.destValue = expandFormat(format, m);
+          result.destValue = expandFormat(format, m, priorDestValue);
         }
       } else {
         // DEST_KEY=<field>: accumulate one value per match as a multi-value field.
@@ -259,7 +293,7 @@ export function applyRegexTransform(
         let firstValue: string | undefined;
         const extraValues: string[] = [];
         while ((m = global.exec(sourceValue)) !== null) {
-          const formatted = expandFormat(format, m);
+          const formatted = expandFormat(format, m, priorDestValue);
           if (firstValue === undefined) {
             firstValue = formatted;
           } else {
@@ -300,26 +334,46 @@ export function applyRegexTransform(
     // regex across the event (all matches); otherwise only the first match is used.
     // When a field is captured more than once, MV_ADD=true accumulates a multivalue
     // field while MV_ADD=false keeps the first value and discards the rest.
-    let matches: RegExpMatchArray[];
-    if (repeatMatch) {
-      matches = [...sourceValue.matchAll(compiled.global)];
-    } else {
-      const m = compiled.plain.exec(sourceValue);
-      matches = m ? [m] : [];
-    }
+    const matches: RegExpMatchArray[] = repeatMatch
+      ? [...sourceValue.matchAll(compiled.global)]
+      : [firstMatch];
+
+    const assignField = (name: string, value: string) => {
+      const fieldName = writeMeta ? stripLeadingUnderscoreForField(name) : name;
+      if (!fieldName) return;
+      if (!hasField(result.fields, fieldName)) {
+        setField(result.fields, fieldName, value);
+      } else if (mvAdd) {
+        addMultiValue(result.fields, fieldName, value);
+      }
+      // else: field already set and MV_ADD is false — discard the later value.
+    };
 
     for (const match of matches) {
       if (!match.groups) continue;
-      for (const [name, value] of Object.entries(match.groups)) {
+      const groups = match.groups;
+
+      // _KEY_<suffix>/_VAL_<suffix>: the KEY group's captured text is the field
+      // NAME and the paired VAL group's text is the value (transforms.conf.spec
+      // dynamic KV). Resolve these before treating groups as literal field names.
+      const dynamicSuffixes = new Set<string>();
+      for (const gname of Object.keys(groups)) {
+        const km = /^_KEY_(.+)$/.exec(gname);
+        if (km) dynamicSuffixes.add(km[1]);
+      }
+      for (const suffix of dynamicSuffixes) {
+        const keyText = groups[`_KEY_${suffix}`];
+        const valText = groups[`_VAL_${suffix}`];
+        if (keyText === undefined || valText === undefined) continue;
+        assignField(keyText, valText);
+      }
+
+      // Remaining named groups become fields verbatim (skip the _KEY_/_VAL_ pair
+      // groups, which are extraction machinery rather than real field names).
+      for (const [name, value] of Object.entries(groups)) {
         if (value === undefined) continue;
-        const fieldName = writeMeta ? stripLeadingUnderscoreForField(name) : name;
-        if (!fieldName) continue;
-        if (!hasField(result.fields, fieldName)) {
-          setField(result.fields, fieldName, value);
-        } else if (mvAdd) {
-          addMultiValue(result.fields, fieldName, value);
-        }
-        // else: field already set and MV_ADD is false — discard the later value.
+        if (/^_(?:KEY|VAL)_/.test(name)) continue;
+        assignField(name, value);
       }
     }
   }
