@@ -4,6 +4,14 @@ All notable changes to Splunk Toolkit are documented here, newest first.
 
 ---
 
+## 2026-07-04
+
+### Fixed
+
+- **Five TIME_FORMAT/strptime fidelity gaps meant common Splunk-documented formats silently produced no `_time`** — an unknown directive falls through to *literal* matching, so a single unsupported specifier makes the whole format fail with no diagnostic. `parseTimestamp`/`strftimeToRegex` now: (1) support the enhanced-strptime offset forms `%:z`/`%::z` (colon-separated), bare `%N` (= `%9N`) and the `%Q`/`%3Q`/`%6Q`/`%9Q` subsecond family (bare `%Q` = `%3Q`); (2) fold captured subseconds into an epoch timestamp instead of returning early and discarding them, so the documented `TIME_FORMAT = %s%3N` keeps its milliseconds; (3) accept 1–2 unpadded digits for `%m %d %H %I %M %S` (POSIX/glibc strptime), so US-style `1/5/2024 3:04:05` parses; (4) use the POSIX `%y` century pivot (69–99 → 1969–1999, 00–68 → 2000–2068) instead of an off-by-one at 69; and (5) expand the `%T`/`%F` composites with a `%%`-aware scan, so `%%T` stays a literal `%T` rather than corrupting into `%%H:%M:%S`. ([src/utils/strftime.ts](src/utils/strftime.ts))
+
+---
+
 ## 2026-07-01
 
 ### Changed
