@@ -49,16 +49,16 @@ describe('applyIndexedExtractions — JSON', () => {
     expect(events[0].fields['toString']).toBe('v');
   });
 
-  it('guards reserved keys after leading-underscore stripping', () => {
-    // INDEXED_EXTRACTIONS strips leading underscores, so `_constructor` would
-    // become `constructor`; the reserved-key guard must run after stripping.
+  it('extracts prototype-colliding keys as real fields after underscore stripping', () => {
+    // INDEXED_EXTRACTIONS strips leading underscores, so `_constructor` becomes
+    // `constructor`. Splunk's spath/KV_MODE=json extract such keys verbatim, so
+    // the value must land as an *own* data property (not the inherited function).
     const events = applyIndexedExtractions(
-      [event('{"_constructor":"bad","keep":"ok"}')],
+      [event('{"_constructor":"good","keep":"ok"}')],
       [dir('json')]
     );
-    // Reading `fields['constructor']` would return the inherited Object constructor,
-    // so assert the guard prevented an *own* property from being written.
-    expect(Object.prototype.hasOwnProperty.call(events[0].fields, 'constructor')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(events[0].fields, 'constructor')).toBe(true);
+    expect(events[0].fields['constructor']).toBe('good');
     expect(events[0].fields['keep']).toBe('ok');
   });
 

@@ -49,6 +49,26 @@ describe('applyRegexTransform — named capture groups', () => {
     expect(result.fields['action']).toBe('login');
   });
 
+  it('extracts a named group colliding with an Object.prototype member', () => {
+    // A `(?<toString>…)` group must not read back the inherited function via a
+    // `fields[name] === undefined` guard (which would drop the value with the
+    // default MV_ADD=false, or leak the function with MV_ADD=true).
+    const s = stanza('test', { REGEX: '(?<toString>\\w+)' });
+    const result = applyRegexTransform(event('hello'), s);
+    expect(result.matched).toBe(true);
+    expect(result.fields['toString']).toBe('hello');
+  });
+
+  it('accumulates a repeated prototype-named group into a multivalue with MV_ADD', () => {
+    const s = stanza('test', {
+      REGEX: '(?<toString>\\w+)',
+      REPEAT_MATCH: 'true',
+      MV_ADD: 'true',
+    });
+    const result = applyRegexTransform(event('a b c'), s);
+    expect(result.fields['toString']).toEqual(['a', 'b', 'c']);
+  });
+
   it('expands named ${name} back-references in FORMAT', () => {
     const s = stanza('test', {
       REGEX: '(?<user>\\w+) (?<action>\\w+)',

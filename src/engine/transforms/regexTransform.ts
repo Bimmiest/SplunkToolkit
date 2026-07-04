@@ -1,6 +1,7 @@
 import type { SplunkEvent, ConfStanza, ConfDirective } from '../types';
 import { safeRegex, convertSplunkToJsRegex } from '../../utils/splunkRegex';
 import { stripLeadingUnderscoreForField } from '../utils/internalFields';
+import { hasField, setField, addFieldValue } from '../utils/fieldBag';
 
 export interface TransformResult {
   fields: Record<string, string | string[]>;
@@ -68,14 +69,9 @@ function addMultiValue(
   key: string,
   value: string,
 ): void {
-  const existing = fields[key];
-  if (existing === undefined) {
-    fields[key] = value;
-  } else if (Array.isArray(existing)) {
-    existing.push(value);
-  } else {
-    fields[key] = [existing, value];
-  }
+  // hasOwn-guarded + `__proto__`-safe: a named group like `(?<toString>…)` is
+  // stored as a real field rather than reading back the inherited function.
+  addFieldValue(fields, key, value);
 }
 
 /** Resolve the value a transform reads from, honouring SOURCE_KEY (default _raw). */
@@ -318,8 +314,8 @@ export function applyRegexTransform(
         if (value === undefined) continue;
         const fieldName = writeMeta ? stripLeadingUnderscoreForField(name) : name;
         if (!fieldName) continue;
-        if (result.fields[fieldName] === undefined) {
-          result.fields[fieldName] = value;
+        if (!hasField(result.fields, fieldName)) {
+          setField(result.fields, fieldName, value);
         } else if (mvAdd) {
           addMultiValue(result.fields, fieldName, value);
         }

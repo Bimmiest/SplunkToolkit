@@ -67,6 +67,23 @@ describe('applyKvMode — json', () => {
     expect(r.fields['items{}.toString']).toEqual(['a', 'b']);
   });
 
+  it('extracts constructor/prototype keys as real fields (Splunk does)', () => {
+    const [r] = applyKvMode([event('{"constructor":"a","prototype":"b"}')], [dir('json')]);
+    expect(Object.prototype.hasOwnProperty.call(r.fields, 'constructor')).toBe(true);
+    expect(r.fields['constructor']).toBe('a');
+    expect(r.fields['prototype']).toBe('b');
+  });
+
+  it('extracts a __proto__ key as a field without polluting Object.prototype', () => {
+    const [r] = applyKvMode([event('{"__proto__":"pwned","keep":"ok"}')], [dir('json')]);
+    expect(Object.prototype.hasOwnProperty.call(r.fields, '__proto__')).toBe(true);
+    expect(r.fields['__proto__']).toBe('pwned');
+    expect(r.fields['keep']).toBe('ok');
+    // Object.prototype and the bag's own prototype must be untouched.
+    expect(Object.getPrototypeOf(r.fields)).toBe(Object.prototype);
+    expect(({} as Record<string, unknown>)['keep']).toBeUndefined();
+  });
+
   it('does NOT scavenge bare leaf fields from a nested object when the outer JSON is malformed', () => {
     // The whole event fails JSON.parse (`<ID>` is not a valid token), but the nested
     // `alert` object is locally well-formed. The old behaviour flattened that inner

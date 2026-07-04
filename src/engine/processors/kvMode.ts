@@ -1,5 +1,6 @@
 import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 import { flattenJson, flattenArray } from '../utils/flattenJson';
+import { hasField, setField, addFieldValue } from '../utils/fieldBag';
 
 export function applyKvMode(
   events: SplunkEvent[],
@@ -196,15 +197,9 @@ function extractJson(
 }
 
 function addMvField(fields: Record<string, string | string[]>, added: string[], key: string, value: string): void {
-  const existing = fields[key];
-  if (existing !== undefined) {
-    if (Array.isArray(existing)) {
-      existing.push(value);
-    } else {
-      fields[key] = [existing, value];
-    }
-  } else {
-    fields[key] = value;
+  // hasOwn-guarded + `__proto__`-safe so a key like `toString` is stored as a
+  // real field instead of reading back the inherited Object.prototype member.
+  if (addFieldValue(fields, key, value)) {
     added.push(key);
   }
 }
@@ -245,8 +240,8 @@ function walkXmlElement(
     const attr = el.attributes[i];
     // "Name" attribute on an element uses TagName_Name as field name (Windows EventLog convention).
     const fieldName = attr.name === 'Name' ? `${tagName}_Name` : attr.name;
-    if (attr.value && fields[fieldName] === undefined) {
-      fields[fieldName] = attr.value;
+    if (attr.value && !hasField(fields, fieldName)) {
+      setField(fields, fieldName, attr.value);
       added.push(fieldName);
     }
   }
@@ -303,9 +298,9 @@ function extractKeyValue(
         bareScan.slice(start + match[0].length);
       const key = match[1];
       let value = match[2];
-      if (key && value !== undefined && fields[key] === undefined) {
+      if (key && value !== undefined && !hasField(fields, key)) {
         if (unescape) value = value.replace(/\\(["'\\])/g, '$1');
-        fields[key] = value;
+        setField(fields, key, value);
         added.push(key);
       }
     }
@@ -317,8 +312,8 @@ function extractKeyValue(
   for (const match of bareScan.matchAll(bare)) {
     const key = match[1];
     const value = match[2];
-    if (key && value !== undefined && fields[key] === undefined) {
-      fields[key] = value;
+    if (key && value !== undefined && !hasField(fields, key)) {
+      setField(fields, key, value);
       added.push(key);
     }
   }
