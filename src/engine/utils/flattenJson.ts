@@ -1,9 +1,6 @@
+import { addFieldValue } from './fieldBag';
+
 const MAX_DEPTH = 10;
-
-const hasOwn = Object.prototype.hasOwnProperty;
-
-/** Keys reserved by Splunk / unsafe to use as field names. Checked after underscore stripping. */
-const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 /**
  * Flattens parsed JSON into Splunk-style dot/brace notation fields, matching
@@ -42,20 +39,11 @@ function addValue(
   name: string,
   value: string,
 ): void {
-  // Use hasOwnProperty rather than `fields[name] === undefined`: a plain-object
-  // `fields` inherits Object.prototype members, so a JSON key like `toString` or
-  // `valueOf` would otherwise read back the inherited function instead of undefined
-  // and get wrongly promoted to a multivalue (and never recorded in `added`).
-  if (!hasOwn.call(fields, name)) {
-    fields[name] = value;
+  // `addFieldValue` is hasOwnProperty-guarded and `__proto__`-safe, so keys that
+  // collide with Object.prototype members (`toString`, `constructor`, …) are
+  // extracted verbatim instead of reading back an inherited function.
+  if (addFieldValue(fields, name, value)) {
     added.push(name);
-    return;
-  }
-  const existing = fields[name];
-  if (Array.isArray(existing)) {
-    existing.push(value);
-  } else {
-    fields[name] = [existing, value];
   }
 }
 
@@ -125,9 +113,9 @@ export function flattenJson(
   for (const [rawKey, value] of Object.entries(obj)) {
     const key = options.stripLeadingUnderscore ? rawKey.replace(/^_+/, '') : rawKey;
     if (!key) continue;
-    // Guard after stripping: with stripLeadingUnderscore a key like `_constructor`
-    // becomes `constructor`, so checking the raw key alone would let it through.
-    if (RESERVED_KEYS.has(key)) continue;
+    // Keys colliding with Object.prototype members (`constructor`, `__proto__`,
+    // …) are no longer dropped: Splunk's spath/KV_MODE=json extract them, and
+    // the hasOwn-guarded, `__proto__`-safe field writers make that safe.
     const fieldName = prefix ? `${prefix}.${key}` : key;
 
     if (options.sourceKeys && key !== rawKey) {
