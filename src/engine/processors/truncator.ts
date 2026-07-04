@@ -3,6 +3,39 @@ import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types'
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: false });
 
+/**
+ * Return how many bytes of `bytes[0..maxBytes)` form a run of whole UTF-8
+ * characters — i.e. `maxBytes` rounded down so it never lands in the middle of
+ * a multi-byte sequence. Splunk rounds line-length truncation down to a
+ * character boundary; a naive `slice(0, maxBytes)` + lenient decode would emit
+ * a U+FFFD replacement character for the trailing partial sequence instead.
+ */
+function utf8BoundaryLength(bytes: Uint8Array, maxBytes: number): number {
+  if (maxBytes >= bytes.length) return bytes.length;
+  // Walk back over trailing continuation bytes (0b10xxxxxx) to the lead byte of
+  // the character that straddles the cut.
+  let i = maxBytes - 1;
+  while (i >= 0 && (bytes[i] & 0b1100_0000) === 0b1000_0000) i--;
+  if (i < 0) return maxBytes; // all continuation bytes (malformed) — cut as-is
+  const lead = bytes[i];
+  let charLen: number;
+  if ((lead & 0b1000_0000) === 0) charLen = 1;
+  else if ((lead & 0b1110_0000) === 0b1100_0000) charLen = 2;
+  else if ((lead & 0b1111_0000) === 0b1110_0000) charLen = 3;
+  else if ((lead & 0b1111_1000) === 0b1111_0000) charLen = 4;
+  else return maxBytes; // invalid lead byte — cut as-is
+  // Keep the straddling character only if it fits entirely within the limit.
+  return i + charLen <= maxBytes ? maxBytes : i;
+}
+
+/** Truncate one line to at most `maxBytes` bytes, on a UTF-8 char boundary. */
+function truncateLine(line: string, maxBytes: number): { text: string; truncated: boolean } {
+  const bytes = encoder.encode(line);
+  if (bytes.length <= maxBytes) return { text: line, truncated: false };
+  const end = utf8BoundaryLength(bytes, maxBytes);
+  return { text: decoder.decode(bytes.slice(0, end)), truncated: true };
+}
+
 export function truncateEvents(
   events: SplunkEvent[],
   directives: ConfDirective[],
@@ -32,20 +65,32 @@ export function truncateEvents(
   if (maxBytes <= 0) return events;
 
   return events.map((event) => {
-    const bytes = encoder.encode(event._raw);
-    if (bytes.length <= maxBytes) return event;
+    // TRUNCATE is a per-*line* byte cap, applied by Splunk's LineBreakingProcessor
+    // to each line-breaker segment *before* the aggregator merges them. Measuring
+    // the whole merged `_raw` would wrongly truncate a long multi-line event whose
+    // individual lines are all short (Splunk leaves that intact; MAX_EVENTS caps
+    // line count instead). Segments are merged with '\n' (lineBreaker.ts), so
+    // splitting on '\n' recovers the physical lines to cap independently.
+    const lines = event._raw.split('\n');
+    let truncatedLines = 0;
+    const newLines = lines.map((line) => {
+      const { text, truncated } = truncateLine(line, maxBytes);
+      if (truncated) truncatedLines++;
+      return text;
+    });
+    if (truncatedLines === 0) return event;
 
-    const truncated = decoder.decode(bytes.slice(0, maxBytes));
     const suffix = isDefault ? ' (TRUNCATE default)' : ` (TRUNCATE=${maxBytes})`;
+    const plural = truncatedLines === 1 ? 'line' : 'lines';
     return {
       ...event,
-      _raw: truncated,
+      _raw: newLines.join('\n'),
       processingTrace: [
         ...event.processingTrace,
         {
           processor: 'truncator',
           phase: 'index-time' as const,
-          description: `Truncated event from ${bytes.length} to ${maxBytes} bytes${suffix}`,
+          description: `Truncated ${truncatedLines} ${plural} to ${maxBytes} bytes each${suffix}`,
           inputSnapshot: event._raw.substring(0, 100) + '...',
         },
       ],

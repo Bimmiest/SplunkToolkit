@@ -43,6 +43,38 @@ describe('truncateEvents', () => {
     expect(diags.some((d) => d.message.includes('not a valid byte count'))).toBe(true);
   });
 
+  // #67.1: TRUNCATE is a per-line cap, not a per-(merged-)event cap.
+  it('leaves a long multi-line event intact when every line is under the limit', () => {
+    // 6 lines × 8 chars = 48 bytes total, well over TRUNCATE=20, but each line
+    // is only 8 bytes. Splunk truncates per line, so nothing is cut.
+    const raw = Array.from({ length: 6 }, (_, i) => `line-${i}0`).join('\n');
+    const [e] = truncateEvents([event(raw)], truncateDir('20'));
+    expect(e._raw).toBe(raw);
+  });
+
+  it('truncates only the individual lines that exceed the limit', () => {
+    const raw = ['short', 'this-line-is-way-too-long', 'ok'].join('\n');
+    const [e] = truncateEvents([event(raw)], truncateDir('5'));
+    expect(e._raw).toBe(['short', 'this-', 'ok'].join('\n'));
+  });
+
+  // #67.2: mid-character truncation must round down to a full UTF-8 character,
+  // not emit a U+FFFD replacement character for the trailing partial sequence.
+  it('rounds down to a UTF-8 character boundary instead of emitting U+FFFD', () => {
+    // '€' is 3 bytes (E2 82 AC); "a€" is 4 bytes. A 2-byte cut must drop the
+    // whole '€' and yield "a", not "a�".
+    const [e] = truncateEvents([event('a€')], truncateDir('2'));
+    expect(e._raw).toBe('a');
+    expect(e._raw).not.toContain('�');
+  });
+
+  it('keeps a multi-byte character that fits exactly within the limit', () => {
+    // "€€" is 6 bytes; a 3-byte cut keeps exactly one '€'.
+    const [e] = truncateEvents([event('€€')], truncateDir('3'));
+    expect(e._raw).toBe('€');
+    expect(e._raw).not.toContain('�');
+  });
+
   // #30.2: parseInt is too lenient — these forms must be rejected, not silently
   // truncating with a wrong length (1e3→1) or disabling truncation (0x10→0).
   it.each(['0x10', '1e3', '100abc', '1.5', '-5'])(
