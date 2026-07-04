@@ -343,6 +343,24 @@ function extractMultiKv(raw: string, fields: Record<string, string | string[]>, 
   for (let r = 1; r < lines.length; r++) {
     const line = lines[r];
     if (isSeparator(line)) continue;
+
+    // Prefer plain whitespace tokenization: most multikv input (ps/top/netstat
+    // output) is left-aligned with variable-width values that do NOT line up
+    // under the header token offsets. When the row splits into exactly one
+    // token per column, that split is unambiguous — use it directly.
+    const tokens = [...line.matchAll(/\S+/g)];
+    if (tokens.length === cols.length) {
+      for (let c = 0; c < cols.length; c++) {
+        const value = tokens[c][0];
+        if (value) addMvField(fields, added, cols[c].name, value);
+      }
+      continue;
+    }
+
+    // Otherwise fall back to fixed-width slicing at the header offsets. This
+    // only produces sensible values when the row's columns are genuinely
+    // aligned under the headers (or a value legitimately spans several tokens);
+    // a mismatched token count means we cannot know the boundaries for certain.
     for (let c = 0; c < cols.length; c++) {
       const start = cols[c].start;
       const end = c + 1 < cols.length ? cols[c + 1].start : line.length;

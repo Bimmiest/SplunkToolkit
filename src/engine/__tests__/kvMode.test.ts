@@ -199,4 +199,26 @@ describe('applyKvMode — multi (multikv)', () => {
     expect(r.fields['user']).toBe('alice');
     expect(r.fields['code']).toBe('200');
   });
+
+  it('parses a left-aligned table whose values are narrower than the headers', () => {
+    // The header tokens ("NAME"@0, "AGE"@5) are wider than the values, so a
+    // fixed-width slice at the header offsets would cut "bob 40" into
+    // NAME="bob 4"/AGE="0". Whitespace tokenization recovers the real columns.
+    const raw = ['NAME AGE', 'bob 40', 'alice 7'].join('\n');
+    const [r] = applyKvMode([event(raw)], [dir('multi')]);
+    expect(r.fields['NAME']).toEqual(['bob', 'alice']);
+    expect(r.fields['AGE']).toEqual(['40', '7']);
+  });
+
+  it('parses ps-style output where values are not column-aligned', () => {
+    const raw = [
+      'PID   TTY   STAT',
+      '1 ?     Ss',
+      '4242 pts/0 R+',
+    ].join('\n');
+    const [r] = applyKvMode([event(raw)], [dir('multi')]);
+    expect(r.fields['PID']).toEqual(['1', '4242']);
+    expect(r.fields['TTY']).toEqual(['?', 'pts/0']);
+    expect(r.fields['STAT']).toEqual(['Ss', 'R+']);
+  });
 });
