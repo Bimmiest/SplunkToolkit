@@ -45,13 +45,15 @@ function buildDirectiveMap(): Record<string, DirectiveMeta> {
   return {
     '%Y': { regex: '(\\d{4})', capture: 'year4' },
     '%y': { regex: '(\\d{2})', capture: 'year2' },
-    '%m': { regex: '(\\d{2})', capture: 'month' },
-    '%d': { regex: '(\\d{2})', capture: 'day' },
+    // POSIX/glibc strptime (which Splunk uses) accepts 1-2 digits for these
+    // numeric fields, so unpadded values like `1/5/2024 3:04:05` still parse.
+    '%m': { regex: '(\\d{1,2})', capture: 'month' },
+    '%d': { regex: '(\\d{1,2})', capture: 'day' },
     '%e': { regex: '(\\s?\\d{1,2})', capture: 'day' },
-    '%H': { regex: '(\\d{2})', capture: 'hour24' },
-    '%I': { regex: '(\\d{2})', capture: 'hour12' },
-    '%M': { regex: '(\\d{2})', capture: 'minute' },
-    '%S': { regex: '(\\d{2})', capture: 'second' },
+    '%H': { regex: '(\\d{1,2})', capture: 'hour24' },
+    '%I': { regex: '(\\d{1,2})', capture: 'hour12' },
+    '%M': { regex: '(\\d{1,2})', capture: 'minute' },
+    '%S': { regex: '(\\d{1,2})', capture: 'second' },
     '%p': { regex: '([AaPp][Mm])', capture: 'ampm' },
     '%b': { regex: `(${MONTH_NAMES_ABBR.join('|')})`, capture: 'monthAbbr' },
     '%B': { regex: `(${MONTH_NAMES_FULL.join('|')})`, capture: 'monthFull' },
@@ -60,10 +62,20 @@ function buildDirectiveMap(): Record<string, DirectiveMeta> {
     '%Z': { regex: '([A-Za-z][A-Za-z0-9_/+-]*)', capture: 'tzName' },
     // ISO-8601 'Z' (Zulu/UTC), ±HH:MM / ±HHMM, and ±HH-only offsets.
     '%z': { regex: '(Z|[+-]\\d{2}:?\\d{2}|[+-]\\d{2})', capture: 'tzOffset' },
+    // Splunk "enhanced strptime" offsets with explicit colons.
+    '%:z': { regex: '(Z|[+-]\\d{2}:\\d{2})', capture: 'tzOffset' },
+    '%::z': { regex: '(Z|[+-]\\d{2}:\\d{2}:\\d{2})', capture: 'tzOffset' },
     '%s': { regex: '(\\d{10,13})', capture: 'epoch' },
     '%3N': { regex: '(\\d{3})', capture: 'milliseconds' },
     '%6N': { regex: '(\\d{6})', capture: 'microseconds' },
     '%9N': { regex: '(\\d{9})', capture: 'nanoseconds' },
+    // Bare %N is Splunk shorthand for %9N (nanoseconds).
+    '%N': { regex: '(\\d{9})', capture: 'nanoseconds' },
+    // %Q family: subsecond digits, bare %Q == %3Q (milliseconds).
+    '%Q': { regex: '(\\d{3})', capture: 'milliseconds' },
+    '%3Q': { regex: '(\\d{3})', capture: 'milliseconds' },
+    '%6Q': { regex: '(\\d{6})', capture: 'microseconds' },
+    '%9Q': { regex: '(\\d{9})', capture: 'nanoseconds' },
     // Additional specifiers
     '%f': { regex: '(\\d{1,6})', capture: 'microsecondsFull' },
     '%j': { regex: '(\\d{3})', capture: 'dayOfYear' },
@@ -82,11 +94,36 @@ const DIRECTIVE_MAP = buildDirectiveMap();
 // Expand composite directives so the main loop only deals with atomic ones.
 // ---------------------------------------------------------------------------
 function expandComposites(format: string): string {
-  let result = format;
-  // Keep expanding until no composites remain (safe against double-expansion
-  // because the replacements don't re-introduce %T or %F).
-  result = result.replace(/%T/g, '%H:%M:%S');
-  result = result.replace(/%F/g, '%Y-%m-%d');
+  // Walk the string so a `%%` escape consumes both percent signs before we
+  // look for a composite: `%%T` must stay a literal `%T`, not expand the inner
+  // `%T` into `%%H:%M:%S`.
+  let result = '';
+  let i = 0;
+  while (i < format.length) {
+    if (format[i] === '%') {
+      const two = format.slice(i, i + 2);
+      if (two === '%%') {
+        result += '%%';
+        i += 2;
+        continue;
+      }
+      if (two === '%T') {
+        result += '%H:%M:%S';
+        i += 2;
+        continue;
+      }
+      if (two === '%F') {
+        result += '%Y-%m-%d';
+        i += 2;
+        continue;
+      }
+      result += format[i];
+      i += 1;
+      continue;
+    }
+    result += format[i];
+    i += 1;
+  }
   return result;
 }
 
@@ -108,12 +145,22 @@ function tokenise(format: string): TokenisedFormat {
 
   while (i < expanded.length) {
     if (expanded[i] === '%') {
-      // Try multi-character directives first (%3N, %6N, %9N)
+      // Try the longest directives first so `%::z` wins over `%:z`, and
+      // `%3N`/`%3Q` win over a bare `%` literal. Longest → shortest.
+      const fourChar = expanded.slice(i, i + 4);
+      const fourMeta = DIRECTIVE_MAP[fourChar];
+      if (fourMeta) {
+        regexStr += fourMeta.regex;
+        captures.push(fourMeta.capture);
+        i += 4;
+        continue;
+      }
+
       const threeChar = expanded.slice(i, i + 3);
-      if (threeChar === '%3N' || threeChar === '%6N' || threeChar === '%9N') {
-        const meta = DIRECTIVE_MAP[threeChar];
-        regexStr += meta.regex;
-        captures.push(meta.capture);
+      const threeMeta = DIRECTIVE_MAP[threeChar];
+      if (threeMeta) {
+        regexStr += threeMeta.regex;
+        captures.push(threeMeta.capture);
         i += 3;
         continue;
       }
@@ -206,14 +253,42 @@ function resolveTzOffsetMinutes(tz: string): number | null {
     return TZ_OFFSETS[upper];
   }
 
-  // Try parsing as +HHMM / -HH:MM / +HH (minutes optional).
-  const m = /^([+-])(\d{2})(?::?(\d{2}))?$/.exec(tz);
+  // Try parsing as +HHMM / -HH:MM / +HH:MM:SS / +HH (minutes and seconds
+  // optional, colons optional) — covers %z, %:z and %::z outputs.
+  const m = /^([+-])(\d{2})(?::?(\d{2}))?(?::?(\d{2}))?$/.exec(tz);
   if (m) {
     const sign = m[1] === '+' ? 1 : -1;
-    return sign * (parseInt(m[2], 10) * 60 + (m[3] ? parseInt(m[3], 10) : 0));
+    const minutes = parseInt(m[2], 10) * 60
+      + (m[3] ? parseInt(m[3], 10) : 0)
+      + (m[4] ? parseInt(m[4], 10) / 60 : 0);
+    return sign * minutes;
   }
 
   return null;
+}
+
+/**
+ * Convert captured subsecond digits into whole milliseconds.
+ *
+ * Handles %3N/%6N/%9N and the %Q family (which share the milliseconds/
+ * microseconds/nanoseconds captures) plus %f. Returns 0 when none are present.
+ */
+function computeSubMilliseconds(bag: Record<string, string>): number {
+  if (bag.milliseconds) {
+    return parseInt(bag.milliseconds, 10);
+  }
+  if (bag.microseconds) {
+    return Math.floor(parseInt(bag.microseconds, 10) / 1000);
+  }
+  if (bag.microsecondsFull) {
+    // %f: 1-6 digit microseconds — pad to 6 digits then convert to ms.
+    const padded = bag.microsecondsFull.padEnd(6, '0');
+    return Math.floor(parseInt(padded, 10) / 1000);
+  }
+  if (bag.nanoseconds) {
+    return Math.floor(parseInt(bag.nanoseconds, 10) / 1_000_000);
+  }
+  return 0;
 }
 
 /**
@@ -250,16 +325,22 @@ export function parseTimestamp(
     }
   }
 
+  // Subsecond digits captured by %3N/%6N/%9N, the %Q family, or %f, converted
+  // to whole milliseconds. Shared by the epoch and calendar paths.
+  const subMilliseconds = computeSubMilliseconds(bag);
+
   // -----------------------------------------------------------------------
   // Handle epoch seconds / milliseconds directly
   // -----------------------------------------------------------------------
   if (bag.epoch) {
     const epochNum = parseInt(bag.epoch, 10);
-    // If the value is 13 digits it is already milliseconds.
+    // If the value is 13 digits it is already milliseconds; a captured
+    // subsecond field would be below ms resolution, so leave it as-is.
     if (bag.epoch.length >= 13) {
       return new Date(epochNum);
     }
-    return new Date(epochNum * 1000);
+    // Seconds since epoch: fold in any subseconds from e.g. `%s%3N`/`%s%3Q`.
+    return new Date(epochNum * 1000 + subMilliseconds);
   }
 
   // -----------------------------------------------------------------------
@@ -270,7 +351,8 @@ export function parseTimestamp(
     year = parseInt(bag.year4, 10);
   } else if (bag.year2) {
     const y2 = parseInt(bag.year2, 10);
-    year = y2 >= 70 ? 1900 + y2 : 2000 + y2;
+    // POSIX %y pivot: 69-99 → 1969-1999, 00-68 → 2000-2068.
+    year = y2 >= 69 ? 1900 + y2 : 2000 + y2;
   } else {
     // Default to current year when the format doesn't include a year.
     year = new Date().getFullYear();
@@ -343,18 +425,7 @@ export function parseTimestamp(
     return null;
   }
 
-  let milliseconds = 0;
-  if (bag.milliseconds) {
-    milliseconds = parseInt(bag.milliseconds, 10);
-  } else if (bag.microseconds) {
-    milliseconds = Math.floor(parseInt(bag.microseconds, 10) / 1000);
-  } else if (bag.microsecondsFull) {
-    // %f: 1-6 digit microseconds — pad to 6 digits then convert to ms
-    const padded = bag.microsecondsFull.padEnd(6, '0');
-    milliseconds = Math.floor(parseInt(padded, 10) / 1000);
-  } else if (bag.nanoseconds) {
-    milliseconds = Math.floor(parseInt(bag.nanoseconds, 10) / 1_000_000);
-  }
+  const milliseconds = subMilliseconds;
 
   // -----------------------------------------------------------------------
   // Resolve timezone offset
