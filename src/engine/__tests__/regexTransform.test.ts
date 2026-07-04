@@ -40,6 +40,55 @@ describe('applyRegexTransform — zero-length match guard', () => {
   });
 });
 
+describe('applyRegexTransform — _KEY_/_VAL_ dynamic KV (#61.1)', () => {
+  it('maps a _KEY_n group to the field name and _VAL_n to its value', () => {
+    const s = stanza('kv', {
+      REGEX: '(?<_KEY_1>\\w+)=(?<_VAL_1>\\w+)',
+      WRITE_META: 'true',
+    });
+    const result = applyRegexTransform(event('user=alice'), s);
+    expect(result.fields['user']).toBe('alice');
+    // The machinery groups themselves must NOT surface as fields.
+    expect(result.fields['KEY_1']).toBeUndefined();
+    expect(result.fields['VAL_1']).toBeUndefined();
+    expect(result.fields['_KEY_1']).toBeUndefined();
+  });
+
+  it('handles multiple _KEY_/_VAL_ pairs across REPEAT_MATCH', () => {
+    const s = stanza('kv', {
+      REGEX: '(?<_KEY_1>\\w+):(?<_VAL_1>\\w+)',
+      REPEAT_MATCH: 'true',
+    });
+    const result = applyRegexTransform(event('a:1 b:2'), s);
+    expect(result.fields['a']).toBe('1');
+    expect(result.fields['b']).toBe('2');
+  });
+});
+
+describe('applyRegexTransform — default index-time FORMAT (#61.2)', () => {
+  it('defaults FORMAT to <stanza-name>::$1 for numbered groups without a FORMAT', () => {
+    const s = stanza('myextract', {
+      REGEX: '^(\\w+)',
+      WRITE_META: 'true',
+    });
+    const result = applyRegexTransform(event('hello world'), s);
+    expect(result.fields['myextract']).toBe('hello');
+  });
+
+  it('applies the default FORMAT to every match (multivalue) like an explicit field::$1', () => {
+    const s = stanza('word', { REGEX: '(\\w+)', WRITE_META: 'true' });
+    const result = applyRegexTransform(event('hello world'), s);
+    expect(result.fields['word']).toEqual(['hello', 'world']);
+  });
+
+  it('leaves a group-less REGEX with no FORMAT extracting nothing', () => {
+    const s = stanza('noop', { REGEX: '\\w+@\\w+', WRITE_META: 'true' });
+    const result = applyRegexTransform(event('user@host'), s);
+    expect(result.matched).toBe(true);
+    expect(Object.keys(result.fields)).toHaveLength(0);
+  });
+});
+
 describe('applyRegexTransform — named capture groups', () => {
   it('extracts named groups into fields when no FORMAT', () => {
     const s = stanza('test', { REGEX: '(?<user>\\w+) (?<action>\\w+)' });
@@ -163,14 +212,29 @@ describe('applyRegexTransform — DEST_KEY = _raw replaces the whole event', () 
 });
 
 describe('applyRegexTransform — numbered groups with FORMAT', () => {
-  it('substitutes $0 with the full match for DEST_KEY = _raw', () => {
+  // #61.3: `$0` is the prior DEST_KEY contents (here _raw = the whole event),
+  // NOT the regex whole-match. With text around the match the two differ.
+  it('substitutes $0 with the prior DEST_KEY (_raw) contents, not the match', () => {
     const s = stanza('wrap', {
       REGEX: '(\\w+)@(\\w+)',
       FORMAT: '[$0]',
       DEST_KEY: '_raw',
     });
-    const result = applyRegexTransform(event('user@host'), s);
-    expect(result.destValue).toBe('[user@host]');
+    const result = applyRegexTransform(event('connect user@host now'), s);
+    expect(result.destValue).toBe('[connect user@host now]');
+  });
+
+  it('substitutes $0 with the prior contents of an arbitrary DEST_KEY field', () => {
+    const s = stanza('wrap', {
+      REGEX: '(\\w+)@(\\w+)',
+      FORMAT: '$0!',
+      DEST_KEY: 'dest',
+    });
+    const ev = event('user@host');
+    ev.fields['dest'] = 'previous';
+    const result = applyRegexTransform(ev, s);
+    // $0 is the field's prior value ("previous"), not the match ("user@host").
+    expect(result.destValue).toBe('previous!');
   });
 
   it('substitutes $1 and $2 with capture groups for DEST_KEY = _raw', () => {
