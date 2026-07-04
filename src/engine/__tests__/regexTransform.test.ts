@@ -40,6 +40,31 @@ describe('applyRegexTransform — zero-length match guard', () => {
   });
 });
 
+describe('applyRegexTransform — repeated keys are last-wins (#59.2)', () => {
+  it('uses the last REGEX when a stanza repeats it', () => {
+    const s = stanza('t', {});
+    s.directives = [
+      { key: 'REGEX', value: '(?<first>\\w+)', line: 1, directiveType: 'REGEX' },
+      { key: 'REGEX', value: '(?<second>\\w+)', line: 2, directiveType: 'REGEX' },
+    ];
+    const result = applyRegexTransform(event('hello'), s);
+    expect(result.fields['second']).toBe('hello');
+    expect(result.fields['first']).toBeUndefined();
+  });
+
+  it('uses the last FORMAT when a stanza repeats it', () => {
+    const s = stanza('t', {});
+    s.directives = [
+      { key: 'REGEX', value: '(\\w+)', line: 1, directiveType: 'REGEX' },
+      { key: 'DEST_KEY', value: '_raw', line: 2, directiveType: 'DEST_KEY' },
+      { key: 'FORMAT', value: 'A$1', line: 3, directiveType: 'FORMAT' },
+      { key: 'FORMAT', value: 'B$1', line: 4, directiveType: 'FORMAT' },
+    ];
+    const result = applyRegexTransform(event('hi'), s);
+    expect(result.destValue).toBe('Bhi');
+  });
+});
+
 describe('applyRegexTransform — _KEY_/_VAL_ dynamic KV (#61.1)', () => {
   it('maps a _KEY_n group to the field name and _VAL_n to its value', () => {
     const s = stanza('kv', {

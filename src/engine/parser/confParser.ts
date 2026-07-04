@@ -265,5 +265,34 @@ export function parseConf(
   // Flush the last stanza.
   flushStanza(lines.length);
 
-  return { stanzas, errors };
+  return { stanzas: mergeDuplicateStanzas(stanzas), errors };
+}
+
+/**
+ * Splunk treats repeated stanzas with the same name in one file as a single
+ * stanza (Admin manual, "How app configuration files work"). Concatenate their
+ * directives in file order so later definitions win: within-stanza last-wins is
+ * applied downstream (`mergeDirectives` for props; the transform readers take the
+ * last REGEX/FORMAT/INGEST_EVAL for transforms).
+ */
+function mergeDuplicateStanzas(stanzas: ConfStanza[]): ConfStanza[] {
+  const byKey = new Map<string, ConfStanza>();
+  const order: ConfStanza[] = [];
+  for (const stanza of stanzas) {
+    const key = `${stanza.type} ${stanza.name}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.directives.push(...stanza.directives);
+      existing.lineRange.end = Math.max(existing.lineRange.end, stanza.lineRange.end);
+    } else {
+      const clone: ConfStanza = {
+        ...stanza,
+        directives: [...stanza.directives],
+        lineRange: { ...stanza.lineRange },
+      };
+      byKey.set(key, clone);
+      order.push(clone);
+    }
+  }
+  return order;
 }

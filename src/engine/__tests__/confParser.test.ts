@@ -26,6 +26,27 @@ describe('parseConf — basic structure', () => {
   });
 });
 
+describe('parseConf — duplicate same-name stanzas merge (last-wins) (#59.1)', () => {
+  it('merges repeated stanzas of the same name into one', () => {
+    const parsed = parseConf('[st]\nKV_MODE = json\n[st]\nSHOULD_LINEMERGE = false', 'props.conf');
+    expect(parsed.stanzas).toHaveLength(1);
+    expect(parsed.stanzas[0].directives.map((d) => d.key)).toEqual(['KV_MODE', 'SHOULD_LINEMERGE']);
+  });
+
+  it('preserves file order so within-stanza last-wins picks the later value', () => {
+    const parsed = parseConf('[st]\nKV_MODE = json\n[st]\nKV_MODE = none', 'props.conf');
+    expect(parsed.stanzas).toHaveLength(1);
+    // Both KV_MODE lines survive in order; mergeDirectives resolves last-wins.
+    const kvValues = parsed.stanzas[0].directives.filter((d) => d.key === 'KV_MODE').map((d) => d.value);
+    expect(kvValues).toEqual(['json', 'none']);
+  });
+
+  it('does not merge stanzas of different types with the same name', () => {
+    const parsed = parseConf('[foo]\nA = 1\n[source::foo]\nB = 2', 'props.conf');
+    expect(parsed.stanzas).toHaveLength(2);
+  });
+});
+
 describe('parseConf — case-sensitive attribute names', () => {
   it('warns when a known attribute is mis-cased (Splunk ignores it)', () => {
     const parsed = parseConf('[aws]\nkv_mode = json', 'props.conf');

@@ -30,6 +30,16 @@ describe('applyIngestEval', () => {
     expect(e.fields.b).toBe('2');
   });
 
+  // #59.2: two INGEST_EVAL lines in a stanza — Splunk applies only the last.
+  it('applies only the last INGEST_EVAL when the key is repeated (last-wins)', () => {
+    const dirs: ConfDirective[] = [
+      { key: 'INGEST_EVAL', value: 'tag="first"', line: 1, directiveType: 'INGEST_EVAL' },
+      { key: 'INGEST_EVAL', value: 'tag="second"', line: 2, directiveType: 'INGEST_EVAL' },
+    ];
+    const [e] = applyIngestEval([event('x')], dirs);
+    expect(e.fields.tag).toBe('second');
+  });
+
   // BUG-3: a comma inside a string literal must not split the assignment.
   it('does not split on a comma inside a quoted string', () => {
     const [e] = applyIngestEval([event('x')], ingestDir('msg="a,b"'));
