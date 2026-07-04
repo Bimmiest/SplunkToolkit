@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo } from 'react';
+import { useCallback, useEffect, useRef, useMemo } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { useDebounce } from './useDebounce';
 import type { PipelineWorkerRequest, PipelineWorkerResponse } from '../engine/pipelineWorker';
@@ -38,7 +38,7 @@ export function useProcessingPipeline() {
   // crash-retry path can re-arm it too — without this, a hung retry would leave
   // isProcessing stuck true forever. Clears any poisoned request so a later
   // onerror cannot replay something that already timed out.
-  const armWatchdog = useRef((id: number) => {
+  const armWatchdog = useCallback((id: number) => {
     if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => {
       if (id !== requestIdRef.current) return;
@@ -56,13 +56,16 @@ export function useProcessingPipeline() {
       workerRef.current = null;
       initWorkerRef.current();
     }, WORKER_TIMEOUT_MS);
-  }).current;
+  }, [setIsProcessing, setProcessingResult, setValidationDiagnostics]);
 
   // Capture live inputs in a ref so the manual-run effect can read them without being a dependency.
+  // Written in an effect (not during render) so the ref only ever reflects committed values.
   const liveInputsRef = useRef({ rawData, metadata, propsConf, transformsConf });
-  liveInputsRef.current = { rawData, metadata, propsConf, transformsConf };
+  useEffect(() => {
+    liveInputsRef.current = { rawData, metadata, propsConf, transformsConf };
+  }, [rawData, metadata, propsConf, transformsConf]);
 
-  const sendRequest = useRef((
+  const sendRequest = useCallback((
     inputs: { rawData: string; metadata: typeof metadata; propsConf: string; transformsConf: string },
     opts: typeof settings,
   ) => {
@@ -86,7 +89,7 @@ export function useProcessingPipeline() {
 
     lastRequestRef.current = request;
     workerRef.current.postMessage(request);
-  }).current;
+  }, [armWatchdog, setIsProcessing]);
 
   // Initialise the worker once, with auto-restart on crash
   useEffect(() => {
