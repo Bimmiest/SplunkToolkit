@@ -37,6 +37,35 @@ describe('extractTimestamps — explicit TIME_FORMAT (regression)', () => {
     expect(iso(e._time)).toBe('2024-01-15T10:00:00.000Z');
   });
 
+  // #66: with TIME_PREFIX set, the format must match immediately after the
+  // prefix. A date elsewhere in the line must NOT be extracted (a broken
+  // TIME_PREFIX config fails in Splunk rather than silently grabbing a mid-line
+  // date), so _time stays null and falls back to default handling.
+  it('does not extract a mid-line date when TIME_PREFIX does not sit before it', () => {
+    const [e] = extractTimestamps(
+      [event('ts=pending job started 2024-01-15 10:00:00')],
+      [dir('TIME_FORMAT', '%Y-%m-%d %H:%M:%S'), dir('TIME_PREFIX', 'ts=')],
+    );
+    expect(e._time).toBeNull();
+  });
+
+  it('still parses when only whitespace separates the prefix from the date', () => {
+    const [e] = extractTimestamps(
+      [event('ts=  2024-01-15 10:00:00')],
+      [dir('TIME_FORMAT', '%Y-%m-%d %H:%M:%S'), dir('TIME_PREFIX', 'ts=')],
+    );
+    expect(iso(e._time)).toBe('2024-01-15T10:00:00.000Z');
+  });
+
+  it('without TIME_PREFIX, still finds a TIME_FORMAT date later in the line', () => {
+    // No prefix → unanchored scan within the lookahead window (unchanged).
+    const [e] = extractTimestamps(
+      [event('log message here 2024-01-15 10:00:00')],
+      [dir('TIME_FORMAT', '%Y-%m-%d %H:%M:%S')],
+    );
+    expect(iso(e._time)).toBe('2024-01-15T10:00:00.000Z');
+  });
+
   // SEM-9: %z must match a trailing ISO-8601 'Z' (and keep it UTC even when TZ is set).
   it('matches %z against a literal Z and stays UTC despite a configured TZ', () => {
     const [e] = extractTimestamps(

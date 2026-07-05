@@ -104,6 +104,17 @@ export function extractTimestamps(
 
   const timePrefixRegex = timePrefixDir ? safeRegex(timePrefixDir.value.trim()) : null;
   const formatRegex = timeFormat ? strftimeToRegex(timeFormat) : null;
+  // When TIME_PREFIX is set, props.conf.spec requires the TIME_FORMAT to start
+  // reading immediately after the prefix — "the TIME_PREFIX regex must match up
+  // to and including the character before the TIME_FORMAT date". An unanchored
+  // scan would instead accept the format at ANY offset in the lookahead window,
+  // masking a broken TIME_PREFIX (a mid-line date gets extracted as _time even
+  // though production strptime would fail at the prefix). Anchor to the region
+  // start (allowing only leading whitespace, which strptime skips).
+  const formatRegexAnchored =
+    timeFormat && formatRegex && timePrefixRegex
+      ? new RegExp(`^\\s*(?:${formatRegex.source})`, formatRegex.flags)
+      : null;
 
   return events.map((event) => {
     const raw = event._raw;
@@ -123,7 +134,10 @@ export function extractTimestamps(
 
     // Explicit TIME_FORMAT path.
     if (timeFormat && formatRegex) {
-      const formatMatch = formatRegex.exec(searchRegion);
+      // With TIME_PREFIX configured, require the format right after the prefix;
+      // otherwise (no prefix) scan the lookahead window from the start.
+      const activeRegex = formatRegexAnchored ?? formatRegex;
+      const formatMatch = activeRegex.exec(searchRegion);
       if (!formatMatch) return event;
 
       const timestampStr = formatMatch[0];
