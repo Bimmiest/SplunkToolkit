@@ -11,6 +11,10 @@ interface StepSummary {
   eventsAffected: number;
   totalEvents: number;
   fieldsAdded: string[];
+  /** Fields this step left extractable but devalued (e.g. a mask rule). */
+  fieldsModified: string[];
+  /** Fields this step made unextractable by deleting the text they anchor on. */
+  fieldsRemoved: string[];
 }
 
 // Strip a trailing "(…)" detail (e.g. "(lines 1-1)") so per-event variants of an
@@ -40,6 +44,8 @@ export function TransformsTab() {
             eventsAffected: 0,
             totalEvents,
             fieldsAdded: [],
+            fieldsModified: [],
+            fieldsRemoved: [],
             events: new Set<number>(),
           };
           stepMap.set(step.processor, entry);
@@ -48,6 +54,12 @@ export function TransformsTab() {
         if (!entry.descriptions.includes(step.description)) entry.descriptions.push(step.description);
         for (const f of step.fieldsAdded ?? []) {
           if (!entry.fieldsAdded.includes(f)) entry.fieldsAdded.push(f);
+        }
+        for (const f of step.fieldsModified ?? []) {
+          if (!entry.fieldsModified.includes(f)) entry.fieldsModified.push(f);
+        }
+        for (const f of step.fieldsRemoved ?? []) {
+          if (!entry.fieldsRemoved.includes(f)) entry.fieldsRemoved.push(f);
         }
       }
     });
@@ -144,12 +156,29 @@ function StepSection({ title, steps, phaseColor }: { title: string; steps: StepS
                   </>
                 );
               })()}
-              {step.fieldsAdded.length > 0 && (
+              {(step.fieldsAdded.length > 0 || step.fieldsModified.length > 0 || step.fieldsRemoved.length > 0) && (
                 <div className="flex flex-wrap gap-1 mt-1">
                   {step.fieldsAdded.map((f) => (
-                    <span key={f} className="px-1.5 py-0.5 text-xs rounded bg-[var(--color-success)]/10 text-[var(--color-success)]">
+                    <span key={`+${f}`} className="px-1.5 py-0.5 text-xs rounded bg-[var(--color-success)]/10 text-[var(--color-success)]">
                       +{f}
                     </span>
+                  ))}
+                  {/* A masked field still extracts — it just carries a destroyed
+                      value. Flagging it separately stops "looks empty" from being
+                      read as "never extracted", which invites the wrong fix. */}
+                  {step.fieldsModified.map((f) => (
+                    <Tooltip key={`~${f}`} content={`This step rewrote _raw and changed the value of "${f}". The extraction still works — the value it finds is no longer the original.`}>
+                      <span className="px-1.5 py-0.5 text-xs rounded bg-[var(--color-warning)]/10 text-[var(--color-warning)] cursor-default">
+                        ~{f}
+                      </span>
+                    </Tooltip>
+                  ))}
+                  {step.fieldsRemoved.map((f) => (
+                    <Tooltip key={`-${f}`} content={`This step deleted the text "${f}" is extracted from, so the field no longer extracts at all. The extraction itself is not at fault.`}>
+                      <span className="px-1.5 py-0.5 text-xs rounded bg-[var(--color-error)]/10 text-[var(--color-error)] cursor-default">
+                        −{f}
+                      </span>
+                    </Tooltip>
                   ))}
                 </div>
               )}

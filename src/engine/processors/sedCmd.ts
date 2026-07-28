@@ -1,6 +1,7 @@
-import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
+import type { SplunkEvent, ConfDirective, RawMutation, ValidationDiagnostic } from '../types';
 import { safeRegex } from '../../utils/splunkRegex';
 import { byClassName } from '../utils/asciiCompare';
+import { changeWindow } from '../utils/changeWindow';
 
 interface SedCommand {
   className: string;
@@ -140,18 +141,26 @@ export function applySedCommands(
   return events.map((event) => {
     let raw = event._raw;
     const traces: SplunkEvent['processingTrace'] = [];
+    const mutations: RawMutation[] = [];
 
     for (const cmd of commands) {
       const before = raw;
       raw = raw.replace(cmd.pattern, cmd.replacement);
 
       if (raw !== before) {
+        // Each command is attributed separately: two SEDCMDs masking two
+        // different fields must not collapse into one undifferentiated "masking
+        // happened" note.
+        mutations.push({
+          traceIndex: event.processingTrace.length + traces.length,
+          rawBefore: before,
+          rawAfter: raw,
+        });
         traces.push({
           processor: `SEDCMD-${cmd.className}`,
           phase: 'index-time',
           description: `Applied sed substitution`,
-          inputSnapshot: before.substring(0, 200),
-          outputSnapshot: raw.substring(0, 200),
+          ...changeWindow(before, raw),
         });
       }
     }
@@ -160,6 +169,7 @@ export function applySedCommands(
       ...event,
       _raw: raw,
       processingTrace: [...event.processingTrace, ...traces],
+      rawMutations: [...(event.rawMutations ?? []), ...mutations],
     };
   });
 }

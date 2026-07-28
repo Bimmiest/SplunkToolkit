@@ -78,12 +78,14 @@ export function FieldsTab() {
       sources: Set<string>;
       phases: Set<'index-time' | 'search-time'>;
       aliases: string[];
+      /** Steps that rewrote _raw and changed this field's extracted value. */
+      maskedBy: Set<string>;
     }>();
 
     for (const event of events) {
       for (const [key, value] of Object.entries(event.fields)) {
         if (!fields.has(key)) {
-          fields.set(key, { name: key, values: new Set(), count: 0, sources: new Set(), phases: new Set(), aliases: [] });
+          fields.set(key, { name: key, values: new Set(), count: 0, sources: new Set(), phases: new Set(), aliases: [], maskedBy: new Set() });
         }
         const entry = fields.get(key)!;
         entry.count++;
@@ -94,6 +96,12 @@ export function FieldsTab() {
           if (trace.fieldsAdded?.includes(key)) {
             entry.sources.add(trace.processor);
             entry.phases.add(trace.phase);
+          }
+          // The field extracts fine but an index-time rewrite destroyed its
+          // value. Without this the row looks like a working extraction, and a
+          // blank-looking value reads as "the extraction is wrong".
+          if (trace.fieldsModified?.includes(key)) {
+            entry.maskedBy.add(trace.processor);
           }
         }
       }
@@ -322,15 +330,25 @@ export function FieldsTab() {
               <ContextMenuTrigger>
               <tr className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-secondary)] transition-colors">
                 <td className="py-1.5 px-3 font-mono font-medium" style={{ width: columnWidths.name }}>
-                  <FieldNameCell
-                    name={field.name}
-                    depth={field.depth}
-                    isParent={field.isParent}
-                    parentName={field.parentName}
-                    collapsed={effectiveCollapsed.has(field.name)}
-                    childCount={childCount}
-                    onToggle={toggleCollapse}
-                  />
+                  <div className="flex items-center gap-1.5">
+                    <FieldNameCell
+                      name={field.name}
+                      depth={field.depth}
+                      isParent={field.isParent}
+                      parentName={field.parentName}
+                      collapsed={effectiveCollapsed.has(field.name)}
+                      childCount={childCount}
+                      onToggle={toggleCollapse}
+                    />
+                    {field.maskedBy.size > 0 && (
+                      <span
+                        className="inline-block flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium font-sans bg-[var(--color-warning)]/15 text-[var(--color-warning)]"
+                        title={`Value rewritten at index time by ${Array.from(field.maskedBy).join(', ')}. The extraction works — the value it finds is not the original.`}
+                      >
+                        masked
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="py-1.5 px-3" style={{ width: columnWidths.aliases }}>
                   {field.aliases.length > 0 && (

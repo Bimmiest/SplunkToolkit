@@ -4,6 +4,19 @@ All notable changes to Splunk Toolkit are documented here, newest first.
 
 ---
 
+## 2026-07-28
+
+### Added
+
+- **Index-time rewrites of `_raw` now report which fields they devalued or destroyed** — `SEDCMD` and `DEST_KEY = _raw` recorded only that a substitution happened, so a masked field was indistinguishable from one that was never extracted; the two have opposite remedies ("your mask is eating this value" vs "write an extraction"), and a consumer could only report that masking ran *somewhere* in the config. `ProcessingStep.fieldsModified` is now populated for both, alongside a new `fieldsRemoved` — kept separate because a field whose value became `XXX-XX-XXXX` and a field that stopped extracting because its `ssn=` anchor was deleted are different diagnoses. Attribution is necessarily counterfactual: `SEDCMD` is a text substitution with no field parameter, and the extraction rules needed to compute the association do not run until search time, so a new post-pass replays the `_raw`-reading extractors (EXTRACT, REPORT, KV_MODE) against the pre- and post-rewrite text and diffs the field bags. Guessing from the raw text instead cannot separate two fields that share a region (`pair=123-45-6789 tail=6789` — a text diff blames both). FIELDALIAS/EVAL are deliberately not replayed: they derive from *other fields*, so including them would report calculated fields as modified whenever their inputs shifted and bury the field the rule actually hit. Surfaced in the Transforms tab as `~field`/`−field` chips and in the Fields tab as a `masked` badge. ([src/engine/processors/rawMutationAttribution.ts](src/engine/processors/rawMutationAttribution.ts), [src/engine/processors/sedCmd.ts](src/engine/processors/sedCmd.ts), [src/engine/processors/transformsProcessor.ts](src/engine/processors/transformsProcessor.ts), [src/components/preview/tabs/TransformsTab.tsx](src/components/preview/tabs/TransformsTab.tsx), [src/components/preview/tabs/FieldsTab.tsx](src/components/preview/tabs/FieldsTab.tsx))
+
+### Fixed
+
+- **`SEDCMD` trace snapshots were a blind 200-character prefix, so a substitution past that point left them byte-identical** — the step asserted "Applied sed substitution" while `inputSnapshot` and `outputSnapshot` showed the same string, which reads as evidence that nothing changed; for a typical firewall or WinEventLog line the replacement is frequently outside the window entirely. Snapshots are now windowed on the region that actually differs (80 characters of context either side, capped at 400), with elision marked `…` so a window is never mistaken for the whole event. ([src/engine/utils/changeWindow.ts](src/engine/utils/changeWindow.ts), [src/engine/processors/sedCmd.ts](src/engine/processors/sedCmd.ts))
+- **A `DEST_KEY = _raw` transform recorded no before/after text at all** — it overwrites the entire event with the FORMAT output, destroying field values by the same mechanism as `SEDCMD`, but its trace step carried only `Transform routed to _raw` and an empty `fieldsAdded`. It now carries the same windowed snapshots and field attribution. ([src/engine/processors/transformsProcessor.ts](src/engine/processors/transformsProcessor.ts))
+
+---
+
 ## 2026-07-04
 
 ### Fixed

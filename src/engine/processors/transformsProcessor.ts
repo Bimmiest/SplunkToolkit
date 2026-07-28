@@ -1,8 +1,9 @@
-import type { SplunkEvent, ConfDirective, ParsedConf, ValidationDiagnostic } from '../types';
+import type { SplunkEvent, ConfDirective, ParsedConf, ProcessingStep, ValidationDiagnostic } from '../types';
 import { applyRegexTransform } from '../transforms/regexTransform';
 import { applyDestKey } from '../transforms/destKeyRouter';
 import { applyIngestEval } from '../transforms/ingestEval';
 import { byClassName } from '../utils/asciiCompare';
+import { changeWindow } from '../utils/changeWindow';
 
 // A DEST_KEY=_raw transform that shrinks the event by at least this fraction is
 // treated as accidental data loss (FORMAT did not reproduce the rest of the line).
@@ -96,19 +97,29 @@ export function applyTransforms(
           if (result.destKey && diagnostics) {
             warnUnknownDestKey(result.destKey, stanzaName, transformStanza, diagnostics, warnedUnknownDestKey);
           }
+          // DEST_KEY = _raw overwrites the whole event with the FORMAT output,
+          // destroying field values by the same mechanism as SEDCMD. Record the
+          // rewrite so the same counterfactual attribution applies, and carry
+          // the before/after text — this step previously logged neither.
+          const rewroteRaw = result.destKey === '_raw' && routed._raw !== beforeRaw;
+          const step: ProcessingStep = {
+            processor: `${directiveType}-${dir.className ?? ''}:${stanzaName}`,
+            phase,
+            description: result.destKey
+              ? `Transform routed to ${result.destKey}`
+              : `Transform extracted fields: ${Object.keys(result.fields).join(', ')}`,
+            fieldsAdded: Object.keys(result.fields),
+            ...(rewroteRaw ? changeWindow(beforeRaw, routed._raw) : {}),
+          };
           currentEvent = {
             ...routed,
-            processingTrace: [
-              ...routed.processingTrace,
-              {
-                processor: `${directiveType}-${dir.className ?? ''}:${stanzaName}`,
-                phase,
-                description: result.destKey
-                  ? `Transform routed to ${result.destKey}`
-                  : `Transform extracted fields: ${Object.keys(result.fields).join(', ')}`,
-                fieldsAdded: Object.keys(result.fields),
-              },
-            ],
+            processingTrace: [...routed.processingTrace, step],
+            rawMutations: rewroteRaw
+              ? [
+                  ...(routed.rawMutations ?? []),
+                  { traceIndex: routed.processingTrace.length, rawBefore: beforeRaw, rawAfter: routed._raw },
+                ]
+              : routed.rawMutations,
           };
         }
       }
