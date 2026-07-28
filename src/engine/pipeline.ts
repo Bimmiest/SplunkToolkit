@@ -11,6 +11,7 @@ import { extractFields } from './processors/fieldExtractor';
 import { applyKvMode } from './processors/kvMode';
 import { applyFieldAliases } from './processors/fieldAlias';
 import { applyEvalExpressions } from './processors/evalProcessor';
+import { attributeRawMutations } from './processors/rawMutationAttribution';
 
 function safeProcessor(
   name: string,
@@ -274,6 +275,9 @@ export function runPipeline(
       ev = safeProcessor('KV_MODE', ev, () => applyKvMode(ev, evDirs, diagnostics), diagnostics);
       ev = safeProcessor('FIELDALIAS', ev, () => applyFieldAliases(ev, evDirs, diagnostics), diagnostics);
       ev = safeProcessor('EVAL', ev, () => applyEvalExpressions(ev, evDirs, diagnostics), diagnostics);
+      // Step 13: attribute index-time `_raw` rewrites to the fields they hit.
+      // Must run last — it replays extraction, which only exists now.
+      ev = safeProcessor('SEDCMD attribution', ev, () => attributeRawMutations(ev, () => evDirs, transformsConf), diagnostics);
       processed.push(...ev);
     }
     events = processed;
@@ -307,7 +311,21 @@ export function runPipeline(
 
     // Step 12: EVAL (calculated fields)
     events = safeProcessor('EVAL', events, () => applyEvalExpressions(events, directives, diagnostics), diagnostics);
+
+    // Step 13: attribute index-time `_raw` rewrites (SEDCMD, DEST_KEY = _raw) to
+    // the fields whose extracted value they changed or destroyed. Runs last
+    // because it replays search-time extraction against the pre-rewrite text,
+    // which is the only way the association can be computed at all.
+    events = safeProcessor('SEDCMD attribution', events, () => attributeRawMutations(events, () => directives, transformsConf), diagnostics);
   }
+
+  // Belt and braces: a processor that threw leaves `rawMutations` in place, and
+  // the transient record must never reach a caller.
+  events = events.map((e) => {
+    if (!e.rawMutations) return e;
+    const { rawMutations: _rawMutations, ...rest } = e;
+    return rest;
+  });
 
   // Collect all processing steps
   const processingSteps = events.flatMap((e) => e.processingTrace);
