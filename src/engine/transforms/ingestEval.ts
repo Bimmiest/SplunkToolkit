@@ -85,6 +85,15 @@ export function applyIngestEval(
           } else if (fieldName === '_raw') {
             currentEvent._raw =
               result === null ? '' : Array.isArray(result) ? result.join('\n') : String(result);
+          } else if (fieldName === 'queue') {
+            // `INGEST_EVAL = queue=if(match(_raw,"DEBUG"), "nullQueue", "indexQueue")`
+            // is Splunk's documented filtering idiom: assigning to `queue` routes
+            // the event exactly as `DEST_KEY = queue` does. Writing it as an
+            // ordinary field instead previewed dropped events as indexed — the
+            // opposite of what the config does. Copy `_meta` rather than mutating
+            // it: the shallow event copy still shares the input's object.
+            const queue = result === null ? '' : String(Array.isArray(result) ? result[0] : result);
+            currentEvent._meta = { ...currentEvent._meta, _queue: queue };
           } else if (result === null) {
             delete currentEvent.fields[fieldName];
           } else if (Array.isArray(result)) {

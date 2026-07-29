@@ -187,3 +187,97 @@ describe('applyTransforms — INGEST_EVAL interleaving (SEM-2)', () => {
     expect(e._raw).toBe('original text');
   });
 });
+
+describe('applyTransforms — DEST_KEY is index-time only (#57)', () => {
+  const reportDir = (stanzaName: string): ConfDirective[] => [
+    { key: 'REPORT-x', value: stanzaName, line: 1, directiveType: 'REPORT', className: 'x' },
+  ];
+
+  it('does not route a search-time REPORT to nullQueue', () => {
+    const conf = transformsConf('drop', { REGEX: 'DEBUG', DEST_KEY: 'queue', FORMAT: 'nullQueue' });
+    const [out] = applyTransforms([event('DEBUG something')], reportDir('drop'), conf, 'search-time');
+    expect(out._meta._queue).toBeUndefined();
+  });
+
+  it('does not rewrite metadata from a search-time REPORT', () => {
+    const conf = transformsConf('force', {
+      REGEX: '(.*)',
+      DEST_KEY: 'MetaData:Sourcetype',
+      FORMAT: 'sourcetype::other',
+    });
+    const [out] = applyTransforms([event('anything')], reportDir('force'), conf, 'search-time');
+    expect(out.metadata.sourcetype).toBe('st');
+  });
+
+  it('does not replace _raw from a search-time REPORT', () => {
+    const conf = transformsConf('mask', { REGEX: '(\\w+)', DEST_KEY: '_raw', FORMAT: '$1' });
+    const [out] = applyTransforms([event('keep all of this')], reportDir('mask'), conf, 'search-time');
+    expect(out._raw).toBe('keep all of this');
+  });
+
+  it('still performs the field extraction, and warns that the routing is ignored', () => {
+    const diags: ValidationDiagnostic[] = [];
+    const conf = transformsConf('r', {
+      REGEX: 'user=(\\w+)',
+      FORMAT: 'user::$1',
+      DEST_KEY: 'queue',
+    });
+    const [out] = applyTransforms([event('user=alice')], reportDir('r'), conf, 'search-time', diags);
+    expect(out.fields.user).toBe('alice');
+    expect(out._meta._queue).toBeUndefined();
+    expect(diags.some((d) => d.message.includes('DEST_KEY is index-time only'))).toBe(true);
+  });
+
+  it('still routes at index time', () => {
+    const conf = transformsConf('drop', { REGEX: 'DEBUG', DEST_KEY: 'queue', FORMAT: 'nullQueue' });
+    const [out] = applyTransforms([event('DEBUG something')], transformsDir('drop'), conf, 'index-time');
+    expect(out._meta._queue).toBe('nullQueue');
+  });
+});
+
+describe('applyTransforms — SOURCE_KEY reads pipeline metadata (#53)', () => {
+  it('matches the canonical sourcetype-override transform', () => {
+    const conf = transformsConf('force_sourcetype', {
+      SOURCE_KEY: 'MetaData:Source',
+      REGEX: 'source::s',
+      DEST_KEY: 'MetaData:Sourcetype',
+      FORMAT: 'sourcetype::forced',
+    });
+    const [out] = applyTransforms([event('anything')], transformsDir('force_sourcetype'), conf, 'index-time');
+    expect(out.metadata.sourcetype).toBe('forced');
+  });
+
+  it('reads MetaData:Host with its host:: prefix', () => {
+    const conf = transformsConf('t', {
+      SOURCE_KEY: 'MetaData:Host',
+      REGEX: 'host::(\\w+)',
+      FORMAT: 'captured_host::$1',
+      WRITE_META: 'true',
+    });
+    const [out] = applyTransforms([event('x')], transformsDir('t'), conf, 'index-time');
+    expect(out.fields.captured_host).toBe('h');
+  });
+
+  it('reads an unrerouted queue as indexQueue', () => {
+    const conf = transformsConf('t', {
+      SOURCE_KEY: 'queue',
+      REGEX: '(indexQueue)',
+      FORMAT: 'q::$1',
+      WRITE_META: 'true',
+    });
+    const [out] = applyTransforms([event('x')], transformsDir('t'), conf, 'index-time');
+    expect(out.fields.q).toBe('indexQueue');
+  });
+
+  it('reads _meta as space-separated key::value pairs', () => {
+    const ev = { ...event('x'), _meta: { tier: 'gold' } };
+    const conf = transformsConf('t', {
+      SOURCE_KEY: '_meta',
+      REGEX: 'tier::(\\w+)',
+      FORMAT: 'tier_copy::$1',
+      WRITE_META: 'true',
+    });
+    const [out] = applyTransforms([ev], transformsDir('t'), conf, 'index-time');
+    expect(out.fields.tier_copy).toBe('gold');
+  });
+});

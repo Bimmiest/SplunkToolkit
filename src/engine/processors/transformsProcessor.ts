@@ -45,6 +45,9 @@ export function applyTransforms(
   const warnedInvalidRegex = new Set<string>();
   // SEM-11: warn once per stanza that routes via an unknown/unsimulated DEST_KEY.
   const warnedUnknownDestKey = new Set<string>();
+  // Warn once per stanza whose DEST_KEY is reached through a search-time REPORT-,
+  // where Splunk ignores it.
+  const warnedSearchTimeDestKey = new Set<string>();
 
   return events.map((event) => {
     let currentEvent: SplunkEvent = event;
@@ -79,11 +82,17 @@ export function applyTransforms(
             file: 'transforms.conf',
             line: transformStanza.directives.find((d) => d.key === 'REGEX')?.line ?? transformStanza.lineRange.start,
           });
-        });
+        }, phase);
 
         if (result.matched) {
           if (phase === 'index-time' && diagnostics) {
             warnIndexTimeNoWriteMeta(result, stanzaName, transformStanza, diagnostics, warnedNoWriteMeta);
+          }
+          // applyRegexTransform already ignored DEST_KEY on the search-time pass
+          // (it is index-time only); say so, rather than silently applying half
+          // the stanza.
+          if (phase === 'search-time' && diagnostics) {
+            warnSearchTimeDestKey(stanzaName, transformStanza, diagnostics, warnedSearchTimeDestKey);
           }
           const beforeRaw = currentEvent._raw;
           // applyDestKey records queue values onto _meta._queue rather than dropping
@@ -169,6 +178,33 @@ function warnIndexTimeNoWriteMeta(
  * `_TCP_ROUTING` / `_SYSLOG_ROUTING` are valid keys this tool just doesn't model;
  * they get an informational note rather than a warning. Fires once per stanza.
  */
+/**
+ * A stanza referenced by `REPORT-` runs at search time, where transforms.conf
+ * defines DEST_KEY as having no meaning. Splunk performs the field extraction
+ * and ignores the routing; say so rather than silently dropping half the stanza.
+ */
+function warnSearchTimeDestKey(
+  stanzaName: string,
+  transformStanza: ParsedConf['stanzas'][number],
+  diagnostics: ValidationDiagnostic[],
+  warned: Set<string>,
+): void {
+  if (warned.has(stanzaName)) return;
+  const destKeyDir = [...transformStanza.directives].reverse().find((d) => d.key === 'DEST_KEY');
+  if (!destKeyDir) return;
+  warned.add(stanzaName);
+  const destKey = destKeyDir.value.trim();
+  diagnostics.push({
+    level: 'warning',
+    message:
+      `Transform "${stanzaName}" sets DEST_KEY = ${destKey}, but it is referenced by a search-time REPORT-. ` +
+      'DEST_KEY is index-time only, so Splunk applies the field extraction and ignores the routing. ' +
+      'Reference the stanza from TRANSFORMS- instead if the routing is intended.',
+    file: 'transforms.conf',
+    line: destKeyDir.line,
+  });
+}
+
 function warnUnknownDestKey(
   destKey: string,
   stanzaName: string,

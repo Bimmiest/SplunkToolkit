@@ -2,6 +2,7 @@ import type { SplunkEvent, ConfStanza, ConfDirective } from '../types';
 import { safeRegex, convertSplunkToJsRegex } from '../../utils/splunkRegex';
 import { stripLeadingUnderscoreForField } from '../utils/internalFields';
 import { hasField, setField, addFieldValue } from '../utils/fieldBag';
+import { getSourceKeyValue } from '../utils/metadataFields';
 
 export interface TransformResult {
   fields: Record<string, string | string[]>;
@@ -170,7 +171,12 @@ function addMultiValue(
 /** Resolve the value a transform reads from, honouring SOURCE_KEY (default _raw). */
 function resolveSourceValue(event: SplunkEvent, sourceKeyDir?: ConfDirective): string {
   const sourceKey = sourceKeyDir?.value.trim() ?? '_raw';
-  if (sourceKey === '_raw') return event._raw;
+  // Built-in pipeline slots (`_raw`, `_meta`, `queue`, `MetaData:*`) are not
+  // stored in `fields`; reading them from there returned "" and made the whole
+  // transform silently never match — including the canonical sourcetype-override
+  // pattern this registry documents as its own example.
+  const builtin = getSourceKeyValue(event, sourceKey);
+  if (builtin !== undefined) return builtin;
   const v = event.fields[sourceKey];
   return (Array.isArray(v) ? v[0] : v) ?? '';
 }
@@ -280,13 +286,18 @@ export function applyRegexTransform(
   event: SplunkEvent,
   transformStanza: ConfStanza,
   onInvalidRegex?: (pattern: string) => void,
+  phase: 'index-time' | 'search-time' = 'index-time',
 ): TransformResult {
   // Splunk's last-definition-wins rule: a repeated key within a stanza (including
   // one produced by merging duplicate same-name stanzas) takes its LAST value.
   const regexDir = lastDirective(transformStanza, 'REGEX');
   const formatDir = lastDirective(transformStanza, 'FORMAT');
   const sourceKeyDir = lastDirective(transformStanza, 'SOURCE_KEY');
-  const destKeyDir = lastDirective(transformStanza, 'DEST_KEY');
+  // DEST_KEY is index-time only (transforms.conf.spec: "only relevant for
+  // index-time field extractions"). Reached through a search-time REPORT-, the
+  // stanza performs field extraction and nothing else — so FORMAT is read as
+  // `field::value` pairs, exactly as it would be with no DEST_KEY present.
+  const destKeyDir = phase === 'index-time' ? lastDirective(transformStanza, 'DEST_KEY') : undefined;
   const writeMetaDir = lastDirective(transformStanza, 'WRITE_META');
   const writeMeta = writeMetaDir?.value.trim().toLowerCase() === 'true';
   // REPEAT_MATCH: re-run the regex to find every match (default: first match only).

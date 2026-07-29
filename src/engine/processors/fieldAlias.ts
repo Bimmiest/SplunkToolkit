@@ -1,6 +1,7 @@
 import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 import { isInternalField } from '../utils/internalFields';
 import { byClassName } from '../utils/asciiCompare';
+import { getMetadataField } from '../utils/metadataFields';
 import {
   unquoteFieldName,
   isQuotedFieldName,
@@ -39,7 +40,9 @@ export function applyFieldAliases(
     const added: string[] = [];
 
     for (const alias of aliases) {
-      const sourceValue = event.fields[alias.source];
+      // `FIELDALIAS-cim = host AS dvc` is one of the most common CIM mappings:
+      // the metadata-backed default fields are aliasable like any other.
+      const sourceValue = event.fields[alias.source] ?? getMetadataField(event, alias.source);
       if (sourceValue === undefined) {
         maybeWarnStrippedRef(alias, event, diagnostics, reportedStrippedRefs);
         continue;
