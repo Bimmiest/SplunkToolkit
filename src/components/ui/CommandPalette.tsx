@@ -1,9 +1,10 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback } from 'react';
 import type React from 'react';
 import { Command } from 'cmdk';
 import { useAppStore } from '../../store/useAppStore';
 import { SAMPLE_CONFIGS } from '../../engine/sampleData';
 import { Icon } from './Icon';
+import { useOverlay } from '../../hooks/useOverlay';
 
 type OutputTabId = 'preview' | 'cim' | 'fields' | 'transforms' | 'architecture';
 
@@ -31,14 +32,9 @@ export function CommandPalette() {
     if (open) toggleCommandPalette();
   }, [open, toggleCommandPalette]);
 
-  // Restore focus to whatever was focused before the palette opened, so keyboard
-  // users aren't dumped at the top of the page when it closes.
-  const restoreFocusRef = useRef<HTMLElement | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    restoreFocusRef.current = document.activeElement as HTMLElement | null;
-    return () => restoreFocusRef.current?.focus?.();
-  }, [open]);
+  // Escape (topmost layer only), the focus trap that `aria-modal` promises, and
+  // focus restore on close all come from the shared overlay hook.
+  const overlayRef = useOverlay({ open, onClose: close });
 
   // Global Ctrl+K / Cmd+K shortcut
   useEffect(() => {
@@ -64,23 +60,13 @@ export function CommandPalette() {
 
   return (
     <div
+      ref={overlayRef}
       className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]"
       style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
       role="dialog"
       aria-modal="true"
       aria-label="Command palette"
       onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}
-      onKeyDown={(e) => {
-        // cmdk handles arrow navigation but not Escape (the ESC hint was decorative).
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          close();
-        } else if (e.key === 'Tab') {
-          // Keep focus inside the palette — its items are reached via arrows, so Tab
-          // would otherwise move focus to the page behind the modal.
-          e.preventDefault();
-        }
-      }}
     >
       <Command
         label="Command palette"

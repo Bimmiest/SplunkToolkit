@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
 import { useAppStore } from '../../store/useAppStore';
+import { useOverlay } from '../../hooks/useOverlay';
 import { Icon } from '../ui/Icon';
 
 function Toggle({
@@ -46,14 +46,9 @@ export function SettingsPanel() {
   const togglePerEventPipeline = useAppStore((s) => s.togglePerEventPipeline);
   const toggleManualApply = useAppStore((s) => s.toggleManualApply);
 
-  useEffect(() => {
-    if (!settingsOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') toggleSettings();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [settingsOpen, toggleSettings]);
+  // Escape closes only the topmost overlay, Tab cycles inside this panel, and
+  // sibling content is hidden from assistive tech while it is open.
+  const overlayRef = useOverlay<HTMLElement>({ open: settingsOpen, onClose: toggleSettings });
 
   if (!settingsOpen) return null;
 
@@ -68,6 +63,7 @@ export function SettingsPanel() {
 
       {/* Panel */}
       <aside
+        ref={overlayRef}
         role="dialog"
         aria-modal="true"
         aria-label="Settings"
