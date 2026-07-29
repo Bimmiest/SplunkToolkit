@@ -222,9 +222,15 @@ function getValueSuggestions(
 function getWordRange(model: editor.ITextModel, position: Position): languages.CompletionItem['range'] {
   const word = model.getWordAtPosition(position);
   if (word) {
+    // `%` is not a word character, so on `TIME_FORMAT = %Y` the word is just `Y`.
+    // Accepting a strftime suggestion then replaced only the `Y` and left the
+    // user's `%` behind: `TIME_FORMAT = %%Y-%m-%dT%H:%M:%S`. Extend the range
+    // back over an immediately preceding `%` so it is replaced too.
+    const line = model.getLineContent(position.lineNumber);
+    const precededByPercent = word.startColumn > 1 && line[word.startColumn - 2] === '%';
     return {
       startLineNumber: position.lineNumber,
-      startColumn: word.startColumn,
+      startColumn: precededByPercent ? word.startColumn - 1 : word.startColumn,
       endLineNumber: position.lineNumber,
       endColumn: word.endColumn,
     };

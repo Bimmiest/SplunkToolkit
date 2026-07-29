@@ -490,12 +490,18 @@ const DIRECTIVES: DirectiveInfo[] = [
     description:
       'Specifies the segmentation rule to use for indexing the event text. ' +
       'Segmentation determines how event text is tokenized for efficient searching. ' +
-      'Common values include "inner", "outer", "full", and "none".',
+      'The value names a stanza in segmenters.conf; the shipped rules are ' +
+      '"inner", "outer", "full", "none" and the default "indexing".',
     example: 'SEGMENTATION = inner',
     defaultValue: 'indexing',
     category: 'Data Input',
     appliesTo: 'props.conf',
-    valueType: 'string',
+    // Modelled as an enum so completion offers the shipped rules and a typo is
+    // flagged, as it is for KV_MODE / INDEXED_EXTRACTIONS. `indexing` is listed
+    // because it IS the default — the previous description enumerated four
+    // values that excluded its own defaultValue.
+    valueType: 'enum',
+    enumValues: ['indexing', 'inner', 'outer', 'full', 'none'],
     isClassBased: false,
     phase: 'index-time',
   },
@@ -1131,8 +1137,9 @@ const DIRECTIVES: DirectiveInfo[] = [
   {
     key: 'DEFAULT_VALUE',
     description:
-      'For an EXTRACT/REPORT extraction, the value assigned to a field when the regex does not match. ' +
-      'Ensures the field is always present even when extraction fails.',
+      'For a field extraction defined in this transforms.conf stanza, the value assigned to a field ' +
+      'when the REGEX does not match. Ensures the field is always present even when extraction fails. ' +
+      '(The stanza is reached from props.conf via REPORT-<class>.)',
     example: 'DEFAULT_VALUE = unknown',
     defaultValue: '',
     category: 'Field Extraction',

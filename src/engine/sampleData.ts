@@ -65,6 +65,6 @@ FIELDALIAS-transport = proto AS transport
 EVAL-action      = if(action=="allow", "allowed", "blocked")
 EVAL-bytes_total = bytes_sent + bytes_received`,
     transformsConf: `[pan_traffic_fields]
-REGEX = ^[^,]+,(?P<receive_time>[^,]+),[^,]+,(?P<type>[^,]+),(?P<subtype>[^,]+),[^,]+,[^,]+,(?P<src_ip>[^,]+),(?P<dest_ip>[^,]+),[^,]+,[^,]+,(?P<rulename>[^,]+),[^,]*,[^,]*,(?P<app>[^,]+),[^,]+,(?P<from_zone>[^,]+),(?P<to_zone>[^,]+),[^,]+,[^,]+,[^,]+,[^,]+,[^,]+,[^,]+,(?P<sport>[^,]+),(?P<dport>[^,]+),[^,]+,[^,]+,[^,]+,(?P<proto>[^,]+),(?P<action>[^,]+),(?P<bytes_sent>[^,]+),(?P<bytes_received>[^,]+)`,
+REGEX = ^[^,]+,(?P<receive_time>[^,]+),[^,]+,(?P<type>[^,]+),(?P<subtype>[^,]+),[^,]+,[^,]+,(?P<src_ip>[^,]+),(?P<dest_ip>[^,]+),[^,]+,[^,]+,(?P<rulename>[^,]+),[^,]*,[^,]*,(?P<app>[^,]+),[^,]+,(?P<from_zone>[^,]+),(?P<to_zone>[^,]+),[^,]+,[^,]+,[^,]+,[^,]+,[^,]+,[^,]+,(?P<sport>[^,]+),(?P<dport>[^,]+),[^,]+,[^,]+,[^,]+,(?P<proto>[^,]+),(?P<action>[^,]+),(?P<bytes>[^,]+),(?P<bytes_sent>[^,]+),(?P<bytes_received>[^,]+)`,
   },
 ];

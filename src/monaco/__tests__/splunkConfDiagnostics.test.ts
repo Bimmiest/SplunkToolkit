@@ -77,3 +77,28 @@ describe('computeDiagnostics — named groups count as capturing (#70.2)', () =>
     expect(markers.some((m) => /at least one capturing group/.test(m.message))).toBe(true);
   });
 });
+
+describe('computeDiagnostics — SHOULD_LINEMERGE best practice inspects the value (#31.2)', () => {
+  const withBreaker = (linemerge: string) =>
+    computeDiagnostics(fakeModel(`[st]\nLINE_BREAKER = ([\\r\\n]+)\n${linemerge}`), 'props.conf');
+
+  const warned = (markers: { message: string }[]) =>
+    markers.some((m) => /SHOULD_LINEMERGE = false/.test(m.message));
+
+  it('warns when SHOULD_LINEMERGE is set to true', () => {
+    expect(warned(withBreaker('SHOULD_LINEMERGE = true'))).toBe(true);
+  });
+
+  it('stays quiet when it is set to false', () => {
+    expect(warned(withBreaker('SHOULD_LINEMERGE = false'))).toBe(false);
+  });
+
+  it('accepts 0 and no as false', () => {
+    expect(warned(withBreaker('SHOULD_LINEMERGE = 0'))).toBe(false);
+    expect(warned(withBreaker('SHOULD_LINEMERGE = no'))).toBe(false);
+  });
+
+  it('still warns when it is absent entirely', () => {
+    expect(warned(computeDiagnostics(fakeModel('[st]\nLINE_BREAKER = ([\\r\\n]+)'), 'props.conf'))).toBe(true);
+  });
+});
