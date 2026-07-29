@@ -70,7 +70,10 @@ export const CIM_MODELS: CimModel[] = [
     description: 'Data protection and exfiltration events',
     requiredFields: ['action', 'dest', 'src', 'user'],
     recommendedFields: ['app', 'file_name', 'file_path', 'protocol', 'severity', 'signature', 'src_user', 'url', 'vendor_product'],
-    tags: ['dlp'],
+    // CIM constrains this model with `tag=dlp tag=incident`. A model's events
+    // need ALL its constraint tags to populate, so a missing tag does not just
+    // weaken membership — it breaks it.
+    tags: ['dlp', 'incident'],
   },
   {
     name: 'Email',
@@ -110,7 +113,8 @@ export const CIM_MODELS: CimModel[] = [
     description: 'Software patches and update installations',
     requiredFields: ['dest', 'signature', 'status'],
     recommendedFields: ['dvc', 'severity', 'signature_id', 'vendor_product'],
-    tags: ['update'],
+    // CIM constrains this model with `tag=update tag=status`.
+    tags: ['update', 'status'],
   },
   {
     name: 'Databases',

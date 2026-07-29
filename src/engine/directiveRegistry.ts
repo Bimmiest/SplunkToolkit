@@ -329,13 +329,17 @@ const DIRECTIVES: DirectiveInfo[] = [
     description:
       'Specifies structured data format for automatic field extraction at index time. ' +
       'Splunk will parse the data according to the chosen format and create indexed fields. ' +
-      'Valid values are csv, tsv, psv, w3c, json, and hec.',
+      'Valid values are csv, tsv, psv, w3c, json, hec, xml, xmlkv and xmlkv-winevt. ' +
+      'Note: this simulator models csv, tsv, psv, w3c and json; the xml family and hec ' +
+      'are accepted as valid config but not simulated.',
     example: 'INDEXED_EXTRACTIONS = json',
     defaultValue: '',
     category: 'Field Extraction',
     appliesTo: 'props.conf',
     valueType: 'enum',
-    enumValues: ['csv', 'tsv', 'psv', 'w3c', 'json', 'hec'],
+    // The xml family is valid Splunk config; omitting it made completion and lint
+    // falsely reject a working directive.
+    enumValues: ['csv', 'tsv', 'psv', 'w3c', 'json', 'hec', 'xml', 'xmlkv', 'xmlkv-winevt'],
     isClassBased: false,
     phase: 'index-time',
   },
@@ -420,7 +424,8 @@ const DIRECTIVES: DirectiveInfo[] = [
     description:
       'The character encoding of the input data. Splunk uses this to correctly decode the raw bytes into text. ' +
       'Common values include UTF-8, UTF-16LE, UTF-16BE, LATIN-1, and AUTO. ' +
-      'When set to AUTO, Splunk attempts to detect the encoding automatically.',
+      'When set to AUTO, Splunk attempts to detect the encoding automatically. ' +
+      'The default is UTF-8 on *nix and AUTO on Windows.',
     example: 'CHARSET = UTF-8',
     defaultValue: 'UTF-8',
     category: 'Data Input',
@@ -736,9 +741,9 @@ const DIRECTIVES: DirectiveInfo[] = [
     description:
       'The maximum number of matching rows from the lookup table that can be returned per event. ' +
       'When a lookup matches multiple rows, this caps how many are returned. ' +
-      'Default is 1000 for non-temporal lookups (1 for time-bounded lookups). Set to 1 for single-value lookups.',
+      'Default is 100 for non-temporal lookups (1 for time-bounded lookups). Set to 1 for single-value lookups.',
     example: 'max_matches = 5',
-    defaultValue: '1000',
+    defaultValue: '100',
     category: 'Lookups',
     appliesTo: 'transforms.conf',
     valueType: 'number',
@@ -990,7 +995,7 @@ const DIRECTIVES: DirectiveInfo[] = [
       '"kvstore" (KV Store collection), "geo" / "geo_hex" (geospatial lookups). ' +
       'Used with external_cmd for scripted lookups or with collection for KV Store lookups.',
     example: 'external_type = python',
-    defaultValue: '',
+    defaultValue: 'python',
     category: 'Lookups',
     appliesTo: 'transforms.conf',
     valueType: 'enum',
@@ -1113,7 +1118,9 @@ const DIRECTIVES: DirectiveInfo[] = [
       'When true, Splunk inspects the start of a file for a header to dynamically create a sourcetype ' +
       '(used with structured/header-bearing files). Deprecated in favour of INDEXED_EXTRACTIONS.',
     example: 'CHECK_FOR_HEADER = true',
-    defaultValue: 'true',
+    // props.conf.spec: defaults to FALSE. Hover and lint were telling users this
+    // defaults on, which is the opposite of what an indexer does.
+    defaultValue: 'false',
     category: 'Miscellaneous',
     appliesTo: 'props.conf',
     valueType: 'boolean',
