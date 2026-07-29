@@ -4,10 +4,30 @@ import type { Layout } from 'react-resizable-panels';
 
 const DEFAULT_LAYOUT: Layout = { events: 85, sidebar: 15 };
 
+/**
+ * Validate the shape rather than trusting the parse. `JSON.parse` succeeds for
+ * plenty of values that are not a Layout — `"null"`, an array, `{events:"x"}` —
+ * and each would be handed straight to the panel group. This mirrors the guard
+ * `loadSettings` already applies to persisted settings.
+ */
+function isLayout(value: unknown): value is Layout {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const o = value as Record<string, unknown>;
+  return (
+    typeof o.events === 'number' &&
+    Number.isFinite(o.events) &&
+    typeof o.sidebar === 'number' &&
+    Number.isFinite(o.sidebar)
+  );
+}
+
 function getSavedLayout(storageKey: string): Layout {
   try {
     const saved = localStorage.getItem(storageKey);
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      const parsed: unknown = JSON.parse(saved);
+      if (isLayout(parsed)) return parsed;
+    }
   } catch { /* ignore */ }
   return DEFAULT_LAYOUT;
 }
