@@ -1,6 +1,23 @@
 import type { ScaffoldSuggestion } from './types';
 import { escapeRegex } from '../../utils/splunkRegex';
 
+/**
+ * Why a stanza name may not be written verbatim into a header.
+ * Returns null when the name is usable.
+ */
+export function stanzaNameError(name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return 'Stanza name cannot be empty.';
+  if (/[[\]]/.test(trimmed)) {
+    // `foo]bar` renders as `[foo]bar]`, which does not round-trip as one stanza:
+    // the parser stops at the first `]`, so the written file no longer says what
+    // the UI showed.
+    return 'Stanza name cannot contain "[" or "]" — the header would not parse as a single stanza.';
+  }
+  if (/[\r\n]/.test(trimmed)) return 'Stanza name cannot contain a line break.';
+  return null;
+}
+
 /** Render a props.conf stanza from the selected directive suggestions. */
 export function renderStanza(sourcetype: string, suggestions: ScaffoldSuggestion[]): string {
   const lines = [`[${sourcetype}]`];

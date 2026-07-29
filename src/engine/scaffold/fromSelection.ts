@@ -10,13 +10,18 @@ export interface GeneratedDirective {
  * Turn a literal selection into a regex fragment ("regex by example"): all-digits
  * → \d+, dotted-quad IP → an IP pattern, UUID-ish → hex/dash, a single word → \w+,
  * otherwise a non-space run. Conservative on purpose — the user edits from here.
+ *
+ * `quoted` narrows the catch-all when the selection sits inside a quoted JSON
+ * value. A bare `\S+` runs past the closing quote — selecting `x@y.com` in
+ * `{"email":"x@y.com"}` captured `x@y.com"}` — so exclude the delimiters that
+ * end such a value rather than stopping only at whitespace.
  */
-export function generalize(text: string): string {
+export function generalize(text: string, quoted = false): string {
   if (/^\d+$/.test(text)) return '\\d+';
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(text)) return '\\d+\\.\\d+\\.\\d+\\.\\d+';
   if (/-/.test(text) && /^[0-9a-fA-F-]{8,}$/.test(text)) return '[0-9a-fA-F-]+';
   if (/^\w+$/.test(text)) return '\\w+';
-  return '\\S+';
+  return quoted ? '[^"]+' : '\\S+';
 }
 
 /**
@@ -54,7 +59,10 @@ export function buildExtractFromSelection(
   const before = idx > 0 ? raw.slice(0, idx) : '';
   const prefixLiteral = before ? derivePrefix(before) : '';
   const prefix = prefixLiteral ? escapeRegex(prefixLiteral) : '';
-  return { key: `EXTRACT-${name}`, value: `${prefix}(?<${name}>${generalize(selectedText)})` };
+  // A selection that both starts right after a quote and ends right before one
+  // is a quoted value, so the capture must stop at the closing quote.
+  const quoted = raw[idx - 1] === '"' && raw[idx + selectedText.length] === '"';
+  return { key: `EXTRACT-${name}`, value: `${prefix}(?<${name}>${generalize(selectedText, quoted)})` };
 }
 
 /**

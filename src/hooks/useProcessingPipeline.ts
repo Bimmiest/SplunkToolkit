@@ -33,6 +33,11 @@ export function useProcessingPipeline() {
   const requestStartRef = useRef<number>(0);
   const retryCountRef = useRef(0);
   const initWorkerRef = useRef<() => void>(() => {});
+  // Latest settings, for the manual-run effect (which depends only on the tick).
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
 
   // Arm the 5 s watchdog for a given request id. Pulled out of sendRequest so the
   // crash-retry path can re-arm it too — without this, a hung retry would leave
@@ -73,7 +78,12 @@ export function useProcessingPipeline() {
 
     const id = ++requestIdRef.current;
     requestStartRef.current = performance.now();
-    retryCountRef.current = 0; // a fresh user request starts the retry budget over
+    // The retry budget is NOT reset here. Resetting per request meant a worker
+    // that had just crashed got a fresh budget from the next keystroke, so the
+    // "cap the restart loop" invariant this file documents was never actually
+    // bounded across requests — interleaved auto-run and manual traffic could
+    // restart the worker indefinitely. It is cleared where it should be: when a
+    // request completes cleanly (onmessage), or when the watchdog gives up.
     setIsProcessing(true);
 
     armWatchdog(id);
@@ -196,9 +206,13 @@ export function useProcessingPipeline() {
 
   // Manual-run effect: fires when the user clicks "Run pipeline".
   // manualRunTick is only incremented by triggerManualRun() in the store.
+  //
+  // `settings` is read through a ref rather than closed over. The effect depends
+  // only on the tick, so relying on the closure made "which settings does a
+  // manual run use?" depend on which render last re-created this effect — and
+  // required suppressing the exhaustive-deps lint to say so.
   useEffect(() => {
     if (manualRunTick === 0) return; // skip the initial mount
-    sendRequest(liveInputsRef.current, settings);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [manualRunTick]);
+    sendRequest(liveInputsRef.current, settingsRef.current);
+  }, [manualRunTick, sendRequest]);
 }

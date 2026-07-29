@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useOverlay } from '../../hooks/useOverlay';
 import { useAppStore } from '../../store/useAppStore';
 import { scaffoldConfig } from '../../engine/scaffold/scaffoldConfig';
-import { renderStanza, appendStanza } from '../../engine/scaffold/serialize';
+import { renderStanza, appendStanza, stanzaNameError } from '../../engine/scaffold/serialize';
 import type { Confidence, ScaffoldSuggestion } from '../../engine/scaffold/types';
 import { computeDiff } from '../../utils/diffEngine';
 import { escapeRegex } from '../../utils/splunkRegex';
@@ -50,10 +50,13 @@ export function ScaffoldModal() {
   const diff = computeDiff(propsConf, mergedProps);
   const stanzaExists = new RegExp(`^[ \\t]*\\[${escapeRegex(stanzaName)}\\][ \\t]*$`, 'm').test(propsConf);
 
-  const canApply = chosen.length > 0;
+  // A name that cannot be written as a header must block Apply, not silently
+  // produce a malformed props.conf (`foo]bar` → `[foo]bar]`).
+  const nameError = stanzaNameError(stanzaName);
+  const canApply = chosen.length > 0 && nameError === null;
 
   const apply = () => {
-    if (chosen.length === 0) return;
+    if (!canApply) return;
     setPropsConf(mergedProps);
     // Point the event's sourcetype at the new stanza so the scaffolded config applies.
     if (stanzaName !== metadata.sourcetype) setMetadataField('sourcetype', stanzaName);
@@ -115,11 +118,17 @@ export function ScaffoldModal() {
                   className="mt-1 w-full px-2.5 py-1.5 rounded-md text-sm font-mono outline-none focus:border-[var(--color-border-hover)]"
                   style={{ backgroundColor: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', color: 'var(--color-text-primary)' }}
                 />
-                <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
-                  {result.sourcetypeSuggestion
-                    ? `${result.sourcetypeSuggestion.evidence} — applied to the event's sourcetype on save`
-                    : "Applied to the event's sourcetype on save so the new stanza matches your data."}
-                </p>
+                {nameError ? (
+                  <p className="text-xs mt-1 font-medium" style={{ color: 'var(--color-error)' }}>
+                    {nameError}
+                  </p>
+                ) : (
+                  <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                    {result.sourcetypeSuggestion
+                      ? `${result.sourcetypeSuggestion.evidence} — applied to the event's sourcetype on save`
+                      : "Applied to the event's sourcetype on save so the new stanza matches your data."}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1.5">
