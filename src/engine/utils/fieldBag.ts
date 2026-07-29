@@ -49,6 +49,12 @@ export function setField<T>(fields: Record<string, T>, name: string, value: T): 
  *
  * Returns `true` when the field was newly created, so callers that track an
  * "added" list can push conditionally.
+ *
+ * The array is replaced rather than appended to in place. Callers build their
+ * field bag with a shallow copy (`{ ...event.fields }`), which shares every
+ * array value with the input event — pushing would mutate that event, and any
+ * other event holding the same reference, from what is supposed to be a pure
+ * processor.
  */
 export function addFieldValue(
   fields: Record<string, string | string[]>,
@@ -60,10 +66,6 @@ export function addFieldValue(
     return true;
   }
   const existing = fields[name];
-  if (Array.isArray(existing)) {
-    existing.push(value);
-  } else {
-    setField(fields, name, [existing as string, value]);
-  }
+  setField(fields, name, Array.isArray(existing) ? [...existing, value] : [existing as string, value]);
   return false;
 }

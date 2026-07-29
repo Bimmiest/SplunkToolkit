@@ -99,3 +99,32 @@ describe('parseConf — line continuation (SEM-18)', () => {
     expect(value(text, 's', 'OTHER')).toBe('b');
   });
 });
+
+describe('parseConf — class-directive prefixes are case-sensitive (#60)', () => {
+  it('does not classify a mis-cased prefix as a class directive', () => {
+    const conf = parseConf('[st]\nextract-f = (?<a>\\d+)', 'props.conf');
+    const dir = conf.stanzas[0].directives[0];
+    expect(dir.directiveType).toBe('extract-f');
+    expect(dir.className).toBeUndefined();
+  });
+
+  it('warns with the canonical spelling', () => {
+    const conf = parseConf('[st]\nextract-f = (?<a>\\d+)', 'props.conf');
+    const warning = conf.errors.find((e) => e.message.includes('case-sensitive'));
+    expect(warning).toBeDefined();
+    expect(warning!.message).toContain('EXTRACT-f');
+  });
+
+  it('still accepts the correctly-cased form', () => {
+    const conf = parseConf('[st]\nEXTRACT-f = (?<a>\\d+)', 'props.conf');
+    const dir = conf.stanzas[0].directives[0];
+    expect(dir.directiveType).toBe('EXTRACT');
+    expect(dir.className).toBe('f');
+    expect(conf.errors.some((e) => e.message.includes('case-sensitive'))).toBe(false);
+  });
+
+  it('flags a mixed-case prefix too', () => {
+    const conf = parseConf('[st]\nExtract-f = (?<a>\\d+)', 'props.conf');
+    expect(conf.errors.some((e) => e.message.includes('EXTRACT-f'))).toBe(true);
+  });
+});

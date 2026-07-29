@@ -14,7 +14,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Kept in step with .nvmrc and package.json "engines". Node 20 went
+          # end-of-life in April 2026, so CI was building on an unsupported
+          # runtime while .nvmrc pinned a non-LTS 25.x — neither matched the
+          # other, nor what the deploy runs.
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Install dependencies
@@ -23,10 +27,21 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Type check
-        # `tsc --noEmit` against the solution-style root tsconfig ("files": []) checks
-        # zero files. `tsc -b` builds every referenced project, so it actually type-checks.
-        run: npx tsc -b
+      - name: Build
+        # `npm run build` is `tsc -b && vite build`, so this type-checks (a bare
+        # `tsc --noEmit` against the solution-style root tsconfig — "files": [] —
+        # would check zero files) AND produces the real artifact. Without the
+        # bundler step, a bad asset reference or manualChunks drift passes PR
+        # checks and only fails later, during the deploy on main.
+        run: npm run build
 
       - name: Test
         run: npm test
+
+      - name: Audit dependencies
+        # Fails the build on a high/critical advisory. Production deps are what
+        # ship to the browser, so they gate; dev-only advisories are reported
+        # without failing (`|| true`) so a tooling CVE cannot block a fix.
+        run: |
+          npm audit --omit=dev --audit-level=high
+          npm audit --audit-level=high || true

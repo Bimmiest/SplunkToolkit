@@ -199,9 +199,11 @@ function extractJson(
 function addMvField(fields: Record<string, string | string[]>, added: string[], key: string, value: string): void {
   // hasOwn-guarded + `__proto__`-safe so a key like `toString` is stored as a
   // real field instead of reading back the inherited Object.prototype member.
-  if (addFieldValue(fields, key, value)) {
-    added.push(key);
-  }
+  addFieldValue(fields, key, value);
+  // Record the key whether the field was created or gained another value: the
+  // caller drops its whole field bag when `added` is empty, so an append that
+  // went unrecorded was silently thrown away.
+  if (!added.includes(key)) added.push(key);
 }
 
 function extractXml(raw: string, fields: Record<string, string | string[]>, added: string[]): void {
@@ -240,10 +242,9 @@ function walkXmlElement(
     const attr = el.attributes[i];
     // "Name" attribute on an element uses TagName_Name as field name (Windows EventLog convention).
     const fieldName = attr.name === 'Name' ? `${tagName}_Name` : attr.name;
-    if (attr.value && !hasField(fields, fieldName)) {
-      setField(fields, fieldName, attr.value);
-      added.push(fieldName);
-    }
+    // Accumulate like the leaf-text path below: within one mode, repeated data
+    // should not be first-wins in one place and multivalue in another.
+    if (attr.value) addMvField(fields, added, fieldName, attr.value);
   }
 
   const children = Array.from(el.children);
@@ -289,6 +290,26 @@ function extractKeyValue(
   // same-length spaces preserves the [\s,;] boundaries the bare pattern anchors on.
   let bareScan = raw;
 
+  // Splunk's automatic KV extraction accumulates a repeated key into a
+  // multivalue field — `user=alice user=bob` is `user = {alice, bob}`, which is
+  // ordinary in postfix/Cisco-style logs. Keeping only the first value silently
+  // discarded the rest.
+  //
+  // The "already extracted" guard still has to distinguish a key this pass has
+  // seen from one an EARLIER processor wrote: automatic KV must not append to a
+  // field that INDEXED_EXTRACTIONS or a REPORT already produced.
+  const seenHere = new Set<string>();
+  const record = (key: string, value: string): void => {
+    if (seenHere.has(key)) {
+      addFieldValue(fields, key, value);
+      return;
+    }
+    if (hasField(fields, key)) return; // produced by an earlier processor — leave it alone
+    setField(fields, key, value);
+    seenHere.add(key);
+    added.push(key);
+  };
+
   const runQuoted = (re: RegExp, unescape: boolean): void => {
     for (const match of raw.matchAll(re)) {
       const start = match.index ?? 0;
@@ -298,10 +319,9 @@ function extractKeyValue(
         bareScan.slice(start + match[0].length);
       const key = match[1];
       let value = match[2];
-      if (key && value !== undefined && !hasField(fields, key)) {
+      if (key && value !== undefined) {
         if (unescape) value = value.replace(/\\(["'\\])/g, '$1');
-        setField(fields, key, value);
-        added.push(key);
+        record(key, value);
       }
     }
   };
@@ -312,10 +332,7 @@ function extractKeyValue(
   for (const match of bareScan.matchAll(bare)) {
     const key = match[1];
     const value = match[2];
-    if (key && value !== undefined && !hasField(fields, key)) {
-      setField(fields, key, value);
-      added.push(key);
-    }
+    if (key && value !== undefined) record(key, value);
   }
 }
 

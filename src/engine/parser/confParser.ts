@@ -69,17 +69,30 @@ const CLASS_DIRECTIVE_PREFIXES = [
  * directive type (`EXTRACT`) and the class name (`myfield`).  If the key does
  * not match any known class-based prefix it returns the full key as the
  * directive type with no class name.
+ *
+ * The prefix comparison is case-SENSITIVE. Splunk attribute names are, so
+ * `extract-f` is not `EXTRACT-f` — it is an unknown attribute a real indexer
+ * silently ignores. Matching it case-insensitively made the simulator extract
+ * fields from config that ships dead, and (because the key then carried a
+ * `className`) skipped the very mis-case check that exists to catch this.
+ * `miscasedPrefix` carries the canonical spelling so the caller can say so.
  */
-function parseDirectiveKey(key: string): { directiveType: string; className?: string } {
+function parseDirectiveKey(key: string): {
+  directiveType: string;
+  className?: string;
+  miscasedPrefix?: string;
+} {
   for (const prefix of CLASS_DIRECTIVE_PREFIXES) {
-    // Match `PREFIX-<className>` (case-insensitive prefix check).
     if (key.length > prefix.length + 1 && key[prefix.length] === '-') {
-      const candidatePrefix = key.slice(0, prefix.length).toUpperCase();
+      const candidatePrefix = key.slice(0, prefix.length);
       if (candidatePrefix === prefix) {
         return {
           directiveType: prefix,
           className: key.slice(prefix.length + 1),
         };
+      }
+      if (candidatePrefix.toUpperCase() === prefix) {
+        return { directiveType: key, miscasedPrefix: prefix };
       }
     }
   }
@@ -206,14 +219,28 @@ export function parseConf(
       const rawKey = directiveMatch[1].trim();
       const rawValue = directiveMatch[2];
 
-      const { directiveType, className } = parseDirectiveKey(rawKey);
+      const { directiveType, className, miscasedPrefix } = parseDirectiveKey(rawKey);
+
+      // A mis-cased class prefix (`extract-f`) is ignored by Splunk exactly like
+      // a mis-cased plain attribute, and is the harder one to spot by eye.
+      if (miscasedPrefix !== undefined) {
+        const canonical = `${miscasedPrefix}${rawKey.slice(miscasedPrefix.length)}`;
+        errors.push({
+          level: 'warning',
+          message: `"${rawKey}" is ignored — attribute names are case-sensitive. Did you mean "${canonical}"?`,
+          file: fileName,
+          line: lineNumber,
+          directiveKey: rawKey,
+          suggestion: `Change "${rawKey}" to "${canonical}".`,
+        });
+      }
 
       // Splunk attribute names are case-sensitive, so a mis-cased name (e.g.
       // `kv_mode` instead of `KV_MODE`) is silently ignored — the default applies.
       // Flag case-only mismatches (a canonical name exists but the casing differs)
       // so the config bug surfaces. Class directives (EXTRACT-*, …) have a className
       // and are skipped; unknown attributes return no canonical and are not flagged.
-      if (className === undefined) {
+      if (className === undefined && miscasedPrefix === undefined) {
         const canonical = getCanonicalDirectiveKey(rawKey, fileName);
         if (canonical && canonical !== rawKey) {
           errors.push({

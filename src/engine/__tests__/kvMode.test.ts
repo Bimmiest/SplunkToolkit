@@ -222,3 +222,46 @@ describe('applyKvMode — multi (multikv)', () => {
     expect(r.fields['STAT']).toEqual(['Ss', 'R+']);
   });
 });
+
+describe('applyKvMode — repeated keys accumulate (#64)', () => {
+  it('multivalues a repeated bare key', () => {
+    const [out] = applyKvMode([event('user=alice user=bob')], [dir('auto')]);
+    expect(out.fields.user).toEqual(['alice', 'bob']);
+  });
+
+  it('multivalues a repeated quoted key', () => {
+    const [out] = applyKvMode([event('msg="first one" msg="second one"')], [dir('auto')]);
+    expect(out.fields.msg).toEqual(['first one', 'second one']);
+  });
+
+  it('keeps a single occurrence scalar', () => {
+    const [out] = applyKvMode([event('user=alice')], [dir('auto')]);
+    expect(out.fields.user).toBe('alice');
+  });
+
+  it('does not append to a field an earlier processor already extracted', () => {
+    const ev = { ...event('user=bob'), fields: { user: 'from-indexed-extraction' } };
+    const [out] = applyKvMode([ev], [dir('auto')]);
+    expect(out.fields.user).toBe('from-indexed-extraction');
+  });
+});
+
+describe('applyKvMode — extraction never mutates the input event (#63)', () => {
+  // multikv rather than xml: this file runs in the node environment, where
+  // DOMParser is absent and xml mode would silently no-op.
+  const TABLE = 'NAME  VALUE\na     1\nb     2';
+
+  it('leaves a pre-existing multivalue array on the input untouched', () => {
+    const shared = ['zero'];
+    const ev = { ...event(TABLE), fields: { NAME: shared } };
+    applyKvMode([ev], [dir('multi')]);
+    expect(shared).toEqual(['zero']);
+    expect(ev.fields.NAME).toEqual(['zero']);
+  });
+
+  it('records an append so the result is not discarded', () => {
+    const ev = { ...event(TABLE), fields: { NAME: ['zero'] } };
+    const [out] = applyKvMode([ev], [dir('multi')]);
+    expect(out.fields.NAME).toEqual(['zero', 'a', 'b']);
+  });
+});

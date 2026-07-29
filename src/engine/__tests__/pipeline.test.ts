@@ -81,3 +81,25 @@ describe('runPipeline — INGEST_EVAL is scoped to referencing stanzas (SEM-2)',
     expect(result.events[0].fields.tag).toBe('prod');
   });
 });
+
+describe('runPipeline — 1 MB input cap aligns to a line boundary (#14)', () => {
+  const LINE = 'x'.repeat(99) + '\n'; // 100 chars per line
+  // One event per line, so a mid-line cut would be visible as a short event.
+  const NO_MERGE = '[aws:cloudtrail]\nSHOULD_LINEMERGE = false';
+
+  it('does not hand the pipeline a half-formed final event', () => {
+    // 10,001 lines = 1,000,100 chars, so the cap lands 100 chars into the last line.
+    const raw = LINE.repeat(10_001);
+    const { result, diagnostics } = runPipeline(raw, META, NO_MERGE, '');
+    expect(diagnostics.some((d) => d.message.includes('truncated'))).toBe(true);
+    // Every surviving event is a whole line, not a fragment.
+    expect(result.events.every((e) => e._raw === 'x'.repeat(99))).toBe(true);
+  });
+
+  it('keeps input under the cap intact', () => {
+    const raw = LINE.repeat(10);
+    const { result, diagnostics } = runPipeline(raw, META, NO_MERGE, '');
+    expect(diagnostics.some((d) => d.message.includes('truncated'))).toBe(false);
+    expect(result.events).toHaveLength(10);
+  });
+});
