@@ -4,19 +4,13 @@ import { applyDestKey } from '../transforms/destKeyRouter';
 import { applyIngestEval } from '../transforms/ingestEval';
 import { byClassName } from '../utils/asciiCompare';
 import { changeWindow } from '../utils/changeWindow';
+import { SIMULATED_DEST_KEYS, VALID_UNSIMULATED_DEST_KEYS, normaliseDestKey } from '../transforms/destKeys';
 
 // A DEST_KEY=_raw transform that shrinks the event by at least this fraction is
 // treated as accidental data loss (FORMAT did not reproduce the rest of the line).
 const RAW_LOSS_THRESHOLD = 0.3;
 
-// DEST_KEY values the router actually simulates (after the _MetaData:→MetaData:
-// alias is normalised).
-const SIMULATED_DEST_KEYS = new Set([
-  'queue', '_raw', '_meta', '_time',
-  'MetaData:Host', 'MetaData:Index', 'MetaData:Source', 'MetaData:Sourcetype',
-]);
-// Documented Splunk routing keys this tool recognises but does not model.
-const VALID_UNSIMULATED_DEST_KEYS = new Set(['_TCP_ROUTING', '_SYSLOG_ROUTING']);
+
 
 export function applyTransforms(
   events: SplunkEvent[],
@@ -213,7 +207,7 @@ function warnUnknownDestKey(
   warned: Set<string>,
 ): void {
   // Mirror the router's _MetaData:→MetaData: alias normalisation before comparing.
-  const normalized = destKey.replace(/^_(?=MetaData:)/i, '');
+  const normalized = normaliseDestKey(destKey);
   if (SIMULATED_DEST_KEYS.has(normalized) || warned.has(stanzaName)) return;
   warned.add(stanzaName);
 

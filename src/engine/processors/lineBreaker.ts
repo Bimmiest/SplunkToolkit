@@ -78,6 +78,27 @@ function lineAtOffset(newlines: number[], offset: number): number {
  *     BREAK_ONLY_BEFORE, BREAK_ONLY_BEFORE_DATE, and MUST_BREAK_AFTER.
  *  3. Create SplunkEvent objects from the resulting segments.
  */
+/**
+ * Warn when a line-merging break pattern was supplied but could not be compiled.
+ * The option is then dropped, which quietly rewrites event boundaries.
+ */
+function warnUncompilableBreakPattern(
+  key: 'BREAK_ONLY_BEFORE' | 'MUST_BREAK_AFTER',
+  pattern: string | undefined,
+  compiled: RegExp | null,
+  directives: ConfDirective[],
+  diagnostics?: ValidationDiagnostic[],
+): void {
+  if (!diagnostics || pattern === undefined || compiled !== null) return;
+  diagnostics.push({
+    level: 'warning',
+    message: `${key} pattern (${pattern}) could not be compiled safely (invalid regex or rejected as ReDoS-prone). The option was ignored, so events were broken as if it were not set.`,
+    file: 'props.conf',
+    line: directives.find((d) => d.key.toUpperCase() === key)?.line,
+    directiveKey: key,
+  });
+}
+
 export function breakLines(
   rawData: string,
   directives: ConfDirective[],
@@ -223,6 +244,12 @@ export function breakLines(
     const breakOnlyBeforeAnchoredRegex = breakOnlyBeforeStr
       ? safeRegex('^(?:' + breakOnlyBeforeStr + ')')
       : null;
+    // A pattern that will not compile silently drops the option and falls back to
+    // date-only breaking, changing every event boundary with no indication why.
+    // LINE_BREAKER already warns in the same situation; these must too.
+    warnUncompilableBreakPattern(
+      'BREAK_ONLY_BEFORE', breakOnlyBeforeStr, breakOnlyBeforeAnchoredRegex, directives, diagnostics,
+    );
     // Splunk default: BREAK_ONLY_BEFORE_DATE=true when SHOULD_LINEMERGE=true.
     // Only disabled when explicitly set to false.
     const breakOnlyBeforeDate =
@@ -232,6 +259,9 @@ export function breakLines(
     const mustBreakAfterRegex = mustBreakAfterStr
       ? safeRegex(mustBreakAfterStr)
       : null;
+    warnUncompilableBreakPattern(
+      'MUST_BREAK_AFTER', mustBreakAfterStr, mustBreakAfterRegex, directives, diagnostics,
+    );
 
     // MAX_EVENTS caps how many input lines may merge into a single event (Splunk
     // default 256). Once reached, Splunk breaks even with no break pattern match —

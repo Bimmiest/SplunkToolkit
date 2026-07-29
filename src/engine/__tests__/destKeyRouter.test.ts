@@ -114,3 +114,20 @@ describe('applyDestKey — _meta (SEM-11)', () => {
     expect(event._meta.n).toBe('5');
   });
 });
+
+describe('applyDestKey — unsimulated routing keys are not written as fields (#75.3)', () => {
+  it('does not invent a field for _TCP_ROUTING', () => {
+    const out = applyDestKey(baseEvent(), result('_TCP_ROUTING', 'my_group'));
+    expect(out.fields._TCP_ROUTING).toBeUndefined();
+  });
+
+  it('does not invent a field for _INDEX_AND_FORWARD_ROUTING', () => {
+    const out = applyDestKey(baseEvent(), result('_INDEX_AND_FORWARD_ROUTING', 'local'));
+    expect(out.fields._INDEX_AND_FORWARD_ROUTING).toBeUndefined();
+  });
+
+  it('still treats a genuinely unknown key as a field name', () => {
+    const out = applyDestKey(baseEvent(), result('my_custom_field', 'v'));
+    expect(out.fields.my_custom_field).toBe('v');
+  });
+});

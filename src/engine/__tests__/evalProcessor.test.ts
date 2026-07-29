@@ -533,3 +533,17 @@ describe('applyEvalExpressions — replace() backreferences (#54)', () => {
     expect(result.fields['d']).toBe('a$1$&c');
   });
 });
+
+describe('applyEvalExpressions — strftime %z / %Z (#75.4)', () => {
+  it('emits a numeric offset rather than the literal specifier', () => {
+    const [result] = applyEvalExpressions([event()], [evalDir('t', 'strftime(1705312800, "%Y-%m-%dT%H:%M:%S%z")')]);
+    expect(result.fields['t']).not.toContain('%z');
+    expect(result.fields['t']).toMatch(/[+-]\d{4}$/);
+  });
+
+  it('emits a zone name for %Z', () => {
+    const [result] = applyEvalExpressions([event()], [evalDir('t', 'strftime(1705312800, "%Z")')]);
+    expect(result.fields['t']).not.toBe('%Z');
+    expect(String(result.fields['t']).length).toBeGreaterThan(0);
+  });
+});
