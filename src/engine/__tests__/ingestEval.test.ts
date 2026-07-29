@@ -60,3 +60,29 @@ describe('applyIngestEval', () => {
     expect(e.fields.b).toBe('2');
   });
 });
+
+describe('applyIngestEval — queue assignment routes the event (#58)', () => {
+  it('routes to nullQueue rather than writing a plain field', () => {
+    const [out] = applyIngestEval(
+      [event('DEBUG connection retry')],
+      ingestDir('queue=if(match(_raw,"DEBUG"), "nullQueue", "indexQueue")'),
+    );
+    expect(out._meta._queue).toBe('nullQueue');
+    expect(out.fields.queue).toBeUndefined();
+  });
+
+  it('routes a non-matching event to indexQueue', () => {
+    const [out] = applyIngestEval(
+      [event('INFO all good')],
+      ingestDir('queue=if(match(_raw,"DEBUG"), "nullQueue", "indexQueue")'),
+    );
+    expect(out._meta._queue).toBe('indexQueue');
+    expect(out.fields.queue).toBeUndefined();
+  });
+
+  it('does not mutate the input event', () => {
+    const input = event('DEBUG x');
+    applyIngestEval([input], ingestDir('queue="nullQueue"'));
+    expect(input._meta._queue).toBeUndefined();
+  });
+});

@@ -1,6 +1,7 @@
 import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 import { safeRegex } from '../../utils/splunkRegex';
 import { fieldQuotingWarning } from '../utils/fieldRef';
+import { getMetadataField } from '../utils/metadataFields';
 
 type EvalValue = string | number | boolean | null | string[];
 
@@ -505,7 +506,9 @@ function getField(event: SplunkEvent, name: string): EvalValue {
   if (name === '_raw') return event._raw;
   if (name === '_time') return event._time ? event._time.getTime() / 1000 : null;
   const val = event.fields[name];
-  if (val === undefined) return null;
+  // host/source/sourcetype/index are default fields at search time, so an eval
+  // may read them directly (`EVAL-idx = index`, `EVAL-x = if(sourcetype=="…")`).
+  if (val === undefined) return getMetadataField(event, name) ?? null;
   if (Array.isArray(val)) return val;
   return val;
 }

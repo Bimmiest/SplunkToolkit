@@ -3,6 +3,7 @@ import { safeRegex, convertSplunkToJsRegex } from '../../utils/splunkRegex';
 import { isInternalField } from '../utils/internalFields';
 import { byClassName } from '../utils/asciiCompare';
 import { unquoteFieldName } from '../utils/fieldRef';
+import { getMetadataField } from '../utils/metadataFields';
 
 export function extractFields(
   events: SplunkEvent[],
@@ -139,5 +140,9 @@ function getFieldValue(event: SplunkEvent, fieldName: string): string | undefine
   if (fieldName === '_raw') return event._raw;
   const val = event.fields[fieldName];
   if (Array.isArray(val)) return val[0];
+  // `EXTRACT-app = …(?<app>\w+)… in source` is a staple TA idiom: host/source/
+  // sourcetype/index are default fields at search time, so extraction can run
+  // against them without anything having extracted them first.
+  if (val === undefined) return getMetadataField(event, fieldName);
   return val;
 }
