@@ -48,13 +48,24 @@ export function runPipeline(
     };
   }
 
-  // Guard against excessively large inputs (> 1MB)
+  // Guard against excessively large inputs (> 1MB). Cut back to the last line
+  // break inside the cap rather than at an arbitrary character: slicing
+  // mid-line hands the pipeline a half-event, which then mis-breaks,
+  // mis-timestamps, or extracts a truncated final field — a corrupt result
+  // presented as a real one. Losing the partial trailing line is the honest
+  // outcome, and the warning says so.
   const MAX_RAW_SIZE = 1_000_000;
-  const truncatedRaw = rawData.length > MAX_RAW_SIZE ? rawData.slice(0, MAX_RAW_SIZE) : rawData;
+  let truncatedRaw = rawData;
   if (rawData.length > MAX_RAW_SIZE) {
+    const capped = rawData.slice(0, MAX_RAW_SIZE);
+    const lastBreak = capped.lastIndexOf('\n');
+    truncatedRaw = lastBreak > 0 ? capped.slice(0, lastBreak) : capped;
     diagnostics.push({
       level: 'warning',
-      message: `Input truncated to ${MAX_RAW_SIZE.toLocaleString()} characters for performance (original: ${rawData.length.toLocaleString()})`,
+      message:
+        `Input truncated to ${truncatedRaw.length.toLocaleString()} characters for performance ` +
+        `(original: ${rawData.length.toLocaleString()}). Truncation is aligned to the last complete ` +
+        'line, so the final partial event is dropped rather than processed half-formed.',
       file: 'props.conf',
     });
   }

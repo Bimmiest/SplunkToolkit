@@ -60,15 +60,20 @@ function extractJsonFields(events: SplunkEvent[]): SplunkEvent[] {
 function extractDelimited(events: SplunkEvent[], delimiter: string, mode: string): SplunkEvent[] {
   if (events.length === 0) return events;
 
-  // The first event is the header row (produced by LINE_BREAKER splitting the file).
-  // All subsequent events are data rows. This matches Splunk's INDEXED_EXTRACTIONS
-  // behaviour: headers are read once from the first line and applied to every data event.
-  const headers = parseDelimitedLine(events[0]._raw, delimiter).map(stripLeadingUnderscore);
+  // Splunk reads the header from the first *content* line of the file, so a
+  // leading blank or comment line that became its own event must be skipped —
+  // assuming `events[0]` is the header made every field name garbage whenever
+  // the file opened with one.
+  const headerIndex = events.findIndex((e) => isContentLine(e._raw));
+  if (headerIndex === -1) return events;
+
+  const headers = parseDelimitedLine(events[headerIndex]._raw, delimiter).map(sanitizeHeaderName);
 
   if (headers.length === 0) return events;
 
-  // The header row is consumed as metadata — Splunk does not index it as an event.
-  return events.slice(1).map((event) => {
+  // The header row is consumed as metadata — Splunk does not index it as an
+  // event. Anything before it is preamble and is dropped with it.
+  return events.slice(headerIndex + 1).map((event) => {
     const values = parseDelimitedLine(event._raw, delimiter);
 
     const fields = { ...event.fields };
@@ -104,7 +109,7 @@ function extractW3c(events: SplunkEvent[]): SplunkEvent[] {
   for (const event of events) {
     const fieldsMatch = event._raw.match(/^#Fields:\s*(.+)$/m);
     if (fieldsMatch) {
-      headers = fieldsMatch[1].split(/\s+/).map(stripLeadingUnderscore);
+      headers = fieldsMatch[1].trim().split(/\s+/).map(sanitizeHeaderName);
       break;
     }
   }
@@ -112,9 +117,10 @@ function extractW3c(events: SplunkEvent[]): SplunkEvent[] {
   if (headers.length === 0) return events;
 
   // Drop W3C directive/comment lines (#Version, #Fields, #Software, …) — they
-  // are not indexed as events.
+  // are not indexed as events. A merged event carries its directive lines
+  // inline, so test every line rather than only the first.
   return events
-    .filter((event) => !event._raw.startsWith('#'))
+    .filter((event) => !isW3cDirectiveOnly(event._raw))
     .map((event) => {
     const values = parseW3cLine(event._raw);
     const fields = { ...event.fields };
@@ -143,8 +149,28 @@ function extractW3c(events: SplunkEvent[]): SplunkEvent[] {
   });
 }
 
-function stripLeadingUnderscore(name: string): string {
-  return name.replace(/^_+/, '');
+/** True for a line that carries data — not blank, not a `#` comment/directive. */
+function isContentLine(raw: string): boolean {
+  const trimmed = raw.trim();
+  return trimmed.length > 0 && !trimmed.startsWith('#');
+}
+
+/** True when every line of the event is a W3C directive or blank. */
+function isW3cDirectiveOnly(raw: string): boolean {
+  return !raw.split(/\r?\n/).some(isContentLine);
+}
+
+/**
+ * Normalise a structured-header token into the field name Splunk indexes.
+ *
+ * Splunk's structured-header processor replaces every character that is not
+ * alphanumeric or `_` (props.conf.spec, `HEADER_FIELD_ACCEPTABLE_SPECIAL_CHARACTERS`),
+ * and strips the leading underscores it reserves for internal fields. Keeping
+ * the raw token meant a W3C/IIS log surfaced `cs-uri-stem`, which is not the
+ * name anyone can search for — `cs_uri_stem` is.
+ */
+function sanitizeHeaderName(name: string): string {
+  return name.replace(/[^A-Za-z0-9_]/g, '_').replace(/^_+/, '');
 }
 
 /**

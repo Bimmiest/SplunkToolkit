@@ -175,9 +175,11 @@ describe('applyIndexedExtractions — W3C quoting', () => {
     const header = event('#Fields: cs-method cs(User-Agent) sc-status');
     const row = event('GET "Mozilla/5.0 (Windows NT 10.0)" 200');
     const events = applyIndexedExtractions([header, row], [dir('w3c')]);
-    expect(events[0].fields['cs-method']).toBe('GET');
-    expect(events[0].fields['cs(User-Agent)']).toBe('Mozilla/5.0 (Windows NT 10.0)');
-    expect(events[0].fields['sc-status']).toBe('200');
+    // Header tokens are sanitized to the names Splunk indexes (#68): the IIS
+    // user-agent column really does surface as `cs_User_Agent_`.
+    expect(events[0].fields['cs_method']).toBe('GET');
+    expect(events[0].fields['cs_User_Agent_']).toBe('Mozilla/5.0 (Windows NT 10.0)');
+    expect(events[0].fields['sc_status']).toBe('200');
   });
 });
 
@@ -234,10 +236,10 @@ describe('applyIndexedExtractions — leading underscore stripping', () => {
     const header = event('#Fields: _cs-method uri status');
     const row = event('GET /api 200');
     const events = applyIndexedExtractions([header, row], [dir('w3c')]);
-    expect(events[0].fields['cs-method']).toBe('GET');
+    expect(events[0].fields['cs_method']).toBe('GET');
     expect(events[0].fields['uri']).toBe('/api');
     expect(events[0].fields['status']).toBe('200');
-    expect(events[0].fields['_cs-method']).toBeUndefined();
+    expect(events[0].fields['_cs_method']).toBeUndefined();
   });
 });
 
@@ -246,5 +248,62 @@ describe('applyIndexedExtractions — no directive', () => {
     const ev = event('some raw data');
     const events = applyIndexedExtractions([ev], []);
     expect(events[0].fields).toEqual({});
+  });
+});
+
+describe('applyIndexedExtractions — header is the first content line (#14)', () => {
+  it('skips a leading blank line', () => {
+    const events = applyIndexedExtractions(
+      [event(''), event('ts,host'), event('2024-01-15,myhost')],
+      [dir('csv')],
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0].fields.host).toBe('myhost');
+  });
+
+  it('skips a leading comment line', () => {
+    const events = applyIndexedExtractions(
+      [event('# exported 2024-01-15'), event('ts,host'), event('2024-01-15,myhost')],
+      [dir('csv')],
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0].fields.host).toBe('myhost');
+    expect(events[0].fields['#_exported_2024_01_15']).toBeUndefined();
+  });
+
+  it('returns events unchanged when there is no content line at all', () => {
+    const events = applyIndexedExtractions([event(''), event('   ')], [dir('csv')]);
+    expect(events).toHaveLength(2);
+  });
+});
+
+describe('applyIndexedExtractions — header names are sanitized (#68)', () => {
+  it('rewrites W3C hyphens to underscores', () => {
+    const events = applyIndexedExtractions(
+      [event('#Fields: date time c-ip cs-uri-stem sc-status'), event('2024-01-15 10:00:00 10.0.0.1 /index.html 200')],
+      [dir('w3c')],
+    );
+    expect(events[0].fields.c_ip).toBe('10.0.0.1');
+    expect(events[0].fields.cs_uri_stem).toBe('/index.html');
+    expect(events[0].fields.sc_status).toBe('200');
+    expect(events[0].fields['cs-uri-stem']).toBeUndefined();
+  });
+
+  it('rewrites delimited header names too', () => {
+    const events = applyIndexedExtractions(
+      [event('req-id,user.name,status'), event('abc,alice,200')],
+      [dir('csv')],
+    );
+    expect(events[0].fields.req_id).toBe('abc');
+    expect(events[0].fields.user_name).toBe('alice');
+  });
+
+  it('drops a W3C directive line that is not the first event', () => {
+    const events = applyIndexedExtractions(
+      [event('#Software: IIS'), event('#Fields: cs-method sc-status'), event('GET 200')],
+      [dir('w3c')],
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0].fields.cs_method).toBe('GET');
   });
 });
