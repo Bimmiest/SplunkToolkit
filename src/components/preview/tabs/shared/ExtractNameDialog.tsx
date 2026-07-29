@@ -1,29 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildExtractFromSelection, toCaptureGroupName } from '../../../../engine/scaffold/fromSelection';
-import { safeRegex } from '../../../../utils/splunkRegex';
+import { useRegexMatch } from '../../../../hooks/useRegexMatch';
 import { DirectiveDialog } from './DirectiveDialog';
 
 type Capture =
   | { state: 'empty' }
+  | { state: 'pending' }
   | { state: 'invalid' }
+  | { state: 'timeout' }
   | { state: 'nomatch' }
   | { state: 'nogroup'; full: string }
   | { state: 'ok'; groups: [string, string][] };
-
-/** Run a candidate EXTRACT regex against the event raw, mirroring pipeline behavior. */
-function runCapture(pattern: string, raw: string): Capture {
-  const p = pattern.trim();
-  if (!p) return { state: 'empty' };
-  const re = safeRegex(p); // non-global → first match, like inline EXTRACT
-  if (!re) return { state: 'invalid' };
-  const m = re.exec(raw);
-  if (!m) return { state: 'nomatch' };
-  const groups = m.groups
-    ? (Object.entries(m.groups).filter(([, v]) => v !== undefined) as [string, string][])
-    : [];
-  if (groups.length === 0) return { state: 'nogroup', full: m[0] };
-  return { state: 'ok', groups };
-}
 
 /**
  * In-app dialog for "Create EXTRACT from selection". The field name and the regex
@@ -74,8 +61,28 @@ export function ExtractNameDialog({
   // user isn't surprised the applied field name differs from what they typed.
   const cleanName = toCaptureGroupName(name);
   const nameAdjusted = name.trim() !== '' && cleanName !== name.trim();
-  const capture = useMemo(() => runCapture(pattern, raw), [pattern, raw]);
-  const valid = pattern.trim().length > 0 && capture.state !== 'invalid';
+
+  // The live capture runs the user's pattern in a terminatable Web Worker rather
+  // than on this thread. A catastrophic pattern typed here used to freeze the tab
+  // outright: the 5 s pipeline watchdog does not cover the main thread, and the
+  // ReDoS heuristic is deliberately not a complete analysis.
+  const inputs = useMemo(() => [raw], [raw]);
+  const { status, results } = useRegexMatch(pattern.trim(), inputs);
+
+  const capture = useMemo<Capture>(() => {
+    if (!pattern.trim()) return { state: 'empty' };
+    if (status === 'invalid') return { state: 'invalid' };
+    if (status === 'timeout') return { state: 'timeout' };
+    if (status !== 'ok') return { state: 'pending' };
+    const info = results[0];
+    if (!info) return { state: 'nomatch' };
+    const groups = Object.entries(info.groups) as [string, string][];
+    if (groups.length === 0) return { state: 'nogroup', full: info.match };
+    return { state: 'ok', groups };
+  }, [pattern, status, results]);
+
+  const valid =
+    pattern.trim().length > 0 && capture.state !== 'invalid' && capture.state !== 'timeout';
 
   return (
     <DirectiveDialog
@@ -144,6 +151,13 @@ function CapturePreview({ capture }: { capture: Capture }) {
   );
 
   if (capture.state === 'invalid') return note('var(--color-error)', "Invalid regex — won't compile");
+  if (capture.state === 'timeout') {
+    return note(
+      'var(--color-error)',
+      'Pattern took too long to run — it likely backtracks catastrophically. Simplify it.',
+    );
+  }
+  if (capture.state === 'pending') return note('var(--color-text-muted)', 'Matching…');
   if (capture.state === 'nomatch') return note('var(--color-warning)', 'No match in this event');
   if (capture.state === 'nogroup') {
     return (
