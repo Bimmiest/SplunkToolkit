@@ -147,20 +147,23 @@ function tokenize(expr: string): Token[] {
     // Skip whitespace
     if (/\s/.test(expr[i])) { i++; continue; }
 
-    // Double-quoted string literals
+    // Double-quoted string literals. Splunk eval gives only `\"` and `\\` a
+    // special meaning inside a literal and passes every other escape through
+    // intact — string literals are the way regexes reach match()/replace()/rex(),
+    // so collapsing `\d` to `d` would silently rewrite the user's pattern. (The
+    // official replace() docs example is `"^(\d{1,2})/(\d{1,2})/"`, with single
+    // backslashes.)
     if (expr[i] === '"') {
       let str = '';
       i++;
       while (i < expr.length && expr[i] !== '"') {
-        if (expr[i] === '\\' && i + 1 < expr.length) {
-          i++;
-          if (expr[i] === 'n') str += '\n';
-          else if (expr[i] === 't') str += '\t';
-          else str += expr[i];
+        if (expr[i] === '\\' && i + 1 < expr.length && (expr[i + 1] === '"' || expr[i + 1] === '\\')) {
+          str += expr[i + 1];
+          i += 2;
         } else {
           str += expr[i];
+          i++;
         }
-        i++;
       }
       i++; // skip closing quote
       tokens.push({ type: 'string', value: str });
@@ -601,7 +604,7 @@ function evalBuiltin(fn: string, args: EvalValue[], ctx: EvalCtx): EvalValue {
       const s = toStr(args[0]);
       const regex = safeRegex(toStr(args[1]), 'g');
       if (!regex) return s;
-      return s.replace(regex, toStr(args[2]));
+      return s.replace(regex, splunkReplacementToJs(toStr(args[2])));
     }
     case 'trim': return toStr(args[0]).trim();
     case 'ltrim': {
@@ -843,6 +846,48 @@ function toNum(v: EvalValue): number {
   }
   if (Array.isArray(v)) return v.length > 0 ? toNum(v[0]) : 0;
   return 0;
+}
+
+/**
+ * Translate a Splunk `replace()` replacement string into the JS equivalent.
+ *
+ * Splunk uses PCRE-style `\1` backreferences, while `String.prototype.replace`
+ * uses `$1` and additionally treats `$&`, `` $` ``, `$'` and `$$` as
+ * substitutions Splunk has no notion of. So `\N` becomes `$N`, `\0` becomes the
+ * whole match, and any literal `$` is escaped to survive verbatim.
+ */
+function splunkReplacementToJs(replacement: string): string {
+  let out = '';
+  for (let i = 0; i < replacement.length; i++) {
+    const c = replacement[i];
+    if (c === '$') {
+      out += '$$'; // a literal dollar, not a JS substitution
+      continue;
+    }
+    if (c === '\\' && i + 1 < replacement.length) {
+      const next = replacement[i + 1];
+      if (next >= '0' && next <= '9') {
+        let digits = '';
+        while (i + 1 < replacement.length && replacement[i + 1] >= '0' && replacement[i + 1] <= '9') {
+          digits += replacement[i + 1];
+          i++;
+        }
+        // PCRE `\0` is the whole match; JS spells that `$&`.
+        out += Number(digits) === 0 ? '$&' : `$${digits}`;
+        continue;
+      }
+      if (next === '\\') {
+        out += '\\';
+        i++;
+        continue;
+      }
+      out += `\\${next}`;
+      i++;
+      continue;
+    }
+    out += c;
+  }
+  return out;
 }
 
 function toStr(v: EvalValue): string {
