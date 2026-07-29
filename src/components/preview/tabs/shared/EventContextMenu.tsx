@@ -30,8 +30,23 @@ function currentSelection(): string {
 export function EventContextMenu({ event, children, selectionText, selectionStart }: { event: SplunkEvent; children: ReactNode; selectionText?: string; selectionStart?: number }) {
   const propsConf = useAppStore((s) => s.propsConf);
   const setPropsConf = useAppStore((s) => s.setPropsConf);
+  const setMetadataField = useAppStore((s) => s.setMetadataField);
   const sourcetype = useAppStore((s) => s.metadata.sourcetype);
   const stanza = sourcetype.trim() || 'my:sourcetype';
+
+  /**
+   * Write a scaffolded directive into the event's sourcetype stanza.
+   *
+   * When the event has no sourcetype we fall back to a placeholder stanza name —
+   * but `matchStanzas` requires `metadata.sourcetype` to equal the stanza name,
+   * so writing `[my:sourcetype]` alone produced config that could never match the
+   * event it was scaffolded from. Point the metadata at the stanza too, the way
+   * ScaffoldModal already does.
+   */
+  const applyDirective = (key: string, value: string) => {
+    setPropsConf(upsertDirectiveInStanza(propsConf, stanza, key, value));
+    if (stanza !== sourcetype) setMetadataField('sourcetype', stanza);
+  };
 
   // Capture the native selection when the menu opens — by the time an item's onSelect
   // fires, the menu has taken focus and window.getSelection() is usually empty. A
@@ -82,7 +97,7 @@ export function EventContextMenu({ event, children, selectionText, selectionStar
           selection={selection}
           selectionStart={effectiveStart}
           stanza={stanza}
-          onApply={(key, value) => setPropsConf(upsertDirectiveInStanza(propsConf, stanza, key, value))}
+          onApply={(key, value) => applyDirective(key, value)}
           onClose={() => setExtractOpen(false)}
         />
       )}
@@ -92,7 +107,7 @@ export function EventContextMenu({ event, children, selectionText, selectionStar
           selection={selection}
           selectionStart={effectiveStart}
           stanza={stanza}
-          onApply={(value) => setPropsConf(upsertDirectiveInStanza(propsConf, stanza, 'TIME_PREFIX', value))}
+          onApply={(value) => applyDirective('TIME_PREFIX', value)}
           onClose={() => setTimePrefixOpen(false)}
         />
       )}
