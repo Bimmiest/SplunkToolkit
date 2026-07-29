@@ -149,11 +149,11 @@ All expressions are evaluated per-event before any are applied, matching Splunk'
 
 ## Tests
 
-Tests live in `src/**/__tests__/` and run under vitest. Engine tests target the highest-risk modules — line breaking, eval, regex transforms, dest-key routing, stanza matching, indexed extractions, and a statelessness regression suite. Component smoke tests cover StatusBar, HighlightedTab, FieldsTab, and RegexTab in jsdom. Current total: 294 tests.
+Tests live in `src/**/__tests__/` and run under vitest. Engine tests target the highest-risk modules — line breaking, eval, regex transforms, dest-key routing, stanza matching, indexed extractions, and a statelessness regression suite. Component smoke tests cover StatusBar, HighlightedTab, FieldsTab, and RegexTab in jsdom. Current total: 490 tests.
 
 Engine tests default to the `node` environment; component tests opt into jsdom with `// @vitest-environment jsdom` at the top of each file so engine tests don't pay the jsdom cost.
 
-The Azure SWA deploy workflow has a `test` job gating `build_and_deploy_job` — a failing test blocks the publish.
+`ci.yml` runs lint → build (`tsc -b && vite build`) → tests → `npm audit` on every PR and on pushes to main. The Azure SWA deploy workflow is separate and has no test job of its own: it triggers on push to main and runs its own build, so it is gated by CI only in the sense that both run on the same commit. Node is pinned once, in `.nvmrc`, which `ci.yml` and `package.json`'s `engines` both follow.
 
 ## Known issues / inconsistencies vs Splunk
 

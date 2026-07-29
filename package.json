@@ -2,6 +2,15 @@
   "name": "splunk-toolkit",
   "private": true,
   "version": "0.0.0",
+  "description": "Browser-based simulator for Splunk's props.conf and transforms.conf processing pipeline.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Bimmiest/SplunkToolkit.git"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -44,5 +53,8 @@
     "typescript-eslint": "^8.62.1",
     "vite": "^7.3.6",
     "vitest": "^4.1.4"
+  },
+  "overrides": {
+    "dompurify": "^3.4.12"
   }
 }
