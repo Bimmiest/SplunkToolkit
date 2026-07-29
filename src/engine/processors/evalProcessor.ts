@@ -1047,9 +1047,28 @@ function simpleStrftime(date: Date, format: string): string {
     '%6N': pad(date.getMilliseconds(), 3) + '000',
     '%T': `${pad(h24)}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`,
     '%F': `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+    // Splunk emits the indexer's zone; in the browser that is the viewer's, which
+    // is the same divergence the rest of the timestamp simulation already carries.
+    // Leaving the specifier as literal `%z` text was worse: it looked like output.
+    '%z': formatUtcOffset(date),
+    '%Z': timeZoneAbbreviation(date),
     '%%': '%',
   };
-  return format.replace(/%(?:3N|6N|[YymdeHIMSpbBaAjsTF%])/g, (m) => tokens[m] ?? m);
+  return format.replace(/%(?:3N|6N|[YymdeHIMSpbBaAjsTFzZ%])/g, (m) => tokens[m] ?? m);
+}
+
+/** `%z` — the local UTC offset as `+hhmm` / `-hhmm`. */
+function formatUtcOffset(date: Date): string {
+  const offsetMinutes = -date.getTimezoneOffset();
+  const sign = offsetMinutes < 0 ? '-' : '+';
+  const abs = Math.abs(offsetMinutes);
+  return `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}${String(abs % 60).padStart(2, '0')}`;
+}
+
+/** `%Z` — the local zone's short name, falling back to the numeric offset. */
+function timeZoneAbbreviation(date: Date): string {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' }).formatToParts(date);
+  return parts.find((p) => p.type === 'timeZoneName')?.value ?? formatUtcOffset(date);
 }
 
 /** Parse an eval expression into an AST. Throws on a syntax error. */

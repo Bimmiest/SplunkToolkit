@@ -12,6 +12,7 @@ import { applyKvMode } from './processors/kvMode';
 import { applyFieldAliases } from './processors/fieldAlias';
 import { applyEvalExpressions } from './processors/evalProcessor';
 import { attributeRawMutations } from './processors/rawMutationAttribution';
+import { SIMULATED_DEST_KEYS, VALID_UNSIMULATED_DEST_KEYS, normaliseDestKey } from './transforms/destKeys';
 
 function safeProcessor(
   name: string,
@@ -30,6 +31,23 @@ function safeProcessor(
     });
     return events; // Return unmodified events on failure
   }
+}
+
+/**
+ * Collapse diagnostics that are identical in everything a reader can see. Used
+ * by the per-event pipeline, where config-level problems would otherwise be
+ * reported once per event.
+ */
+function dedupeDiagnostics(diagnostics: ValidationDiagnostic[]): ValidationDiagnostic[] {
+  const seen = new Set<string>();
+  const out: ValidationDiagnostic[] = [];
+  for (const d of diagnostics) {
+    const key = `${d.level}|${d.file}|${d.line ?? ''}|${d.directiveKey ?? ''}|${d.message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(d);
+  }
+  return out;
 }
 
 export function runPipeline(
@@ -99,21 +117,17 @@ export function runPipeline(
     'MetaData:Index': 'index::',
   };
   // DEST_KEY only accepts a documented set of routing keys; the simulator otherwise
-  // falls back to "treat as a field name", which Splunk does not do.
-  const DEST_KEY_SIMULATED = new Set([
-    'queue', '_raw', '_meta', '_time',
-    'MetaData:Host', 'MetaData:Source', 'MetaData:Sourcetype', 'MetaData:Index',
-  ]);
-  const DEST_KEY_UNSIMULATED = new Set(['_TCP_ROUTING', '_SYSLOG_ROUTING', '_INDEX_AND_FORWARD_ROUTING']);
+  // falls back to "treat as a field name", which Splunk does not do. The key sets
+  // are shared with the router so config-time and match-time agree (#75.3).
   for (const stanza of transformsConf.stanzas) {
     const destKeyDir = stanza.directives.find((d) => d.key === 'DEST_KEY');
     const formatDir = stanza.directives.find((d) => d.key === 'FORMAT');
     if (!destKeyDir) continue;
 
     // Normalise the _MetaData: alias the same way the router does.
-    const destKey = destKeyDir.value.trim().replace(/^_(?=MetaData:)/i, '');
+    const destKey = normaliseDestKey(destKeyDir.value);
 
-    if (DEST_KEY_UNSIMULATED.has(destKey)) {
+    if (VALID_UNSIMULATED_DEST_KEYS.has(destKey)) {
       diagnostics.push({
         level: 'warning',
         message: `DEST_KEY = ${destKeyDir.value.trim()} is a valid Splunk routing key but is not simulated — events will not be cloned/routed in the preview.`,
@@ -121,7 +135,7 @@ export function runPipeline(
         line: destKeyDir.line,
         directiveKey: destKeyDir.key,
       });
-    } else if (!DEST_KEY_SIMULATED.has(destKey)) {
+    } else if (!SIMULATED_DEST_KEYS.has(destKey)) {
       diagnostics.push({
         level: 'warning',
         message: `DEST_KEY = ${destKeyDir.value.trim()} is not a recognised Splunk DEST_KEY. Splunk only accepts the documented keys (queue, _raw, _meta, _time, MetaData:Host/Source/Sourcetype/Index, _TCP_ROUTING, _SYSLOG_ROUTING). An unrecognised key has no routing effect.`,
@@ -276,21 +290,30 @@ export function runPipeline(
     });
 
     // Run search-time steps per-event with their resolved directives.
+    //
+    // Each processor is called once PER EVENT here, so a diagnostic describing a
+    // *config* problem (an invalid KV_MODE regex, an eval parse failure, a REPORT
+    // whose REGEX will not compile) would be pushed once per event: 500 events,
+    // 500 identical warnings. Collect into a scratch array and merge the distinct
+    // entries afterwards. Genuinely per-event diagnostics carry their own line
+    // number, so they differ and all survive.
+    const perEventDiagnostics: ValidationDiagnostic[] = [];
     const processed: SplunkEvent[] = [];
     for (let i = 0; i < events.length; i++) {
       const evDirs = eventDirectives[i];
       let ev: SplunkEvent[] = [events[i]];
       // Splunk's search-time order is EXTRACT → REPORT → automatic KV (KV_MODE) → FIELDALIAS → EVAL.
-      ev = safeProcessor('EXTRACT', ev, () => extractFields(ev, evDirs, diagnostics), diagnostics);
-      ev = safeProcessor('REPORT', ev, () => applyTransforms(ev, evDirs, transformsConf, 'search-time'), diagnostics, 'transforms.conf');
-      ev = safeProcessor('KV_MODE', ev, () => applyKvMode(ev, evDirs, diagnostics), diagnostics);
-      ev = safeProcessor('FIELDALIAS', ev, () => applyFieldAliases(ev, evDirs, diagnostics), diagnostics);
-      ev = safeProcessor('EVAL', ev, () => applyEvalExpressions(ev, evDirs, diagnostics), diagnostics);
+      ev = safeProcessor('EXTRACT', ev, () => extractFields(ev, evDirs, perEventDiagnostics), perEventDiagnostics);
+      ev = safeProcessor('REPORT', ev, () => applyTransforms(ev, evDirs, transformsConf, 'search-time', perEventDiagnostics), perEventDiagnostics, 'transforms.conf');
+      ev = safeProcessor('KV_MODE', ev, () => applyKvMode(ev, evDirs, perEventDiagnostics), perEventDiagnostics);
+      ev = safeProcessor('FIELDALIAS', ev, () => applyFieldAliases(ev, evDirs, perEventDiagnostics), perEventDiagnostics);
+      ev = safeProcessor('EVAL', ev, () => applyEvalExpressions(ev, evDirs, perEventDiagnostics), perEventDiagnostics);
       // Step 13: attribute index-time `_raw` rewrites to the fields they hit.
       // Must run last — it replays extraction, which only exists now.
-      ev = safeProcessor('SEDCMD attribution', ev, () => attributeRawMutations(ev, () => evDirs, transformsConf), diagnostics);
+      ev = safeProcessor('SEDCMD attribution', ev, () => attributeRawMutations(ev, () => evDirs, transformsConf), perEventDiagnostics);
       processed.push(...ev);
     }
+    diagnostics.push(...dedupeDiagnostics(perEventDiagnostics));
     events = processed;
   } else {
     // Warn if any event had its routing metadata rewritten at index-time — search-time directives
@@ -312,7 +335,7 @@ export function runPipeline(
 
     // Step 9: Search-time REPORT transforms (run BEFORE automatic KV — Splunk's
     // documented order is inline EXTRACT → REPORT field transforms → automatic KV).
-    events = safeProcessor('REPORT', events, () => applyTransforms(events, directives, transformsConf, 'search-time'), diagnostics, 'transforms.conf');
+    events = safeProcessor('REPORT', events, () => applyTransforms(events, directives, transformsConf, 'search-time', diagnostics), diagnostics, 'transforms.conf');
 
     // Step 10: KV_MODE (automatic key-value extraction)
     events = safeProcessor('KV_MODE', events, () => applyKvMode(events, directives, diagnostics), diagnostics);

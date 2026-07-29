@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { breakLines } from '../processors/lineBreaker';
-import type { ConfDirective, EventMetadata } from '../types';
+import type { ConfDirective, EventMetadata, ValidationDiagnostic } from '../types';
 
 const META: EventMetadata = { index: 'main', host: 'host1', source: '/var/log/app.log', sourcetype: 'myapp' };
 
@@ -108,5 +108,33 @@ describe('breakLines — custom LINE_BREAKER', () => {
     // "a" before the capture group belongs to the first (empty) segment,
     // "bXXc" is the rest. We care that the split is not off by the repeated "XX".
     expect(events.some((e) => e._raw === 'bXXc')).toBe(true);
+  });
+});
+
+describe('breakLines — uncompilable break patterns are reported (#75.2)', () => {
+  it('warns when BREAK_ONLY_BEFORE cannot be compiled', () => {
+    const diags: ValidationDiagnostic[] = [];
+    breakLines('a\nb\nc', [dir('BREAK_ONLY_BEFORE', '(a+)+')], META, diags);
+    const warning = diags.find((d) => d.message.includes('BREAK_ONLY_BEFORE'));
+    expect(warning).toBeDefined();
+    expect(warning!.message).toContain('could not be compiled safely');
+  });
+
+  it('warns when MUST_BREAK_AFTER cannot be compiled', () => {
+    const diags: ValidationDiagnostic[] = [];
+    breakLines('a\nb\nc', [dir('MUST_BREAK_AFTER', '[unterminated')], META, diags);
+    expect(diags.some((d) => d.message.includes('MUST_BREAK_AFTER'))).toBe(true);
+  });
+
+  it('stays quiet for a pattern that compiles', () => {
+    const diags: ValidationDiagnostic[] = [];
+    breakLines('a\nb\nc', [dir('BREAK_ONLY_BEFORE', '^\\d{4}-')], META, diags);
+    expect(diags.filter((d) => d.message.includes('BREAK_ONLY_BEFORE'))).toHaveLength(0);
+  });
+
+  it('stays quiet when the directive is absent', () => {
+    const diags: ValidationDiagnostic[] = [];
+    breakLines('a\nb\nc', [], META, diags);
+    expect(diags.filter((d) => d.message.includes('BREAK_ONLY_BEFORE'))).toHaveLength(0);
   });
 });

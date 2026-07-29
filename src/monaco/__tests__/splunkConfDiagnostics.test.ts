@@ -34,3 +34,46 @@ describe('computeDiagnostics — continuation gating (#24)', () => {
     expect(markers.some((m) => m.startLineNumber === 2)).toBe(false);
   });
 });
+
+describe('computeDiagnostics — continued values are validated as a whole (#70.1)', () => {
+  it('does not report a regex error on a valid backslash-continued LINE_BREAKER', () => {
+    const text = '[st]\nLINE_BREAKER = ([\\r\\n]+)(?=\\d{4}-\\\n\\d{2})';
+    const markers = computeDiagnostics(fakeModel(text), 'props.conf');
+    expect(markers.filter((m) => /Invalid regex/.test(m.message))).toHaveLength(0);
+  });
+
+  it('still reports a regex error that survives the join', () => {
+    const text = '[st]\nLINE_BREAKER = ([\\r\\n]+)(?=\\d{4}-\\\n\\d{2}';
+    const markers = computeDiagnostics(fakeModel(text), 'props.conf');
+    expect(markers.some((m) => /Invalid regex/.test(m.message))).toBe(true);
+  });
+
+  it('treats an even backslash run as a literal, not a continuation', () => {
+    // `C:\\` is a Windows path ending in one escaped backslash, not a continuation.
+    const text = '[st]\nEXTRACT-p = path=(?<path>C:\\\\)\n';
+    const markers = computeDiagnostics(fakeModel(text), 'props.conf');
+    expect(markers.filter((m) => /Invalid regex/.test(m.message))).toHaveLength(0);
+  });
+});
+
+describe('computeDiagnostics — named groups count as capturing (#70.2)', () => {
+  it('does not warn for a named LINE_BREAKER group', () => {
+    const markers = computeDiagnostics(fakeModel('[st]\nLINE_BREAKER = (?<br>[\\r\\n]+)'), 'props.conf');
+    expect(markers.some((m) => /at least one capturing group/.test(m.message))).toBe(false);
+  });
+
+  it('does not warn for a Python-style named group', () => {
+    const markers = computeDiagnostics(fakeModel('[st]\nLINE_BREAKER = (?P<br>[\\r\\n]+)'), 'props.conf');
+    expect(markers.some((m) => /at least one capturing group/.test(m.message))).toBe(false);
+  });
+
+  it('still warns when the only group is a lookbehind', () => {
+    const markers = computeDiagnostics(fakeModel('[st]\nLINE_BREAKER = (?<=x)[\\r\\n]+'), 'props.conf');
+    expect(markers.some((m) => /at least one capturing group/.test(m.message))).toBe(true);
+  });
+
+  it('still warns when the only group is non-capturing', () => {
+    const markers = computeDiagnostics(fakeModel('[st]\nLINE_BREAKER = (?:[\\r\\n]+)'), 'props.conf');
+    expect(markers.some((m) => /at least one capturing group/.test(m.message))).toBe(true);
+  });
+});

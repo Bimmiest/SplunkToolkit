@@ -103,3 +103,42 @@ describe('runPipeline — 1 MB input cap aligns to a line boundary (#14)', () =>
     expect(result.events).toHaveLength(10);
   });
 });
+
+describe('runPipeline — per-event mode does not duplicate config diagnostics (#13)', () => {
+  // An unreferenced transform stanza is a config-level warning: it describes the
+  // configuration, not any one event, so it must be reported once however many
+  // events are processed.
+  const RAW = Array.from({ length: 25 }, (_, i) => `2024-01-15T10:00:0${i % 10}Z line ${i}`).join('\n');
+  const PROPS = '[aws:cloudtrail]\nSHOULD_LINEMERGE = false\nKV_MODE = auto\nEVAL-broken = this is (not valid';
+
+  const brokenEvalCount = (diags: { message: string }[]) =>
+    diags.filter((d) => d.message.includes('EVAL-broken')).length;
+
+  it('reports a config-level eval error once in per-event mode', () => {
+    const { result, diagnostics } = runPipeline(RAW, META, PROPS, '', { perEventPipeline: true });
+    expect(result.events.length).toBeGreaterThan(1);
+    expect(brokenEvalCount(diagnostics)).toBe(1);
+  });
+
+  it('matches the batch path, which already reported it once', () => {
+    const { diagnostics } = runPipeline(RAW, META, PROPS, '');
+    expect(brokenEvalCount(diagnostics)).toBe(1);
+  });
+});
+
+describe('runPipeline — search-time REPORT compile failures are reported (#75.1)', () => {
+  const PROPS = '[aws:cloudtrail]\nREPORT-r = broken';
+  const TRANSFORMS = '[broken]\nREGEX = (a+)+\nFORMAT = f::$1';
+
+  it('warns when a REPORT stanza regex cannot be compiled', () => {
+    const { diagnostics } = runPipeline('some line', META, PROPS, TRANSFORMS);
+    expect(diagnostics.some((d) => d.message.includes('could not be compiled safely'))).toBe(true);
+  });
+
+  it('warns once, not once per event, in per-event mode', () => {
+    const raw = Array.from({ length: 12 }, (_, i) => `line ${i}`).join('\n');
+    const props = '[aws:cloudtrail]\nSHOULD_LINEMERGE = false\nREPORT-r = broken';
+    const { diagnostics } = runPipeline(raw, META, props, TRANSFORMS, { perEventPipeline: true });
+    expect(diagnostics.filter((d) => d.message.includes('could not be compiled safely'))).toHaveLength(1);
+  });
+});

@@ -30,7 +30,7 @@ export function computeDiagnostics(
   for (let i = 1; i <= lineCount; i++) {
     const line = model.getLineContent(i);
     const trimmed = line.trim();
-    const endsWithBackslash = line.trimEnd().endsWith('\\');
+    const endsWithBackslash = endsWithContinuation(line.trimEnd());
 
     if (inDirectiveValue && trimmed !== '') {
       // Part of the previous directive's value — skip it. It continues the
@@ -96,7 +96,13 @@ export function computeDiagnostics(
     inDirectiveValue = endsWithBackslash;
 
     const key = line.substring(0, eqIdx).trim();
-    const value = line.substring(eqIdx + 1).trim();
+    // Validate the value Splunk will actually see. A backslash-continued
+    // directive's first line is only a FRAGMENT — validating it on its own
+    // reported "Invalid regex pattern: \\ at end of pattern" on conf that is
+    // valid once joined, painting a hard error on a working LINE_BREAKER.
+    const value = endsWithBackslash
+      ? joinContinuedValue(model, i, line.substring(eqIdx + 1), lineCount)
+      : line.substring(eqIdx + 1).trim();
 
     // Check if directive is known
     let info = getDirectiveInfo(key, fileType);
@@ -211,9 +217,44 @@ export function computeDiagnostics(
 }
 
 /**
+ * Splunk continues a directive when its line ends with an ODD number of
+ * backslashes; an even count is escaped literal backslashes (a Windows path,
+ * say), not a continuation. Mirrors `confParser.endsWithContinuation`.
+ */
+function endsWithContinuation(value: string): boolean {
+  let count = 0;
+  for (let i = value.length - 1; i >= 0 && value[i] === '\\'; i--) count++;
+  return count % 2 === 1;
+}
+
+/**
+ * Join a backslash-continued value into the single logical value Splunk parses,
+ * so validation sees the whole thing. Drops the continuation backslash and
+ * appends the next line verbatim, exactly as `confParser` does.
+ */
+function joinContinuedValue(
+  model: editor.ITextModel,
+  startLine: number,
+  firstFragment: string,
+  lineCount: number,
+): string {
+  let joined = firstFragment.trimEnd();
+  for (let line = startLine + 1; line <= lineCount && endsWithContinuation(joined); line++) {
+    joined = joined.slice(0, -1) + model.getLineContent(line).trimEnd();
+  }
+  return joined.trim();
+}
+
+/**
  * Returns true if the regex contains at least one *capturing* group. Ignores
- * escaped literal parens (`\(`) and non-capturing / lookaround groups (`(?...`),
- * which a naive `includes('(')` check would wrongly accept.
+ * escaped literal parens (`\(`) and non-capturing / lookaround groups, which a
+ * naive `includes('(')` check would wrongly accept.
+ *
+ * NAMED groups — `(?<name>…)` and Splunk's Python-style `(?P<name>…)` — are
+ * capturing, and LINE_BREAKER breaks on the first capturing group whether or not
+ * it is named. Treating every `(?` as non-capturing warned that
+ * `LINE_BREAKER = (?<br>[\r\n]+)` had no capturing group, on config that works.
+ * The lookbehind forms `(?<=…)` and `(?<!…)` start the same way and are not.
  */
 function hasCapturingGroup(pattern: string): boolean {
   for (let i = 0; i < pattern.length; i++) {
@@ -222,7 +263,12 @@ function hasCapturingGroup(pattern: string): boolean {
       i++; // skip the escaped character
       continue;
     }
-    if (c === '(' && pattern[i + 1] !== '?') return true;
+    if (c !== '(') continue;
+    if (pattern[i + 1] !== '?') return true; // plain ( … )
+    // `(?P<name>` — Python-style named group.
+    if (pattern[i + 2] === 'P' && pattern[i + 3] === '<') return true;
+    // `(?<name>` — named group, but NOT `(?<=` / `(?<!` lookbehind.
+    if (pattern[i + 2] === '<' && pattern[i + 3] !== '=' && pattern[i + 3] !== '!') return true;
   }
   return false;
 }

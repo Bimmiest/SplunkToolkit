@@ -1,5 +1,6 @@
 import type { SplunkEvent } from '../types';
 import type { TransformResult } from './regexTransform';
+import { VALID_UNSIMULATED_DEST_KEYS } from './destKeys';
 
 export function applyDestKey(event: SplunkEvent, result: TransformResult): SplunkEvent {
   if (!result.matched || result.destKey === undefined || result.destValue === undefined) {
@@ -100,6 +101,13 @@ export function applyDestKey(event: SplunkEvent, result: TransformResult): Splun
       };
 
     default:
+      // A documented routing key this tool does not model (_TCP_ROUTING and
+      // friends) must not be written out as an event field — the config-time
+      // diagnostic already says the routing is unsimulated, and inventing a
+      // field named after the key would contradict it.
+      if (VALID_UNSIMULATED_DEST_KEYS.has(destKey)) {
+        return { ...event, fields: { ...event.fields, ...result.fields } };
+      }
       // Treat as a field name
       return {
         ...event,
