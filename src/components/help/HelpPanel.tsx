@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useOverlay } from '../../hooks/useOverlay';
 import { useAppStore } from '../../store/useAppStore';
 import { Icon } from '../ui/Icon';
 
@@ -111,15 +112,9 @@ export function HelpPanel() {
   const toggleHelp = useAppStore((s) => s.toggleHelp);
   const [expandedStep, setExpandedStep] = useState<number | null>(null);
 
-  // Close on Escape
-  useEffect(() => {
-    if (!helpOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') toggleHelp();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [helpOpen, toggleHelp]);
+  // Escape closes only the topmost overlay; the hook also traps Tab and hides
+  // sibling content while the panel is open.
+  const overlayRef = useOverlay({ open: helpOpen, onClose: toggleHelp });
 
   const indexStages = PIPELINE_STAGES.filter((s) => s.phase === 'index-time');
   const searchStages = PIPELINE_STAGES.filter((s) => s.phase === 'search-time');
@@ -142,6 +137,7 @@ export function HelpPanel() {
           `inert`/`aria-hidden` to drop its buttons from the tab order and the
           accessibility tree (otherwise they're focusable while off-screen). */}
       <div
+        ref={overlayRef}
         role="dialog"
         aria-label="Pipeline reference"
         aria-modal={helpOpen ? 'true' : undefined}

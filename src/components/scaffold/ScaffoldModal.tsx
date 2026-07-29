@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useOverlay } from '../../hooks/useOverlay';
 import { useAppStore } from '../../store/useAppStore';
 import { scaffoldConfig } from '../../engine/scaffold/scaffoldConfig';
 import { renderStanza, appendStanza } from '../../engine/scaffold/serialize';
@@ -38,13 +39,9 @@ export function ScaffoldModal() {
   // the appended stanza actually matches the events.
   const [sourcetype, setSourcetype] = useState(() => result.sourcetype);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') toggleScaffold();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [toggleScaffold]);
+  // Escape closes only the topmost overlay; the hook also traps Tab and hides
+  // sibling content while the modal is open.
+  const overlayRef = useOverlay({ open: true, onClose: toggleScaffold });
 
   const stanzaName = sourcetype.trim() || 'my:sourcetype';
 
@@ -65,6 +62,7 @@ export function ScaffoldModal() {
 
   return (
     <div
+      ref={overlayRef}
       className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] px-4"
       style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
       onMouseDown={(e) => { if (e.target === e.currentTarget) toggleScaffold(); }}

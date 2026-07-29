@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
 import type { ReactNode, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Icon } from '../../../ui/Icon';
+import { useOverlay } from '../../../../hooks/useOverlay';
 
 /**
  * Shared overlay shell for the "scaffold from selection" dialogs (Create EXTRACT,
@@ -22,11 +22,9 @@ export function DirectiveDialog({
   onClose: () => void;
   children: ReactNode;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  // Escape closes only the topmost overlay — this dialog opens over the preview
+  // and, at times, over the command palette — plus a Tab trap and inert siblings.
+  const overlayRef = useOverlay({ open: true, onClose });
 
   /**
    * Enter submits from the dialog's inputs, but must not hijack an activation
@@ -44,6 +42,7 @@ export function DirectiveDialog({
 
   return (
     <div
+      ref={overlayRef}
       className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh] px-4"
       style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
