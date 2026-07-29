@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { useAppStore } from '../../../store/useAppStore';
 import { copyToClipboard } from '../../../utils/clipboard';
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuLabel } from '../../ui/ContextMenu';
+import { buildParentIndex, isFieldVisible, reconcileCollapsed } from './shared/fieldCollapse';
 
 type SortKey = 'name' | 'count' | 'distinct' | 'source' | 'aliases' | 'values';
 type SortDir = 'asc' | 'desc';
@@ -28,7 +29,10 @@ export function FieldsTab() {
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('count');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
-  const [collapsedParents, setCollapsedParents] = useState<Set<string> | null>(null);
+  const [collapsedParents, setCollapsedParents] = useState<Set<string>>(() => new Set());
+  // Parents already folded into the collapse decision, so new ones can be
+  // collapsed on arrival without overriding the user's later choices.
+  const [seenParents, setSeenParents] = useState<Set<string>>(() => new Set());
   const [phaseFilter, setPhaseFilter] = useState<'all' | 'index-time' | 'search-time'>('all');
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(
     () => Object.fromEntries(COLUMNS.map((c) => [c.key, c.defaultWidth]))
@@ -231,14 +235,23 @@ export function FieldsTab() {
     [fieldSummary]
   );
 
-  // Initialize collapsed state during render (React's recommended pattern for
-  // derived-state initialization — avoids a useEffect + cascading render).
-  if (collapsedParents === null && allParentNames.length > 0) {
-    setCollapsedParents(new Set(allParentNames));
+  // Reconcile during render (React's recommended pattern for derived state —
+  // avoids a useEffect and its cascading render). This runs whenever a parent
+  // the user has not seen appears, not only on the first pass: the old
+  // `collapsedParents === null` guard fired once, so a parent that appeared
+  // after a props.conf edit rendered expanded and "collapse all on load"
+  // quietly stopped being true.
+  const reconciled = reconcileCollapsed(allParentNames, seenParents, collapsedParents);
+  if (reconciled) {
+    setCollapsedParents(reconciled.collapsed);
+    setSeenParents(reconciled.seen);
   }
 
-  // Treat null (not yet initialized) the same as "all collapsed"
-  const effectiveCollapsed = collapsedParents ?? new Set(allParentNames);
+  const effectiveCollapsed = reconciled ? reconciled.collapsed : collapsedParents;
+
+  // Name → parent, so the ancestor walk below is O(depth) instead of scanning
+  // the whole field list at every step.
+  const parentIndex = useMemo(() => buildParentIndex(fieldSummary), [fieldSummary]);
 
   return (
     <div className="flex flex-col h-full">
@@ -309,18 +322,7 @@ export function FieldsTab() {
           </thead>
           <tbody>
             {fieldSummary
-              .filter((field) => {
-                if (field.depth === 0) return true;
-                // Walk up the tree: if any ancestor is collapsed, hide this field
-                let current = field.parentName;
-                while (current) {
-                  if (effectiveCollapsed.has(current)) return false;
-                  // Find the parent's parent from fieldSummary
-                  const parentEntry = fieldSummary.find((f) => f.name === current);
-                  current = parentEntry?.parentName ?? null;
-                }
-                return true;
-              })
+              .filter((field) => isFieldVisible(field, effectiveCollapsed, parentIndex))
               .map((field) => {
                 const childCount = field.isParent
                   ? fieldSummary.filter((f) => f.parentName === field.name).length
