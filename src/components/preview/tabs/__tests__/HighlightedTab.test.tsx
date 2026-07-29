@@ -122,4 +122,28 @@ describe('HighlightedTab', () => {
     expect(screen.getByText(/1\/3 events match/)).toBeInTheDocument();
     expect(screen.getByText(/Event #\s*2/)).toBeInTheDocument();
   });
+  // #73: a pin filters the whole dataset, so an unbounded render locked the UI
+  // when the pinned field appeared on every event.
+  it('caps the rendered rows when a pin matches more than the window', () => {
+    const many = Array.from({ length: 150 }, (_, i) =>
+      toItem(makeEvent(`line ${i}`, { username: `u${i}` }, [
+        { processor: 'EXTRACT-user', phase: 'search-time', description: '', fieldsAdded: ['username'] },
+      ])),
+    );
+    const { container } = render(
+      <HighlightedTab items={many.slice(0, 10)} allEvents={many} currentPage={1} eventsPerPage={10} />,
+    );
+    fireEvent.click(within(container).getAllByText('username')[0]);
+
+    expect(screen.getAllByText(/Event #/)).toHaveLength(100);
+    expect(screen.getByText(/Showing the first 100 of 150 events/i)).toBeInTheDocument();
+  });
+
+  it('does not cap or announce a truncation when the pin matches few events', () => {
+    const { container } = render(
+      <HighlightedTab items={items} allEvents={items} currentPage={1} eventsPerPage={10} />,
+    );
+    fireEvent.click(within(container).getAllByText('username')[0]);
+    expect(screen.queryByText(/Showing the first/i)).not.toBeInTheDocument();
+  });
 });

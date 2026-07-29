@@ -35,14 +35,14 @@ const items: EnrichedEvent[] = [
 
 describe('RegexTab', () => {
   it('renders empty-state prompt when no pattern is typed', () => {
-    render(<RegexTab items={items} currentPage={1} eventsPerPage={10} />);
+    render(<RegexTab items={items} allEvents={items} currentPage={1} eventsPerPage={10} />);
     expect(screen.getByText(/Enter a pattern above to test matches/i)).toBeInTheDocument();
     // No event cards
     expect(screen.queryByText(/Event #/)).not.toBeInTheDocument();
   });
 
   it('renders only matching events when pattern is typed', async () => {
-    render(<RegexTab items={items} currentPage={1} eventsPerPage={10} />);
+    render(<RegexTab items={items} allEvents={items} currentPage={1} eventsPerPage={10} />);
     const input = screen.getByPlaceholderText(/\\d\+/);
     fireEvent.change(input, { target: { value: '\\d+\\.\\d+\\.\\d+\\.\\d+' } });
 
@@ -54,7 +54,7 @@ describe('RegexTab', () => {
   });
 
   it('shows "No events matched" when pattern is valid but has no hits', async () => {
-    render(<RegexTab items={items} currentPage={1} eventsPerPage={10} />);
+    render(<RegexTab items={items} allEvents={items} currentPage={1} eventsPerPage={10} />);
     const input = screen.getByPlaceholderText(/\\d\+/);
     fireEvent.change(input, { target: { value: 'this_text_does_not_appear' } });
 
@@ -63,7 +63,7 @@ describe('RegexTab', () => {
   });
 
   it('surfaces validation error for invalid regex', () => {
-    render(<RegexTab items={items} currentPage={1} eventsPerPage={10} />);
+    render(<RegexTab items={items} allEvents={items} currentPage={1} eventsPerPage={10} />);
     const input = screen.getByPlaceholderText(/\\d\+/);
     fireEvent.change(input, { target: { value: '[unterminated' } });
 

@@ -118,12 +118,15 @@ function buildGroupColorMap(groups: string[]): Map<string, string> {
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 interface RegexTabProps {
+  /** The current page's events — what gets rendered. */
   items: EnrichedEvent[];
+  /** The whole filtered dataset — what the match statistics are computed over. */
+  allEvents: EnrichedEvent[];
   currentPage: number;
   eventsPerPage: number;
 }
 
-export function RegexTab({ items, currentPage, eventsPerPage }: RegexTabProps) {
+export function RegexTab({ items, allEvents, currentPage, eventsPerPage }: RegexTabProps) {
   const [pattern, setPattern] = useState('');
   const [className, setClassName] = useState('custom');
   const [refOpen, setRefOpen] = useState(false);
@@ -164,21 +167,32 @@ export function RegexTab({ items, currentPage, eventsPerPage }: RegexTabProps) {
   // that slips the ReDoS heuristic can't freeze this tab — the watchdog kills the
   // worker and reports a timeout instead. A pattern with a known validation error
   // is not sent (we already show that error).
-  const rawInputs = useMemo(() => items.map((item) => item.event._raw), [items]);
+  // Matched over the WHOLE filtered dataset, not just the visible page. The
+  // header reads "{matched}/{total} events matched" with no scope qualifier, so
+  // page-scoped counts said "8/10" while 500 events were loaded — a pattern that
+  // failed only on page-2 data read as fully working, which is exactly the false
+  // confidence a regex tester exists to prevent. Matching runs in a terminatable
+  // worker, so the whole-dataset cost is bounded.
+  const rawInputs = useMemo(() => allEvents.map((item) => item.event._raw), [allEvents]);
   const { status, results } = useRegexMatch(validationError ? '' : pattern, rawInputs);
 
-  // Aligned to `items`: results[i] is the match info (or null) for items[i].
-  const matchInfoFor = (idx: number): RegexMatchInfo | null =>
-    status === 'ok' ? results[idx] ?? null : null;
+  // Aligned to `allEvents`; the rendered page starts at this offset into it.
+  const pageOffset = (currentPage - 1) * eventsPerPage;
+  const matchInfoFor = (datasetIdx: number): RegexMatchInfo | null =>
+    status === 'ok' ? results[datasetIdx] ?? null : null;
 
-  const matchedItems = useMemo(() => {
+  /** Page events that matched, each carrying its index in the full dataset. */
+  const matchedPageItems = useMemo(() => {
     if (!pattern || validationError || status !== 'ok') return [];
-    return items.filter((_, i) => results[i] != null);
-  }, [pattern, validationError, status, items, results]);
+    return items
+      .map((item, i) => ({ item, datasetIdx: pageOffset + i }))
+      .filter(({ datasetIdx }) => results[datasetIdx] != null);
+  }, [pattern, validationError, status, items, results, pageOffset]);
 
   const matchStats = useMemo(() => {
-    return { matched: matchedItems.length, total: items.length };
-  }, [matchedItems, items]);
+    const matched = status === 'ok' ? results.reduce((n, r) => (r != null ? n + 1 : n), 0) : 0;
+    return { matched, total: allEvents.length };
+  }, [status, results, allEvents]);
 
   const handleCopy = () => {
     if (extractDirective) {
@@ -362,25 +376,23 @@ export function RegexTab({ items, currentPage, eventsPerPage }: RegexTabProps) {
           <div className="flex items-center justify-center py-12 text-[var(--color-text-muted)] text-sm">
             Testing pattern…
           </div>
-        ) : matchedItems.length === 0 ? (
+        ) : matchedPageItems.length === 0 ? (
           <div className="flex items-center justify-center py-12 text-[var(--color-text-muted)] text-sm">
-            No events matched
+            {matchStats.matched > 0
+              ? `No events matched on this page — ${matchStats.matched} matched elsewhere in the dataset`
+              : 'No events matched'}
           </div>
         ) : (
-          matchedItems.map((item, idx) => {
-            const originalIdx = items.indexOf(item);
-            const globalIdx = (currentPage - 1) * eventsPerPage + originalIdx + 1;
-            return (
-              <RegexEventCard
-                key={idx}
-                raw={item.event._raw}
-                globalIdx={globalIdx}
-                hasPattern={!!pattern}
-                matchInfo={matchInfoFor(originalIdx)}
-                groupColorMap={groupColorMap}
-              />
-            );
-          })
+          matchedPageItems.map(({ item, datasetIdx }) => (
+            <RegexEventCard
+              key={datasetIdx}
+              raw={item.event._raw}
+              globalIdx={datasetIdx + 1}
+              hasPattern={!!pattern}
+              matchInfo={matchInfoFor(datasetIdx)}
+              groupColorMap={groupColorMap}
+            />
+          ))
         )}
       </div>
     </div>

@@ -301,7 +301,7 @@ function PreviewSubTab() {
         {subTab === 'highlighted' && <HighlightedTab items={paginatedItems} allEvents={filteredEvents} currentPage={currentPage} eventsPerPage={eventsPerPage} />}
         {subTab === 'diff' && <DiffTab items={paginatedItems} currentPage={currentPage} eventsPerPage={eventsPerPage} />}
         {subTab === 'timestamp' && <TimestampTab items={paginatedItems} currentPage={currentPage} eventsPerPage={eventsPerPage} />}
-        {subTab === 'regex' && <RegexTab items={paginatedItems} currentPage={currentPage} eventsPerPage={eventsPerPage} />}
+        {subTab === 'regex' && <RegexTab items={paginatedItems} allEvents={filteredEvents} currentPage={currentPage} eventsPerPage={eventsPerPage} />}
       </div>
 
       {/* Shared pagination */}

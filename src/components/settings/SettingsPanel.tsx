@@ -6,20 +6,26 @@ function Toggle({
   checked,
   onChange,
   id,
+  disabled = false,
 }: {
   checked: boolean;
   onChange: () => void;
   id: string;
+  /** Renders the switch inert — used where a setting is implied by another one. */
+  disabled?: boolean;
 }) {
   return (
     <button
       role="switch"
       aria-checked={checked}
+      aria-disabled={disabled || undefined}
+      disabled={disabled}
       id={id}
       onClick={onChange}
       className={[
-        'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+        'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]',
+        disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
         checked ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-bg-tertiary)]',
       ].join(' ')}
     >
@@ -139,11 +145,15 @@ export function SettingsPanel() {
                   id="toggle-manual"
                   checked={settings.manualApply}
                   onChange={toggleManualApply}
+                  disabled={settings.perEventPipeline}
                 />
               </div>
               <p className="text-xs leading-relaxed" style={{ color: 'var(--color-text-muted)' }}>
                 Disables live updates while you type. Use the{' '}
-                <strong>Run pipeline</strong> button in the status bar to process changes. Recommended when per-event mode is on.
+                <strong>Run pipeline</strong> button in the status bar to process changes.{' '}
+                {settings.perEventPipeline
+                  ? 'Required while per-event mode is on, so it cannot be turned off here.'
+                  : 'Recommended when per-event mode is on.'}
               </p>
             </div>
           </section>

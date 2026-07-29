@@ -178,6 +178,13 @@ export const useAppStore = create<AppState>((set) => ({
     }),
   toggleManualApply: () =>
     set((state) => {
+      // Per-event mode implies manual-apply (see the invariant above, enforced in
+      // loadSettings and togglePerEventPipeline). Without this guard the toggle
+      // could clear manualApply while perEventPipeline was still on, reaching a
+      // state the invariant says cannot exist — and one that loadSettings would
+      // silently "correct" on the next reload, so live and persisted state
+      // disagreed until then.
+      if (state.settings.perEventPipeline && state.settings.manualApply) return {};
       const next = { ...state.settings, manualApply: !state.settings.manualApply };
       try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
       return { settings: next };
