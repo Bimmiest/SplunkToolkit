@@ -10,8 +10,10 @@ export function createHoverProvider(fileType: 'props.conf' | 'transforms.conf'):
     ): languages.ProviderResult<languages.Hover> {
       const line = model.getLineContent(position.lineNumber);
 
-      // Check if hovering over a stanza header
-      const stanzaMatch = line.match(/^\[(.+)\]$/);
+      // Check if hovering over a stanza header. Trim first: confParser's STANZA_RE
+      // tolerates surrounding whitespace, so matching the raw line made hover
+      // stricter than parsing and `[foo] ` got no hover at all.
+      const stanzaMatch = line.trim().match(/^\[(.+)\]$/);
       if (stanzaMatch) {
         const stanzaName = stanzaMatch[1];
         return {

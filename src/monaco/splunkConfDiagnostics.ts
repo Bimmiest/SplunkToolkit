@@ -280,12 +280,18 @@ function checkBestPractices(
 ): void {
   const text = model.getValue();
   const hasLineBreaker = /^LINE_BREAKER\s*=/m.test(text);
-  const hasShouldLinemerge = /^SHOULD_LINEMERGE\s*=/m.test(text);
+  // Inspect the VALUE, not mere presence: `SHOULD_LINEMERGE = true` is the wrong
+  // setting alongside a custom LINE_BREAKER, yet it used to suppress the very
+  // warning that asks for `= false`.
+  const shouldLinemergeMatch = /^SHOULD_LINEMERGE\s*=\s*(\S+)/m.exec(text);
+  const linemergeDisabled = shouldLinemergeMatch
+    ? ['false', '0', 'no'].includes(shouldLinemergeMatch[1].toLowerCase())
+    : false;
   const hasTimeFormat = /^TIME_FORMAT\s*=/m.test(text);
   const hasTimePrefix = /^TIME_PREFIX\s*=/m.test(text);
 
   // Warn if LINE_BREAKER is set without explicitly setting SHOULD_LINEMERGE = false
-  if (hasLineBreaker && !hasShouldLinemerge) {
+  if (hasLineBreaker && !linemergeDisabled) {
     const lineIdx = text.split('\n').findIndex((l) => /^LINE_BREAKER\s*=/.test(l));
     if (lineIdx >= 0) {
       markers.push({

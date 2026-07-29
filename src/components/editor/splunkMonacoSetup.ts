@@ -75,7 +75,11 @@ function registerSplunkConfLanguage(monaco: MonacoApi) {
 
     tokenizer: {
       root: [
-        [/^[#;].*$/, 'comment'],
+        // Splunk .conf comments are `#` only. Colouring `;` lines as comments
+        // contradicted computeDiagnostics, which flags them as unrecognised —
+        // the editor painted a line green and underlined it as a problem at the
+        // same time, teaching an idiom Splunk does not accept.
+        [/^#.*$/, 'comment'],
         [/^\[/, { token: 'tag.bracket', next: '@stanza' }],
         // EVAL directives → evalValue state (SPL expressions)
         [/^(EVAL)(-[^\s=]+)?(\s*=)/,

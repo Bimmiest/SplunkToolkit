@@ -58,7 +58,7 @@ export function createFoldingRangeProvider(): languages.FoldingRangeProvider {
       let commentStart: number | null = null;
       for (let i = 1; i <= lineCount; i++) {
         const line = model.getLineContent(i).trim();
-        const isComment = line.startsWith('#') || line.startsWith(';');
+        const isComment = line.startsWith('#'); // `;` is NOT a Splunk .conf comment
 
         if (isComment && commentStart === null) {
           commentStart = i;
