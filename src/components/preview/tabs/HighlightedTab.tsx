@@ -11,6 +11,12 @@ import type { FieldNode } from './shared/fieldTreeUtils';
 
 const AUTO_PROCESSORS = ['KV_MODE', 'INDEXED_EXTRACTIONS'];
 const MANUAL_PROCESSORS = ['EXTRACT', 'REPORT', 'TRANSFORMS', 'SEDCMD'];
+/**
+ * Upper bound on rows rendered while a field is pinned. A pin filters the whole
+ * dataset rather than the current page, so without a cap a common field renders
+ * every event at once.
+ */
+const MAX_PINNED_ROWS = 100;
 
 function isAutoProcessor(p: string) { return AUTO_PROCESSORS.some((a) => p.startsWith(a)); }
 function isManualProcessor(p: string) { return MANUAL_PROCESSORS.some((m) => p.startsWith(m)); }
@@ -125,7 +131,7 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
   // stays correct whether we're showing a paginated page or a pin-filtered view.
   // When fields are pinned the filter spans every event (a pin is a global filter),
   // so we index into allEvents rather than reusing the current page's offset math.
-  const filteredItems = useMemo<{ item: EnrichedEvent; globalIdx: number }[]>(() => {
+  const pinMatches = useMemo<{ item: EnrichedEvent; globalIdx: number }[]>(() => {
     if (pinnedFields.size === 0) {
       const offset = (currentPage - 1) * eventsPerPage;
       return items.map((item, i) => ({ item, globalIdx: offset + i + 1 }));
@@ -141,6 +147,18 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
     });
     return out;
   }, [items, allEvents, pinnedFields, currentPage, eventsPerPage]);
+
+  // A pin spans the whole dataset by design, but rendering every match at once
+  // locked the UI for seconds to minutes: pinning a field present in every event
+  // (`host`, or any KV field common to all lines) mounted a FieldEventCard per
+  // event, each running value segmentation and a context-menu root per span.
+  // Cap the rendered window and say what was left out, rather than silently
+  // truncating or silently hanging.
+  const pinnedOverflow = pinnedFields.size > 0 && pinMatches.length > MAX_PINNED_ROWS;
+  const filteredItems = useMemo(
+    () => (pinnedOverflow ? pinMatches.slice(0, MAX_PINNED_ROWS) : pinMatches),
+    [pinMatches, pinnedOverflow],
+  );
 
   const tree = useMemo(
     () => buildFieldTree(fieldColorMap, containerFields, fieldProcessorMap),
@@ -309,6 +327,20 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
           collapsed={sidebarCollapsed}
           sidebar={sidebar}
         >
+          {pinnedOverflow && (
+            <div
+              className="px-3 py-2 mb-2 text-xs rounded"
+              style={{
+                backgroundColor: 'var(--color-bg-tertiary)',
+                color: 'var(--color-text-secondary)',
+                border: '1px solid var(--color-border-subtle)',
+              }}
+            >
+              Showing the first {MAX_PINNED_ROWS.toLocaleString()} of{' '}
+              {pinMatches.length.toLocaleString()} events with a pinned field. Narrow the
+              set with the search box, or unpin to page through every event.
+            </div>
+          )}
           {filteredItems.map(({ item, globalIdx }, idx) => {
             const { eventCalcFields, autoCount, manualCount, calcCount } = eventBadgeCounts[idx];
 

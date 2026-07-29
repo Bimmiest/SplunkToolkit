@@ -47,7 +47,12 @@ export function RawTab({ items, currentPage, eventsPerPage, search }: RawTabProp
         const globalIdx = (currentPage - 1) * eventsPerPage + idx + 1;
         return (
           <EventRow
-            key={idx}
+            // Keyed by the event's source lines, not its slot on the page.
+            // EventRow holds expand/selection state locally, so a positional key
+            // let React reuse the instance across a page change or a filter that
+            // altered membership — showing one event's expanded body, and its
+            // text selection, on a different event.
+            key={`${item.event.lineNumbers.start}-${item.event.lineNumbers.end}`}
             item={item}
             globalIdx={globalIdx}
             originalMetadata={originalMetadata}
