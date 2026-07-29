@@ -88,3 +88,33 @@ describe('hasReDoSRisk — strengthened heuristic (#11/#34)', () => {
     expect(safeRegex(p)).not.toBeNull();
   });
 });
+
+describe('hasReDoSRisk — ambiguity analysis (#55)', () => {
+  // Safe, idiomatic patterns that the presence-only heuristic rejected, silently
+  // disabling valid config. Each repeats a group whose inner quantifier IS
+  // reliably terminated, so there is only one way to split the input.
+  it.each([
+    '(\\d+\\.){3}\\d+',      // canonical IPv4 — `\d+` cannot match the `.`
+    '^(?:[^ ]* ){2}',        // Splunk docs' own TIME_PREFIX recipe
+    '(?:[^,]*,)+',           // CSV field walk
+    '(?:[^"]*"){2}',         // walk to the second quote
+    '(?:\\d+[a-z]+)+',       // boundary is the group's own start, and it is unambiguous
+    '(?:\\[[^\\]]*\\])+',    // bracketed segments
+  ])('does not flag safe repeated group %s', (p) => {
+    expect(hasReDoSRisk(p)).toBe(false);
+    expect(safeRegex(p)).not.toBeNull();
+  });
+
+  // Genuinely ambiguous repetitions stay rejected.
+  it.each([
+    '(a+)+',                 // classic nested quantifier
+    '(\\w+)*',
+    '(?:\\d*)*',
+    '([a-z]+\\w*)+',         // `\w` overlaps `[a-z]`
+    '(\\s*\\S*)+',           // body can match empty
+    '(?:\\w+=\\S+\\s*)+',    // trailing `\S+` can eat the next iteration's `\w+`
+  ])('flags ambiguous repeated group %s', (p) => {
+    expect(hasReDoSRisk(p)).toBe(true);
+    expect(safeRegex(p)).toBeNull();
+  });
+});

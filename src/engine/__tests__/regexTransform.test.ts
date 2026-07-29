@@ -423,3 +423,56 @@ describe('applyRegexTransform — DEST_KEY single-value metadata slots', () => {
     expect(result.destValue).toBe('foo\nbar\nbaz');
   });
 });
+
+describe('applyRegexTransform — FORMAT is tokenized before capture substitution (#52)', () => {
+  it('keeps a captured value containing spaces as one value', () => {
+    const r = applyRegexTransform(
+      event('msg=disk full'),
+      stanza('extract_msg', { REGEX: 'msg=(.*)$', FORMAT: 'message::$1' }),
+    );
+    expect(r.matched).toBe(true);
+    expect(r.fields.message).toBe('disk full');
+  });
+
+  it('does not synthesize a phantom field from a captured "::"', () => {
+    const r = applyRegexTransform(
+      event('data=a::b'),
+      stanza('t', { REGEX: 'data=(.*)$', FORMAT: 'payload::$1' }),
+    );
+    expect(r.fields).toEqual({ payload: 'a::b' });
+  });
+
+  it('supports $N on both sides of the separator', () => {
+    const r = applyRegexTransform(
+      event('color=blue'),
+      stanza('t', { REGEX: '(\\w+)=(\\w+)', FORMAT: '$1::$2' }),
+    );
+    expect(r.fields.color).toBe('blue');
+  });
+
+  it('parses several pairs and expands each independently', () => {
+    const r = applyRegexTransform(
+      event('a=one two b=three'),
+      stanza('t', { REGEX: 'a=(.*) b=(.*)$', FORMAT: 'first::$1 second::$2' }),
+    );
+    expect(r.fields.first).toBe('one two');
+    expect(r.fields.second).toBe('three');
+  });
+
+  it('keeps quoted literal values intact', () => {
+    const r = applyRegexTransform(
+      event('x=1'),
+      stanza('t', { REGEX: 'x=(\\d)', FORMAT: 'tag::"a b" num::$1' }),
+    );
+    expect(r.fields.tag).toBe('a b');
+    expect(r.fields.num).toBe('1');
+  });
+
+  it('still accumulates one value per match across repeated matches', () => {
+    const r = applyRegexTransform(
+      event('k=a b; k=c d;'),
+      stanza('t', { REGEX: 'k=([^;]*);', FORMAT: 'k::$1' }),
+    );
+    expect(r.fields.k).toEqual(['a b', 'c d']);
+  });
+});

@@ -484,3 +484,52 @@ describe('applyEvalExpressions — numeric NULL semantics (#10)', () => {
     expect(r.fields['n']).toBe('Y');
   });
 });
+
+describe('applyEvalExpressions — string escapes reach regex functions intact (#54)', () => {
+  it('match() honours a single-backslash class', () => {
+    const [result] = applyEvalExpressions(
+      [event({}, 'abc123')],
+      [evalDir('m', 'match(_raw, "\\d+")')],
+    );
+    expect(result.fields['m']).toBe('true');
+  });
+
+  it('still accepts the double-backslash form', () => {
+    const [result] = applyEvalExpressions(
+      [event({}, 'abc123')],
+      [evalDir('m', 'match(_raw, "\\\\d+")')],
+    );
+    expect(result.fields['m']).toBe('true');
+  });
+
+  it('unescapes \\" and \\\\ only', () => {
+    const [result] = applyEvalExpressions([event()], [evalDir('s', '"a\\"b\\\\c\\d"')]);
+    expect(result.fields['s']).toBe('a"b\\c\\d');
+  });
+});
+
+describe('applyEvalExpressions — replace() backreferences (#54)', () => {
+  it('swaps groups with \\1 / \\2 (the docs example)', () => {
+    const [result] = applyEvalExpressions(
+      [event({ date: '1/14/2017' })],
+      [evalDir('us', 'replace(date, "^(\\d{1,2})/(\\d{1,2})/", "\\2/\\1/")')],
+    );
+    expect(result.fields['us']).toBe('14/1/2017');
+  });
+
+  it('treats \\0 as the whole match', () => {
+    const [result] = applyEvalExpressions(
+      [event({}, 'abc')],
+      [evalDir('w', 'replace(_raw, "b", "[\\0]")')],
+    );
+    expect(result.fields['w']).toBe('a[b]c');
+  });
+
+  it('does not apply JS $-substitutions', () => {
+    const [result] = applyEvalExpressions(
+      [event({}, 'abc')],
+      [evalDir('d', 'replace(_raw, "b", "$1$&")')],
+    );
+    expect(result.fields['d']).toBe('a$1$&c');
+  });
+});

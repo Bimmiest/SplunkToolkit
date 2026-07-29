@@ -49,6 +49,66 @@ function lastDirective(stanza: ConfStanza, key: string): ConfDirective | undefin
   return undefined;
 }
 
+/** One `key::value` token from a search-time FORMAT, still holding its `$N` references. */
+interface FormatPair {
+  key: string;
+  value: string;
+}
+
+/**
+ * Split a FORMAT string into its `key::value` pairs *without* substituting
+ * captures, so a capture containing spaces or `::` cannot change the pair
+ * structure (transforms.conf.spec, "FORMAT for search-time extractions").
+ *
+ * Both halves may hold `$N` references — `FORMAT = $1::$2` names the field from
+ * one capture and its value from another. A value may be double-quoted to carry
+ * literal whitespace: `field::"a b"`.
+ */
+function parseFormatPairs(format: string): FormatPair[] {
+  const pairs: FormatPair[] = [];
+  let i = 0;
+
+  while (i < format.length) {
+    while (i < format.length && /\s/.test(format[i])) i++;
+    if (i >= format.length) break;
+
+    // Keys never contain whitespace, so the `::` separator must appear in the
+    // run that starts here. A run without one is stray text — skip it.
+    let runEnd = i;
+    while (runEnd < format.length && !/\s/.test(format[runEnd])) runEnd++;
+    const sep = format.indexOf('::', i);
+    if (sep < 0) break;
+    if (sep >= runEnd) {
+      i = runEnd;
+      continue;
+    }
+
+    const key = format.slice(i, sep);
+    i = sep + 2;
+
+    let value: string;
+    if (format[i] === '"') {
+      const end = format.indexOf('"', i + 1);
+      if (end < 0) {
+        value = format.slice(i + 1);
+        i = format.length;
+      } else {
+        value = format.slice(i + 1, end);
+        i = end + 1;
+      }
+    } else {
+      let end = i;
+      while (end < format.length && !/\s/.test(format[end])) end++;
+      value = format.slice(i, end);
+      i = end;
+    }
+
+    if (key) pairs.push({ key, value });
+  }
+
+  return pairs;
+}
+
 function expandFormat(format: string, match: RegExpExecArray, priorDestValue?: string): string {
   // match[0] is the whole match; match[1..maxIndex] are the capture groups.
   const maxIndex = match.length - 1;
@@ -320,20 +380,20 @@ export function applyRegexTransform(
         }
       }
     } else {
-      // No DEST_KEY: parse FORMAT as "field1::$1 field2::$2" — iterate all matches.
-      // Supports quoted values: field::"value with spaces"
-      const PAIR_RE = /(\w+)::(?:"([^"]*)"|(\S+))/g;
+      // No DEST_KEY: FORMAT is "field1::$1 field2::$2". The pair structure is
+      // parsed from the FORMAT *before* captures are substituted, then each
+      // half is expanded on its own — Splunk tokenizes FORMAT at config time and
+      // substitutes afterwards. Expanding first would let a captured value's own
+      // spaces end the value early, and let a captured `::` synthesize a field.
+      const pairs = parseFormatPairs(format);
       const { global } = compiled;
       global.lastIndex = 0;
       let m: RegExpExecArray | null;
       while ((m = global.exec(sourceValue)) !== null) {
-        const formatted = expandFormat(format, m);
-        PAIR_RE.lastIndex = 0;
-        let p: RegExpExecArray | null;
-        while ((p = PAIR_RE.exec(formatted)) !== null) {
-          const field = writeMeta ? stripLeadingUnderscoreForField(p[1]) : p[1];
-          const value = p[2] !== undefined ? p[2] : p[3];
-          if (field) addMultiValue(result.fields, field, value);
+        for (const pair of pairs) {
+          const expandedKey = expandFormat(pair.key, m);
+          const field = writeMeta ? stripLeadingUnderscoreForField(expandedKey) : expandedKey;
+          if (field) addMultiValue(result.fields, field, expandFormat(pair.value, m));
         }
         // Guard against zero-length outer matches looping forever.
         if (m.index === global.lastIndex) global.lastIndex++;
