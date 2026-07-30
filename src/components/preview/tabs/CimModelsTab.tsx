@@ -56,6 +56,10 @@ export function CimModelsTab() {
 function CimModelCard({ result }: { result: ReturnType<typeof validateCimCompliance>[0] }) {
   const [expanded, setExpanded] = useState(false);
   const hasMatches = result.requiredPresent.length > 0 || result.recommendedPresent.length > 0;
+  // A few CIM models (Databases, JVM, Interprocess Messaging) declare no key
+  // fields at all, so there is no required-field score to show — 100% of an
+  // empty list would read as "fully compliant".
+  const declaresRequired = result.model.requiredFields.length > 0;
 
   const variant = result.requiredPercent >= 80 ? 'success' : result.requiredPercent >= 40 ? 'warning' : 'error';
 
@@ -77,7 +81,13 @@ function CimModelCard({ result }: { result: ReturnType<typeof validateCimComplia
           </div>
         </div>
         <div className="w-32">
-          <ProgressBar value={result.requiredPercent} variant={hasMatches ? variant : 'default'} label="Required" />
+          {declaresRequired ? (
+            <ProgressBar value={result.requiredPercent} variant={hasMatches ? variant : 'default'} label="Required" />
+          ) : (
+            <div className="text-xs text-[var(--color-text-muted)]" title="This CIM model declares no required fields">
+              Required <span className="font-mono">n/a</span>
+            </div>
+          )}
         </div>
         <div className="w-32">
           <ProgressBar value={result.totalPercent} variant="default" label="Total" />
@@ -92,11 +102,13 @@ function CimModelCard({ result }: { result: ReturnType<typeof validateCimComplia
 
       {expanded && (
         <div className="px-3 py-2 border-t border-[var(--color-border)] space-y-2">
-          <FieldGroup
-            title="Required Fields"
-            present={result.requiredPresent}
-            missing={result.requiredMissing}
-          />
+          {declaresRequired && (
+            <FieldGroup
+              title="Required Fields"
+              present={result.requiredPresent}
+              missing={result.requiredMissing}
+            />
+          )}
           <FieldGroup
             title="Recommended Fields"
             present={result.recommendedPresent}
