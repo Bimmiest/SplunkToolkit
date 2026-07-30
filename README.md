@@ -62,7 +62,7 @@ src/
 │   │   └── stanzaMatcher.ts   # Precedence-based stanza matching
 │   ├── processors/            # One file per processing stage
 │   ├── transforms/            # regexTransform, destKeyRouter, ingestEval
-│   ├── cim/                   # cimModels.ts + cimModelsData.ts (16 models)
+│   ├── cim/                   # cimModels.ts + cimModelsData.ts (CIM 8.5.0)
 │   └── utils/
 │       └── flattenJson.ts     # With prototype-pollution guard
 │
@@ -111,7 +111,9 @@ src/
 
 **Fields tab** lists every extracted field with phase (index-time vs search-time) and the processors that produced it. Filter pill: `All / Index-time / Search-time`.
 
-**CIM Models tab** validates extracted fields against 16 CIM data models: Authentication, Network Traffic, Web, Endpoint, Intrusion Detection, Malware, Vulnerabilities, DLP, Email, Network Resolution (DNS), Change, Alerts, Updates, Databases, Certificates, Performance.
+**CIM Models tab** validates extracted fields against 27 CIM datasets: Alerts, Authentication, Certificates, Change, Data Access, Databases, DLP, Email, Endpoint (Filesystem, Ports, Processes, Registry, Services), Event Signatures, Interprocess Messaging, Intrusion Detection, Inventory, JVM, Malware, Network Resolution (DNS), Network Sessions, Network Traffic, Performance, Ticket Management, Updates, Vulnerabilities, Web.
+
+The field lists, required/recommended split and constraint tags are all derived from the model JSON that ships in Splunk's own CIM add-on (`Splunk_SA_CIM` **8.5.0**) — see the header of `src/engine/cim/cimModelsData.ts` for the exact derivation rules. Entries are one per CIM *root dataset*, so Endpoint (which has five root datasets and no model-wide `tag=endpoint`) appears five times. Three models — Databases, JVM and Interprocess Messaging — declare no key fields in the CIM, so their required score reads `n/a` rather than a meaningless 100%.
 
 ## Monaco editor
 
@@ -231,17 +233,34 @@ Monaco editor instances live in a module-level `Map` in `editorRegistry.ts`, not
 1. Add a `DirectiveInfo` entry to `DIRECTIVES` in `src/monaco/directiveRegistry.ts`. Autocomplete, hover, and linting pick it up.
 2. If it needs processing logic: create or edit a processor in `src/engine/processors/` and wire it into `src/engine/pipeline.ts` at the correct position, wrapped in `safeProcessor()`.
 
-### Add a CIM model
-Append to `CIM_MODELS` in `src/engine/cim/cimModelsData.ts`:
+### Add or update a CIM model
+`CIM_MODELS` in `src/engine/cim/cimModelsData.ts` is generated, not hand-maintained.
+To refresh it, download the CIM add-on from
+[Splunkbase](https://splunkbase.splunk.com/app/1621), extract it, and run:
+
+```bash
+node scripts/generate-cim-models.js /path/to/Splunk_SA_CIM
+```
+
+The script reads `default/data/models/*.json` (the model definitions Splunk itself
+runs) and takes `CIM_VERSION` from the add-on's `app.conf`. Which datasets are
+presented, and their labels, live in the `INCLUDE` table at the top of the script;
+everything else — fields, the required/recommended split, constraint tags — is read
+out of the add-on, and a dataset that Splunk has renamed or removed fails the run
+rather than disappearing quietly. Nothing here runs at build or install time, and
+the add-on is not vendored.
+
+To add a dataset by hand instead, read the derivation rules in the generated file's
+header first — the fields must come from the model JSON, not from memory or docs prose:
 
 ```typescript
 {
-  name: 'Your_Model',
+  name: 'Your_Model',          // or 'Your_Model.Dataset' for a second root dataset
   displayName: 'Your Model',
   description: 'Description',
   requiredFields: ['field1', 'field2'],
   recommendedFields: ['field3'],
-  tags: ['your_tag'],
+  tags: ['your_tag'],          // ALL tags must be present for the dataset to populate
 }
 ```
 

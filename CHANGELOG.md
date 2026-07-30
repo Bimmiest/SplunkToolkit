@@ -4,6 +4,20 @@ All notable changes to Splunk Toolkit are documented here, newest first.
 
 ---
 
+## 2026-07-30
+
+### Fixed
+
+- **CIM model definitions listed fields several models don't define, and were regenerated from Splunk's own CIM 8.5.0 add-on** (#37) — the lists were hand-written, so the CIM tab reported non-compliance against fields nobody could ever populate: `Databases` wanted `action`/`app`/`query_type`/`status`/`db_name` (the database name is `instance_name`, and the model's real fields — `query`, `query_id`, `object`, `duration` — live on its child datasets, which were never read); `DLP` wanted `file_name`/`file_path`/`protocol`/`url` instead of `object`/`object_path`/`dlp_type`; `Vulnerabilities` wanted `dest_port` and `os`; `Performance` wanted `os`, which is a tag on the OS dataset rather than a field; and `vendor_product` had been applied to `Authentication`, `Alerts`, `Certificates` and `Performance`, the four models that genuinely lack it. Rather than patch entries one at a time, `cimModelsData.ts` is now derived from `default/data/models/*.json` in the `Splunk_SA_CIM` **8.5.0** add-on — the same JSON Splunk itself runs — with the derivation rules written into the file header and the release pinned in a new `CIM_VERSION` export. The required/recommended split, previously guesswork, now comes from CIM's own `comment.recommended` flag, falling back to the key fields Splunk's `Splunk_CIM_Validation` model checks (`Missing_Extractions_*`). Asset/identity enrichment fields (`*_bunit`, `*_category`, `*_priority`, `tag`) are excluded throughout: Splunk adds those downstream and an add-on must not extract them, so listing them as gaps was actively misleading advice. ([src/engine/cim/cimModelsData.ts](src/engine/cim/cimModelsData.ts))
+- **`Endpoint` was modelled as one dataset with a `tag=endpoint` constraint that doesn't exist** — the CIM Endpoint model has five independent root datasets, each with its own tag pair (`tag=listening tag=port`, `tag=process tag=report`, `tag=service tag=report`, `tag=endpoint tag=filesystem`, `tag=endpoint tag=registry`) and its own disjoint field set, so a single flat card both mis-stated membership and mixed process fields into a registry config's gap list. It is now five entries. Since a model's events need *all* of a dataset's constraint tags to populate, entries carry only the tags the constraint requires conjunctively; where the root constraint is a disjunction (`Performance`, `Inventory`) the one-of alternatives are noted in a comment. ([src/engine/cim/cimModelsData.ts](src/engine/cim/cimModelsData.ts))
+
+### Added
+
+- **`scripts/generate-cim-models.js`, which is what now produces that file** — a manual, occasional step (CIM ships roughly annually) that takes the path to an extracted CIM add-on, reads `default/data/models/*.json`, and pins `CIM_VERSION` from the add-on's own `app.conf`. Nothing runs at build or install time and the add-on is not vendored; the point is that the next refresh is a re-run rather than another audit, which is the failure mode #37 documented. Only the dataset selection and their labels are curated (the `INCLUDE` table at the top); a dataset Splunk renames or drops fails the run instead of quietly disappearing. ([scripts/generate-cim-models.js](scripts/generate-cim-models.js))
+- **Eleven more CIM datasets in the CIM Models tab** — Data Access, Event Signatures, Interprocess Messaging, Inventory, JVM, Network Sessions and Ticket Management, plus the five Endpoint datasets, taking the tab from 16 models to 27 datasets. Databases, JVM and Interprocess Messaging declare no key fields anywhere in the CIM, so their required-field score now reads `n/a` instead of the 100% that an empty required list would otherwise score — a green "fully compliant" bar for a model with nothing to comply with. ([src/engine/cim/cimModelsData.ts](src/engine/cim/cimModelsData.ts), [src/components/preview/tabs/CimModelsTab.tsx](src/components/preview/tabs/CimModelsTab.tsx))
+
+---
+
 ## 2026-07-28
 
 ### Added
