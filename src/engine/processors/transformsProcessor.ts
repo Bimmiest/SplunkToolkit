@@ -5,10 +5,22 @@ import { applyIngestEval } from '../transforms/ingestEval';
 import { byClassName } from '../utils/asciiCompare';
 import { changeWindow } from '../utils/changeWindow';
 import { SIMULATED_DEST_KEYS, VALID_UNSIMULATED_DEST_KEYS, normaliseDestKey } from '../transforms/destKeys';
+import { atDirective, atStanza } from '../parser/provenance';
 
 // A DEST_KEY=_raw transform that shrinks the event by at least this fraction is
 // treated as accidental data loss (FORMAT did not reproduce the rest of the line).
 const RAW_LOSS_THRESHOLD = 0.3;
+
+/**
+ * Locate a diagnostic at a named directive in a transform stanza, falling back
+ * to the stanza header when the stanza does not carry that key. Both carry the
+ * layer they came from, so the position stays unambiguous when the conf was read
+ * as default/ + local/.
+ */
+function positionOfKeyOrStanza(stanza: ParsedConf['stanzas'][number], key: string) {
+  const directive = stanza.directives.find((d) => d.key === key);
+  return directive ? atDirective(directive) : atStanza(stanza);
+}
 
 
 
@@ -74,7 +86,7 @@ export function applyTransforms(
             level: 'warning',
             message: `Transform "${stanzaName}" was skipped: its REGEX (${pattern}) could not be compiled safely (invalid regex or rejected as ReDoS-prone).`,
             file: 'transforms.conf',
-            line: transformStanza.directives.find((d) => d.key === 'REGEX')?.line ?? transformStanza.lineRange.start,
+            ...positionOfKeyOrStanza(transformStanza, 'REGEX'),
           });
         }, phase);
 
@@ -161,7 +173,7 @@ function warnIndexTimeNoWriteMeta(
       'WRITE_META = true (or it routes via DEST_KEY); without either it has no effect. If you meant a search-time ' +
       'extraction, reference it with REPORT-<class> instead of TRANSFORMS-<class>.',
     file: 'transforms.conf',
-    line: transformStanza.lineRange.start,
+    ...atStanza(transformStanza),
   });
 }
 
@@ -195,7 +207,7 @@ function warnSearchTimeDestKey(
       'DEST_KEY is index-time only, so Splunk applies the field extraction and ignores the routing. ' +
       'Reference the stanza from TRANSFORMS- instead if the routing is intended.',
     file: 'transforms.conf',
-    line: destKeyDir.line,
+    ...atDirective(destKeyDir),
   });
 }
 
@@ -260,7 +272,7 @@ function warnRawLoss(
       'FORMAT does not reproduce is discarded. To keep the surrounding text, capture the whole line ' +
       '(e.g. REGEX = (.*?)(secret)(.*), FORMAT = $1XXXX$3) or use SEDCMD to substitute in place.',
     file: 'transforms.conf',
-    line: transformStanza.directives.find((d) => d.key === 'DEST_KEY')?.line ?? transformStanza.lineRange.start,
+    ...positionOfKeyOrStanza(transformStanza, 'DEST_KEY'),
   });
 }
 

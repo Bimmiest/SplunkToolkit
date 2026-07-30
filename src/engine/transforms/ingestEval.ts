@@ -1,6 +1,7 @@
 import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 import { evaluateExpression } from '../processors/evalProcessor';
 import { stripLeadingUnderscoreForField } from '../utils/internalFields';
+import { atDirective } from '../parser/provenance';
 
 // Split "field=expr, field2=fn(a,b)" on top-level commas only — not inside parens
 // and not inside a string literal (e.g. msg="a,b" must stay one assignment).
@@ -72,7 +73,7 @@ export function applyIngestEval(
                 level: 'warning',
                 message: `${fn}() is not fully simulated — results may differ from real Splunk`,
                 file: 'transforms.conf',
-                line: ingestEvalDir.line,
+                ...atDirective(ingestEvalDir),
                 directiveKey: ingestEvalDir.key,
               });
             }
@@ -108,7 +109,7 @@ export function applyIngestEval(
               level: 'error',
               message: `INGEST_EVAL ${fieldName}: ${err instanceof Error ? err.message : String(err)}`,
               file: 'transforms.conf',
-              line: ingestEvalDir.line,
+              ...atDirective(ingestEvalDir),
               directiveKey: ingestEvalDir.key,
             });
           }

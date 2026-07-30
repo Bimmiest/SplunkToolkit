@@ -1,5 +1,6 @@
-import type { EventMetadata, PipelineOptions, ProcessingResult, ValidationDiagnostic, ConfDirective, SplunkEvent } from './types';
+import type { ConfInput, EventMetadata, PipelineOptions, ProcessingResult, ValidationDiagnostic, ConfDirective, SplunkEvent } from './types';
 import { parseConf } from './parser/confParser';
+import { atDirective, atStanza } from './parser/provenance';
 import { matchStanzas, mergeDirectives } from './parser/stanzaMatcher';
 import { breakLines } from './processors/lineBreaker';
 import { extractTimestamps } from './processors/timestampExtractor';
@@ -42,7 +43,7 @@ function dedupeDiagnostics(diagnostics: ValidationDiagnostic[]): ValidationDiagn
   const seen = new Set<string>();
   const out: ValidationDiagnostic[] = [];
   for (const d of diagnostics) {
-    const key = `${d.level}|${d.file}|${d.line ?? ''}|${d.directiveKey ?? ''}|${d.message}`;
+    const key = `${d.level}|${d.file}|${d.layer ?? ''}|${d.line ?? ''}|${d.directiveKey ?? ''}|${d.message}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(d);
@@ -50,11 +51,20 @@ function dedupeDiagnostics(diagnostics: ValidationDiagnostic[]): ValidationDiagn
   return out;
 }
 
+/**
+ * Run the full index-time + search-time simulation over `rawData`.
+ *
+ * Each conf argument is either the text of a single file or an ordered list of
+ * layers, lowest precedence first — `[{ layer: 'default', text }, { layer:
+ * 'local', text }]` — for a caller reading an app off disk, where `local/`
+ * overrides `default/` per attribute. `parseConf` merges them; every directive
+ * and every diagnostic derived from one then names the layer it came from.
+ */
 export function runPipeline(
   rawData: string,
   metadata: EventMetadata,
-  propsConfText: string,
-  transformsConfText: string,
+  propsConfInput: ConfInput,
+  transformsConfInput: ConfInput,
   options?: PipelineOptions
 ): { result: ProcessingResult; diagnostics: ValidationDiagnostic[] } {
   const diagnostics: ValidationDiagnostic[] = [];
@@ -89,8 +99,8 @@ export function runPipeline(
   }
 
   // 1. Parse configurations
-  const propsConf = parseConf(propsConfText, 'props.conf');
-  const transformsConf = parseConf(transformsConfText, 'transforms.conf');
+  const propsConf = parseConf(propsConfInput, 'props.conf');
+  const transformsConf = parseConf(transformsConfInput, 'transforms.conf');
 
   diagnostics.push(...propsConf.errors, ...transformsConf.errors);
 
@@ -102,7 +112,7 @@ export function runPipeline(
           level: 'warning',
           message: `LOOKUP-${dir.className ?? dir.key} is configured but lookup table execution is not simulated — fields will not be populated`,
           file: 'props.conf',
-          line: dir.line,
+          ...atDirective(dir),
           directiveKey: dir.key,
         });
       }
@@ -132,7 +142,7 @@ export function runPipeline(
         level: 'warning',
         message: `DEST_KEY = ${destKeyDir.value.trim()} is a valid Splunk routing key but is not simulated — events will not be cloned/routed in the preview.`,
         file: 'transforms.conf',
-        line: destKeyDir.line,
+        ...atDirective(destKeyDir),
         directiveKey: destKeyDir.key,
       });
     } else if (!SIMULATED_DEST_KEYS.has(destKey)) {
@@ -140,7 +150,7 @@ export function runPipeline(
         level: 'warning',
         message: `DEST_KEY = ${destKeyDir.value.trim()} is not a recognised Splunk DEST_KEY. Splunk only accepts the documented keys (queue, _raw, _meta, _time, MetaData:Host/Source/Sourcetype/Index, _TCP_ROUTING, _SYSLOG_ROUTING). An unrecognised key has no routing effect.`,
         file: 'transforms.conf',
-        line: destKeyDir.line,
+        ...atDirective(destKeyDir),
         directiveKey: destKeyDir.key,
       });
     }
@@ -152,7 +162,7 @@ export function runPipeline(
           level: 'warning',
           message: `DEST_KEY = ${destKeyDir.value.trim()} requires FORMAT to include the "${requiredPrefix}" prefix (e.g. FORMAT = ${requiredPrefix}$1). Without it Splunk silently skips the metadata update.`,
           file: 'transforms.conf',
-          line: formatDir.line,
+          ...atDirective(formatDir),
           directiveKey: formatDir.key,
           suggestion: `Change FORMAT = ${formatDir.value.trim()} to FORMAT = ${requiredPrefix}${formatDir.value.trim()}`,
         });
@@ -174,7 +184,7 @@ export function runPipeline(
               level: 'error',
               message: `Referenced transform stanza "${name}" not found in transforms.conf`,
               file: 'props.conf',
-              line: dir.line,
+              ...atDirective(dir),
               directiveKey: dir.key,
             });
           }
@@ -188,7 +198,7 @@ export function runPipeline(
         level: 'warning',
         message: `Transform stanza "${stanza.name}" is defined but never referenced from props.conf`,
         file: 'transforms.conf',
-        line: stanza.lineRange.start,
+        ...atStanza(stanza),
       });
     }
   }
@@ -218,7 +228,7 @@ export function runPipeline(
           `INDEXED_EXTRACTIONS = json already extracts fields at index time, but ${kvDesc} extracts them again at search time. ` +
           'In Splunk this produces duplicate (multivalue) field values. Set KV_MODE = none for this sourcetype when using INDEXED_EXTRACTIONS = json.',
         file: 'props.conf',
-        line: kvModeDir?.line ?? directives.find((d) => d.key === 'INDEXED_EXTRACTIONS')?.line,
+        ...atDirective(kvModeDir ?? directives.find((d) => d.key === 'INDEXED_EXTRACTIONS')),
       });
     }
   }

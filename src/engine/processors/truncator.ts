@@ -1,4 +1,5 @@
 import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
+import { atDirective } from '../parser/provenance';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: false });
@@ -56,7 +57,7 @@ export function truncateEvents(
       level: 'warning',
       message: `TRUNCATE = "${rawValue}" is not a valid byte count and was ignored. TRUNCATE expects a non-negative integer (default 10000; 0 disables truncation).`,
       file: 'props.conf',
-      line: truncateDir.line,
+      ...atDirective(truncateDir),
       directiveKey: truncateDir.key,
     });
     return events;

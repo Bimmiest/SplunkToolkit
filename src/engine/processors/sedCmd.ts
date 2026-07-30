@@ -2,6 +2,7 @@ import type { SplunkEvent, ConfDirective, RawMutation, ValidationDiagnostic } fr
 import { safeRegex } from '../../utils/splunkRegex';
 import { byClassName } from '../utils/asciiCompare';
 import { changeWindow } from '../utils/changeWindow';
+import { atDirective } from '../parser/provenance';
 
 interface SedCommand {
   className: string;
@@ -51,7 +52,7 @@ function parseSedExpression(
       level: 'warning',
       message: `SEDCMD-${dir?.className ?? ''}: y/// transliteration is not simulated — this directive has no effect in the preview.`,
       file: 'props.conf',
-      line: dir?.line,
+      ...atDirective(dir),
       directiveKey: dir?.key,
     });
     return null;
@@ -100,7 +101,7 @@ function parseSedExpression(
       level: 'warning',
       message: `SEDCMD-${dir?.className ?? ''}: the numeric occurrence flag (s/.../.../N) is not simulated — the preview replaces the ${isGlobal ? 'matches globally' : 'first match'} instead of only the Nth.`,
       file: 'props.conf',
-      line: dir?.line,
+      ...atDirective(dir),
       directiveKey: dir?.key,
     });
   }

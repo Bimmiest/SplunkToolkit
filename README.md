@@ -41,6 +41,29 @@ Runs in Splunk's actual order.
 
 `[source::<pattern>]` > `[host::<pattern>]` > `[<sourcetype>]` > `[default]`. Within a type, more specific patterns win. Directives from all matching stanzas merge in precedence order.
 
+### Conf layers (`default/` vs `local/`)
+
+`parseConf`, and therefore `runPipeline`, accept either the text of one flat conf or an ordered list of layers, **lowest precedence first** — which is how a caller reading an app off disk (or out of a Git worktree) hands over `$APP/default/props.conf` and `$APP/local/props.conf`:
+
+```ts
+runPipeline(raw, metadata,
+  [{ layer: 'default', text: defaultProps }, { layer: 'local', text: localProps }],
+  [{ layer: 'default', text: defaultTransforms }, { layer: 'local', text: localTransforms }]);
+```
+
+`layer` is a free-form label the engine only carries through as provenance (`app/local`, `system/local`, … are all fine); precedence comes from list order, since only the caller knows how its layers rank. Merging is per *attribute* within a stanza, not per file: a `local` stanza replaces only the attributes it names and the rest of the `default` stanza survives. That falls straight out of concatenating the layers in precedence order, because a repeated key in a stanza already resolves last-definition-wins.
+
+What layered input adds to the result is provenance that parsing would otherwise destroy:
+
+- every `ConfDirective` carries the `layer` it was read from — including the ones `mergeDirectives` returns, so "which file won this attribute" is answerable after resolution;
+- the winner of a contested key carries `overrides` (nearest first, so `overrides[0]` is the value that would apply if that line were deleted) and each loser carries `overriddenBy`;
+- every `ConfStanza` carries `layers` (all files defining it, lowest first) with `layer`/`lineRange` naming the highest-precedence one;
+- every diagnostic derived from a directive or stanza carries `layer` alongside `line`, since both files have a line 7.
+
+Passing a plain string produces exactly what it always did, with no provenance fields; passing one layer makes the merge a no-op. Together with stanza precedence above, these are the two halves of what `btool … --debug` prints: which stanza won, and from which file.
+
+This is within-stanza only — a directive that wins its stanza can still lose to a higher-precedence *stanza*, which `matchStanzas`/`mergeDirectives` resolve separately.
+
 ### Layout
 
 Header, two-panel split (inputs left, output right), bottom status bar. The left column stacks Raw log → Metadata → props.conf → transforms.conf in a resizable group; editors collapse to fixed-height bars at the bottom so the resize handle reclaims their space. Each major panel is wrapped in an `ErrorBoundary`.
@@ -58,7 +81,8 @@ src/
 │   ├── pipeline.ts            # runPipeline() — sole entry point
 │   ├── pipelineWorker.ts      # Web Worker wrapper
 │   ├── parser/
-│   │   ├── confParser.ts      # INI parser → ParsedConf
+│   │   ├── confParser.ts      # INI parser + default/local layer merge → ParsedConf
+│   │   ├── provenance.ts      # Locate a diagnostic at a directive/stanza (+ its layer)
 │   │   └── stanzaMatcher.ts   # Precedence-based stanza matching
 │   ├── processors/            # One file per processing stage
 │   ├── transforms/            # regexTransform, destKeyRouter, ingestEval

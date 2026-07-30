@@ -1,6 +1,7 @@
 import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 import { safeRegex } from '../../utils/splunkRegex';
 import { parseTimestamp, strftimeToRegex } from '../../utils/strftime';
+import { atDirective } from '../parser/provenance';
 
 /**
  * Priority-ordered formats for automatic timestamp recognition when no
@@ -96,7 +97,7 @@ export function extractTimestamps(
           level: 'warning',
           message: `Timezone "${value}" could not be resolved to an offset and was treated as UTC. Use a numeric offset (e.g. -0500) or a supported abbreviation for an accurate _time.`,
           file: 'props.conf',
-          line: anchor?.line,
+          ...atDirective(anchor),
           directiveKey: anchor?.key,
         });
       }
