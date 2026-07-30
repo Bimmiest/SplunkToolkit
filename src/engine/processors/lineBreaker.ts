@@ -8,6 +8,7 @@
 
 import type { ConfDirective, EventMetadata, SplunkEvent, ValidationDiagnostic } from '../types';
 import { safeRegex } from '../../utils/splunkRegex';
+import { atDirective } from '../parser/provenance';
 
 /**
  * Helper to find a directive value by key (case-insensitive).
@@ -94,7 +95,7 @@ function warnUncompilableBreakPattern(
     level: 'warning',
     message: `${key} pattern (${pattern}) could not be compiled safely (invalid regex or rejected as ReDoS-prone). The option was ignored, so events were broken as if it were not set.`,
     file: 'props.conf',
-    line: directives.find((d) => d.key.toUpperCase() === key)?.line,
+    ...atDirective(directives.find((d) => d.key.toUpperCase() === key)),
     directiveKey: key,
   });
 }
@@ -147,7 +148,7 @@ export function breakLines(
           level: 'warning',
           message: `LINE_BREAKER pattern (${lineBreakerPattern}) could not be compiled safely (invalid regex or rejected as ReDoS-prone). Event breaking was skipped — the entire input is treated as one event.`,
           file: 'props.conf',
-          line: directives.find((d) => d.key.toUpperCase() === 'LINE_BREAKER')?.line,
+          ...atDirective(directives.find((d) => d.key.toUpperCase() === 'LINE_BREAKER')),
         });
       }
       segments = [rawData];

@@ -97,10 +97,57 @@ export interface ValidationDiagnostic {
   level: DiagnosticLevel;
   message: string;
   file: DiagnosticTarget;
+  /**
+   * Which conf layer `line` refers to (see `ConfLayer`). Only present when the
+   * config was parsed from layers — with a single flat file `file` + `line`
+   * already identifies the position uniquely.
+   */
+  layer?: string;
   line?: number;
   column?: number;
   directiveKey?: string;
   suggestion?: string;
+}
+
+/**
+ * One file in a layered read of a conf, e.g. `$APP/default/props.conf` and
+ * `$APP/local/props.conf`.
+ *
+ * `layer` is a free-form label — the engine only carries it through as
+ * provenance and never interprets it, so a caller reading a real Splunk install
+ * can use whatever identifies the file it came from (`default`, `local`,
+ * `myapp/local`, `system/local`, …). Precedence comes from the ORDER of the
+ * list handed to `parseConf`, lowest precedence first, because only the caller
+ * knows how its layers rank.
+ */
+export interface ConfLayer {
+  layer: string;
+  text: string;
+}
+
+/**
+ * What `parseConf` (and therefore `runPipeline`) accepts for a conf file: either
+ * a single flat file's text, or an ordered list of layers, lowest precedence
+ * first. A single string parses exactly as it always has, with no provenance
+ * fields on the result.
+ */
+export type ConfInput = string | ConfLayer[];
+
+/**
+ * A pointer to a directive that is shadowed by, or shadows, another definition
+ * of the same key in the same stanza. Only produced for layered input, where
+ * the layer name is always known.
+ */
+export interface OverriddenDirective {
+  layer: string;
+  line: number;
+  value: string;
+}
+
+/** Where a stanza is defined within one layer. */
+export interface StanzaLayerOrigin {
+  layer: string;
+  lineRange: { start: number; end: number };
 }
 
 export interface ConfDirective {
@@ -109,6 +156,24 @@ export interface ConfDirective {
   line: number;
   directiveType: string;
   className?: string;
+  /**
+   * The layer this directive was read from. Absent when the conf was parsed
+   * from a single flat string, which has no layer to name.
+   */
+  layer?: string;
+  /**
+   * Definitions of the same key, in the same stanza, that this one wins over —
+   * nearest first, so `overrides[0]` is the value that would apply if this
+   * directive were deleted. Covers both a lower layer (`default` beaten by
+   * `local`) and a repeat earlier in the same file, since Splunk resolves both
+   * by the same last-definition-wins rule.
+   *
+   * This is within-stanza only. Which *stanza* won for a given event is a
+   * separate axis, resolved later by `matchStanzas`/`mergeDirectives`.
+   */
+  overrides?: OverriddenDirective[];
+  /** Set on a directive that lost to a later definition of the same key. */
+  overriddenBy?: OverriddenDirective;
 }
 
 export interface ConfStanza {
@@ -117,7 +182,19 @@ export interface ConfStanza {
   sourcePattern?: string;
   hostPattern?: string;
   directives: ConfDirective[];
+  /**
+   * Line range of the stanza header and body. For layered input this is the
+   * range in the HIGHEST-precedence layer that defines the stanza (named by
+   * `layer`) — the file an engineer would edit; `layers` has the rest.
+   */
   lineRange: { start: number; end: number };
+  /** Highest-precedence layer defining this stanza. Absent for flat input. */
+  layer?: string;
+  /**
+   * Every layer that defines this stanza, lowest precedence first. Absent for
+   * flat input.
+   */
+  layers?: StanzaLayerOrigin[];
 }
 
 export interface ParsedConf {

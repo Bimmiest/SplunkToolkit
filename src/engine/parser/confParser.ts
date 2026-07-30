@@ -4,11 +4,20 @@
  * Takes raw text from a props.conf or transforms.conf file and returns a
  * `ParsedConf` object containing an ordered list of stanzas (with their
  * directives) and any parse errors encountered along the way.
+ *
+ * The input may also be an ordered list of LAYERS (`$APP/default/props.conf`
+ * then `$APP/local/props.conf`, lowest precedence first) rather than one flat
+ * file. Splunk merges those layers per attribute, not per file, so they are
+ * merged here — at parse time — rather than left to each caller: the layer a
+ * directive came from is destroyed the moment the text is parsed, and no
+ * consumer can recover it afterwards. See `parseConf`.
  */
 
 import type {
   ConfDirective,
+  ConfInput,
   ConfStanza,
+  OverriddenDirective,
   ParsedConf,
   ValidationDiagnostic,
 } from '../types';
@@ -137,20 +146,72 @@ function classifyStanza(
 // ---------------------------------------------------------------------------
 
 /**
- * Parse the raw text of a Splunk `.conf` file into a structured
- * representation.
+ * Parse a Splunk `.conf` into a structured representation.
  *
- * @param text     - The full text content of the configuration file.
+ * Accepts either the text of a single flat file, or an ordered list of layers
+ * (lowest precedence first) that are merged the way Splunk merges
+ * `default/` and `local/`:
+ *
+ * ```ts
+ * parseConf([{ layer: 'default', text: defaultText },
+ *            { layer: 'local',   text: localText }], 'props.conf')
+ * ```
+ *
+ * Merging is per *attribute* within a stanza, not per file: a `local` stanza
+ * replaces only the attributes it names, and the rest of the `default` stanza
+ * survives. That falls out of concatenating each layer's directives in
+ * precedence order, because within a stanza Splunk already resolves a repeated
+ * key last-definition-wins (`mergeDirectives`).
+ *
+ * What layered input adds to the result is provenance: every directive carries
+ * the `layer` it came from, the winner of a contested key carries `overrides`,
+ * and each loser carries `overriddenBy` — the two halves of what
+ * `btool … --debug` prints. Stanzas likewise carry the layers that define them.
+ *
+ * Given a plain string the output is exactly what it has always been, with no
+ * provenance fields; given one layer the merge is a no-op, so adopting the
+ * layered form cannot change how a config resolves.
+ *
+ * @param input    - Full text of the file, or layers lowest-precedence-first.
  * @param fileName - Which file is being parsed (used in diagnostic messages).
- * @returns A `ParsedConf` with the parsed stanzas and any errors.
+ * @returns A `ParsedConf` with the merged stanzas and any errors.
  */
 export function parseConf(
+  input: ConfInput,
+  fileName: 'props.conf' | 'transforms.conf',
+): ParsedConf {
+  if (typeof input === 'string') {
+    const { stanzas, errors } = parseLayer(input, fileName);
+    return { stanzas: mergeDuplicateStanzas(stanzas), errors };
+  }
+
+  const stanzas: ConfStanza[] = [];
+  const errors: ValidationDiagnostic[] = [];
+  for (const { layer, text } of input) {
+    const parsed = parseLayer(text, fileName, layer);
+    stanzas.push(...parsed.stanzas);
+    errors.push(...parsed.errors);
+  }
+
+  const merged = mergeDuplicateStanzas(stanzas);
+  for (const stanza of merged) annotateOverrides(stanza);
+  return { stanzas: merged, errors };
+}
+
+/**
+ * Parse one conf file. `layer`, when given, is stamped onto every stanza,
+ * directive and diagnostic produced from this text, because once the layers are
+ * concatenated a line number alone no longer says which file it is in.
+ */
+function parseLayer(
   text: string,
   fileName: 'props.conf' | 'transforms.conf',
+  layer?: string,
 ): ParsedConf {
   const lines = text.split(/\r?\n/);
   const stanzas: ConfStanza[] = [];
   const errors: ValidationDiagnostic[] = [];
+  const from: { layer?: string } = layer === undefined ? {} : { layer };
 
   // The "current" stanza being accumulated.  Lines that appear before any
   // explicit stanza header are implicitly in a virtual [default] stanza.
@@ -200,6 +261,7 @@ export function parseConf(
         ...classification,
         directives: [],
         lineRange: { start: lineNumber, end: lineNumber },
+        ...from,
       };
       lastDirective = null;
       continue;
@@ -229,6 +291,7 @@ export function parseConf(
           level: 'warning',
           message: `"${rawKey}" is ignored — attribute names are case-sensitive. Did you mean "${canonical}"?`,
           file: fileName,
+          ...from,
           line: lineNumber,
           directiveKey: rawKey,
           suggestion: `Change "${rawKey}" to "${canonical}".`,
@@ -247,6 +310,7 @@ export function parseConf(
             level: 'warning',
             message: `"${rawKey}" is ignored — attribute names are case-sensitive. Did you mean "${canonical}"?`,
             file: fileName,
+            ...from,
             line: lineNumber,
             directiveKey: rawKey,
             suggestion: `Change "${rawKey}" to "${canonical}".`,
@@ -260,6 +324,7 @@ export function parseConf(
         line: lineNumber,
         directiveType,
         ...(className !== undefined ? { className } : {}),
+        ...from,
       };
 
       // If no stanza has been opened yet, create an implicit [default].
@@ -269,6 +334,7 @@ export function parseConf(
           type: 'default',
           directives: [],
           lineRange: { start: lineNumber, end: lineNumber },
+          ...from,
         };
       }
 
@@ -284,6 +350,7 @@ export function parseConf(
       level: 'error',
       message: `Malformed line: "${line.length > 80 ? line.slice(0, 80) + '...' : line}"`,
       file: fileName,
+      ...from,
       line: lineNumber,
     });
     lastDirective = null;
@@ -292,15 +359,21 @@ export function parseConf(
   // Flush the last stanza.
   flushStanza(lines.length);
 
-  return { stanzas: mergeDuplicateStanzas(stanzas), errors };
+  return { stanzas, errors };
 }
 
 /**
  * Splunk treats repeated stanzas with the same name in one file as a single
- * stanza (Admin manual, "How app configuration files work"). Concatenate their
- * directives in file order so later definitions win: within-stanza last-wins is
+ * stanza (Admin manual, "How app configuration files work"), and treats a stanza
+ * appearing in both `default/` and `local/` the same way. Concatenate their
+ * directives in order so later definitions win: within-stanza last-wins is
  * applied downstream (`mergeDirectives` for props; the transform readers take the
  * last REGEX/FORMAT/INGEST_EVAL for transforms).
+ *
+ * Because layers arrive lowest-precedence-first, that single rule resolves both a
+ * repeat within one file and a `local` override of a `default` attribute — which
+ * is how Splunk resolves them too, and why layered input needs no separate merge
+ * pass that could drift from the flat-file behaviour.
  */
 function mergeDuplicateStanzas(stanzas: ConfStanza[]): ConfStanza[] {
   const byKey = new Map<string, ConfStanza>();
@@ -308,18 +381,79 @@ function mergeDuplicateStanzas(stanzas: ConfStanza[]): ConfStanza[] {
   for (const stanza of stanzas) {
     const key = `${stanza.type} ${stanza.name}`;
     const existing = byKey.get(key);
-    if (existing) {
-      existing.directives.push(...stanza.directives);
-      existing.lineRange.end = Math.max(existing.lineRange.end, stanza.lineRange.end);
-    } else {
+    if (!existing) {
       const clone: ConfStanza = {
         ...stanza,
         directives: [...stanza.directives],
         lineRange: { ...stanza.lineRange },
+        ...(stanza.layer !== undefined
+          ? { layers: [{ layer: stanza.layer, lineRange: { ...stanza.lineRange } }] }
+          : {}),
       };
       byKey.set(key, clone);
       order.push(clone);
+      continue;
     }
+
+    existing.directives.push(...stanza.directives);
+
+    if (stanza.layer === undefined || existing.layers === undefined) {
+      existing.lineRange.end = Math.max(existing.lineRange.end, stanza.lineRange.end);
+      continue;
+    }
+
+    // Layered: the layers are parsed in order, so this stanza either repeats
+    // within the layer already recorded last, or opens a higher one. Line ranges
+    // from different files are never combined — that would invent a range that
+    // exists in neither.
+    const last = existing.layers[existing.layers.length - 1];
+    if (last.layer === stanza.layer) {
+      last.lineRange.end = Math.max(last.lineRange.end, stanza.lineRange.end);
+    } else {
+      existing.layers.push({ layer: stanza.layer, lineRange: { ...stanza.lineRange } });
+      existing.layer = stanza.layer;
+    }
+    // `lineRange`/`layer` track the highest-precedence definition: the file an
+    // engineer editing this stanza would open.
+    existing.lineRange = { ...existing.layers[existing.layers.length - 1].lineRange };
   }
   return order;
+}
+
+/**
+ * Record, for every key defined more than once in a stanza, which definition won
+ * and which ones it beat.
+ *
+ * The winner is the last one — the same rule `mergeDirectives` and the transform
+ * readers apply, restated here only to describe it, never to change it. The
+ * shadowed definitions stay in `directives` exactly as before, so resolution is
+ * unaffected; they simply now say so about themselves.
+ */
+function annotateOverrides(stanza: ConfStanza): void {
+  const byKey = new Map<string, ConfDirective[]>();
+  for (const directive of stanza.directives) {
+    // Keys are compared case-SENSITIVELY: Splunk ignores a mis-cased attribute
+    // rather than letting it take effect, so `kv_mode` does not shadow `KV_MODE`.
+    const existing = byKey.get(directive.key);
+    if (existing) existing.push(directive);
+    else byKey.set(directive.key, [directive]);
+  }
+
+  for (const definitions of byKey.values()) {
+    if (definitions.length < 2) continue;
+    const winner = definitions[definitions.length - 1];
+    const shadowed = definitions.slice(0, -1);
+    // Nearest first, so `overrides[0]` is what would apply if the winner went.
+    winner.overrides = shadowed.map(directiveRef).reverse();
+    const winnerRef = directiveRef(winner);
+    for (const directive of shadowed) directive.overriddenBy = winnerRef;
+  }
+}
+
+/**
+ * `layer` is always set here: overrides are only annotated for layered input,
+ * which stamps every directive it parses.
+ */
+function directiveRef(directive: ConfDirective): OverriddenDirective {
+  return { layer: directive.layer ?? '', line: directive.line, value: directive.value };
 }

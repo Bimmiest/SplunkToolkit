@@ -4,6 +4,7 @@ import { isInternalField } from '../utils/internalFields';
 import { byClassName } from '../utils/asciiCompare';
 import { unquoteFieldName } from '../utils/fieldRef';
 import { getMetadataField } from '../utils/metadataFields';
+import { atDirective } from '../parser/provenance';
 
 export function extractFields(
   events: SplunkEvent[],
@@ -30,7 +31,7 @@ export function extractFields(
         level: 'warning',
         message: `EXTRACT-${dir.className ?? ''} was skipped: its pattern could not be compiled safely (invalid regex or rejected as ReDoS-prone). No fields were extracted.`,
         file: 'props.conf',
-        line: dir.line,
+        ...atDirective(dir),
         directiveKey: dir.key,
       });
     }
@@ -70,7 +71,7 @@ export function extractFields(
               level: 'warning',
               message: `EXTRACT-${extraction.directive.className ?? ''} references source field "${extraction.sourceField}", but index-time extractions strip leading underscores — Splunk will resolve this as "${stripped}".`,
               file: 'props.conf',
-              line: extraction.directive.line,
+              ...atDirective(extraction.directive),
               directiveKey: extraction.directive.key,
               suggestion: `Replace "in ${extraction.sourceField}" with "in ${stripped}"`,
             });

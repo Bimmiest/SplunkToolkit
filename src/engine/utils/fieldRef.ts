@@ -1,4 +1,5 @@
 import type { ConfDirective, ValidationDiagnostic } from '../types';
+import { atDirective } from '../parser/provenance';
 
 /**
  * Helpers for field-name references in props.conf directives (FIELDALIAS,
@@ -47,7 +48,7 @@ export function fieldQuotingWarning(
     level: 'warning',
     message: `${dir.key}: "${bareName}" ${reason} — single-quote it: '${bareName}'.`,
     file: 'props.conf',
-    line: dir.line,
+    ...atDirective(dir),
     directiveKey: dir.key,
     suggestion: `Use '${bareName}' instead of ${bareName}.`,
   };

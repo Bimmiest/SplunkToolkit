@@ -8,6 +8,7 @@ import {
   fieldNameNeedsQuoting,
   fieldQuotingWarning,
 } from '../utils/fieldRef';
+import { atDirective } from '../parser/provenance';
 
 interface AliasMapping {
   source: string;
@@ -100,7 +101,7 @@ function compileAliases(
               `FIELDALIAS does not support wildcards — "${a.source} ${a.mode} ${a.target}" will not take effect on the search head. ` +
               `Use explicit "orig AS new" pairs, or rename at search time (| rename ${a.source} AS ${a.target}).`,
             file: 'props.conf',
-            line: dir.line,
+            ...atDirective(dir),
             directiveKey: dir.key,
           });
         }
@@ -143,7 +144,7 @@ function maybeWarnStrippedRef(
       level: 'warning',
       message: `FIELDALIAS references "${alias.source}", but index-time extractions strip leading underscores — Splunk will resolve this as "${stripped}". Update the alias to use "${stripped}".`,
       file: 'props.conf',
-      line: alias.directive.line,
+      ...atDirective(alias.directive),
       directiveKey: alias.directive.key,
       suggestion: `Replace "${alias.source}" with "${stripped}"`,
     });

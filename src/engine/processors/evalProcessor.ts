@@ -2,6 +2,7 @@ import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types'
 import { safeRegex } from '../../utils/splunkRegex';
 import { fieldQuotingWarning } from '../utils/fieldRef';
 import { getMetadataField } from '../utils/metadataFields';
+import { atDirective } from '../parser/provenance';
 
 type EvalValue = string | number | boolean | null | string[];
 
@@ -50,7 +51,7 @@ export function applyEvalExpressions(
         level: 'warning',
         message: `${fn}() is not fully simulated — results may differ from real Splunk`,
         file: 'props.conf',
-        line: dir.line,
+        ...atDirective(dir),
         directiveKey: dir.key,
       });
     }
@@ -62,7 +63,7 @@ export function applyEvalExpressions(
         level: 'error',
         message: `EVAL-${fieldName}: ${msg}`,
         file: 'props.conf',
-        line: dir.line,
+        ...atDirective(dir),
         directiveKey: dir.key,
       });
     }

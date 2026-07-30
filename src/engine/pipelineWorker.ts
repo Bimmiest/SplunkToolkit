@@ -10,14 +10,19 @@
  */
 
 import { runPipeline } from './pipeline';
-import type { EventMetadata, PipelineOptions } from './types';
+import type { ConfInput, EventMetadata, PipelineOptions } from './types';
 
 export interface PipelineWorkerRequest {
   id: number;
   rawData: string;
   metadata: EventMetadata;
-  propsConfText: string;
-  transformsConfText: string;
+  /**
+   * Either the text of a single conf, or layers lowest-precedence-first (see
+   * `ConfInput`). Layers are plain objects, so they structured-clone across the
+   * worker boundary unchanged.
+   */
+  propsConfText: ConfInput;
+  transformsConfText: ConfInput;
   options?: PipelineOptions;
 }
 
