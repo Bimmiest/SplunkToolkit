@@ -2,6 +2,7 @@ import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types'
 import { safeRegex } from '../../utils/splunkRegex';
 import { fieldQuotingWarning } from '../utils/fieldRef';
 import { getMetadataField } from '../utils/metadataFields';
+import { deleteField, getField as getOwnField, setField } from '../utils/fieldBag';
 import { atDirective } from '../parser/provenance';
 
 type EvalValue = string | number | boolean | null | string[];
@@ -107,11 +108,11 @@ export function applyEvalExpressions(
 
     for (const [field, value] of results) {
       if (value === null) {
-        delete newFields[field];
+        deleteField(newFields, field);
       } else if (Array.isArray(value)) {
-        newFields[field] = value;
+        setField(newFields, field, value);
       } else {
-        newFields[field] = String(value);
+        setField(newFields, field, String(value));
       }
       added.push(field);
     }
@@ -506,7 +507,7 @@ interface EvalCtx {
 function getField(event: SplunkEvent, name: string): EvalValue {
   if (name === '_raw') return event._raw;
   if (name === '_time') return event._time ? event._time.getTime() / 1000 : null;
-  const val = event.fields[name];
+  const val = getOwnField(event.fields, name);
   // host/source/sourcetype/index are default fields at search time, so an eval
   // may read them directly (`EVAL-idx = index`, `EVAL-x = if(sourcetype=="…")`).
   if (val === undefined) return getMetadataField(event, name) ?? null;

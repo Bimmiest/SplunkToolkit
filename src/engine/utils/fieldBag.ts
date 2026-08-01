@@ -27,6 +27,24 @@ export function hasField(fields: object, name: string): boolean {
 }
 
 /**
+ * Read an own property, or `undefined` when the bag does not have one.
+ *
+ * The point is the `undefined`: a bare `fields[name]` returns the INHERITED
+ * member for a name like `toString` or `constructor`, so a caller testing
+ * `!== undefined` concludes the field exists and hands a JS function onward.
+ */
+export function getField<T>(fields: Record<string, T>, name: string): T | undefined {
+  return hasField(fields, name) ? fields[name] : undefined;
+}
+
+/**
+ * Delete an own property, leaving any inherited member of the same name alone.
+ */
+export function deleteField(fields: object, name: string): void {
+  if (hasField(fields, name)) delete (fields as Record<string, unknown>)[name];
+}
+
+/**
  * Assign an own data property. Handles `__proto__`, which a bare
  * `fields[name] = value` would route to the prototype setter.
  */

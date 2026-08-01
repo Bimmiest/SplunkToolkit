@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useAppStore } from '../../../store/useAppStore';
+import { hasField } from '../../../engine/utils/fieldBag';
 import type { EnrichedEvent } from '../PreviewPanel';
 import { FIELD_COLORS, isFieldActive, isAnyFocused, useFieldFocus } from './shared/useFieldFocus';
 import { FieldEventCard } from './shared/FieldEventCard';
@@ -139,7 +140,9 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
     const out: { item: EnrichedEvent; globalIdx: number }[] = [];
     allEvents.forEach((item, i) => {
       for (const pinned of pinnedFields) {
-        if (pinned in item.event.fields) {
+        // `in` walks the prototype chain, so pinning a field named `toString`
+        // would match every event in the dataset.
+        if (hasField(item.event.fields, pinned)) {
           out.push({ item, globalIdx: i + 1 });
           break;
         }

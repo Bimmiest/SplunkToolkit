@@ -1,7 +1,7 @@
 import type { SplunkEvent, ConfStanza, ConfDirective } from '../types';
 import { safeRegex, convertSplunkToJsRegex } from '../../utils/splunkRegex';
 import { stripLeadingUnderscoreForField } from '../utils/internalFields';
-import { hasField, setField, addFieldValue } from '../utils/fieldBag';
+import { getField, hasField, setField, addFieldValue } from '../utils/fieldBag';
 import { getSourceKeyValue } from '../utils/metadataFields';
 
 export interface TransformResult {
@@ -154,7 +154,7 @@ function resolvePriorDestValue(event: SplunkEvent, destKey: string | undefined):
     case 'MetaData:Source': return event.metadata.source;
     case 'MetaData:Sourcetype': return event.metadata.sourcetype;
   }
-  const v = event.fields[destKey];
+  const v = getField(event.fields, destKey);
   return (Array.isArray(v) ? v[0] : v) ?? '';
 }
 
@@ -177,7 +177,7 @@ function resolveSourceValue(event: SplunkEvent, sourceKeyDir?: ConfDirective): s
   // pattern this registry documents as its own example.
   const builtin = getSourceKeyValue(event, sourceKey);
   if (builtin !== undefined) return builtin;
-  const v = event.fields[sourceKey];
+  const v = getField(event.fields, sourceKey);
   return (Array.isArray(v) ? v[0] : v) ?? '';
 }
 

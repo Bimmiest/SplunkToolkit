@@ -2,6 +2,7 @@ import type { ConfDirective, ParsedConf, ProcessingStep, SplunkEvent } from '../
 import { extractFields } from './fieldExtractor';
 import { applyTransforms } from './transformsProcessor';
 import { applyKvMode } from './kvMode';
+import { getField, hasField } from '../utils/fieldBag';
 
 type FieldBag = Record<string, string | string[]>;
 
@@ -103,9 +104,9 @@ function diffFields(before: FieldBag, after: FieldBag): Pick<ProcessingStep, 'fi
   const fieldsRemoved: string[] = [];
 
   for (const [name, value] of Object.entries(before)) {
-    if (!(name in after)) {
+    if (!hasField(after, name)) {
       fieldsRemoved.push(name);
-    } else if (!valuesEqual(value, after[name])) {
+    } else if (!valuesEqual(value, getField(after, name)!)) {
       fieldsModified.push(name);
     }
   }
