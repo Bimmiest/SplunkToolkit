@@ -1,7 +1,7 @@
 import type { ConfInput, EventMetadata, PipelineOptions, ProcessingResult, ValidationDiagnostic, ConfDirective, SplunkEvent } from './types';
 import { parseConf } from './parser/confParser';
 import { atDirective, atStanza } from './parser/provenance';
-import { matchStanzas, mergeDirectives } from './parser/stanzaMatcher';
+import { matchStanzas, mergeDirectives, resolveStanzasForEvent, getRenamedSourcetype } from './parser/stanzaMatcher';
 import { breakLines } from './processors/lineBreaker';
 import { extractTimestamps } from './processors/timestampExtractor';
 import { truncateEvents } from './processors/truncator';
@@ -261,8 +261,48 @@ export function runPipeline(
   lintDirectiveValues(transformsConf.stanzas, 'transforms.conf', diagnostics);
 
   // 2. Match stanzas to metadata (by precedence) and merge directives (deduped by key, first wins).
-  const matchedStanzas = matchStanzas(propsConf.stanzas, metadata);
+  // `resolveStanzasForEvent` rather than `matchStanzas` because a `[source::…]`
+  // or `[host::…]` stanza can assign the sourcetype, which decides what else
+  // matches — so it has to be resolved before anything reads the result (#186).
+  const resolved = resolveStanzasForEvent(propsConf.stanzas, metadata);
+  const matchedStanzas = resolved.stanzas;
+  const effectiveMetadata = resolved.metadata;
   const directives = mergeDirectives(matchedStanzas);
+
+  if (resolved.assignedSourcetype) {
+    diagnostics.push({
+      level: 'info',
+      message:
+        `sourcetype assigned at input: "${metadata.sourcetype}" → "${resolved.assignedSourcetype}". ` +
+        'Stanzas were resolved against the assigned sourcetype, so props for it apply from here on.',
+      file: 'props.conf',
+      directiveKey: 'sourcetype',
+    });
+  }
+
+  // `rename` is search-time only: the event stays indexed as its original
+  // sourcetype, and only search-time config comes from the target — and comes
+  // from the target ALONE, since Splunk does not merge the original's
+  // search-time settings in. Resolved here so index-time processing below is
+  // unaffected by it.
+  const renamedSourcetype = getRenamedSourcetype(matchedStanzas);
+  const searchTimeStanzas = renamedSourcetype
+    ? matchStanzas(propsConf.stanzas, { ...effectiveMetadata, sourcetype: renamedSourcetype })
+    : matchedStanzas;
+  const searchTimeDirectives = renamedSourcetype ? mergeDirectives(searchTimeStanzas) : directives;
+
+  if (renamedSourcetype) {
+    diagnostics.push({
+      level: 'info',
+      message:
+        `rename: search-time processing uses sourcetype "${renamedSourcetype}" instead of ` +
+        `"${effectiveMetadata.sourcetype}". Events stay indexed as "${effectiveMetadata.sourcetype}", and ` +
+        `search-time settings come from "${renamedSourcetype}" alone — EXTRACT, REPORT, FIELDALIAS and ` +
+        'EVAL on the original stanza no longer apply.',
+      file: 'props.conf',
+      directiveKey: 'rename',
+    });
+  }
 
   // Warn when INDEXED_EXTRACTIONS = json is paired with search-time JSON extraction.
   // Splunk extracts the fields at BOTH index time and search time, producing duplicate
@@ -302,7 +342,7 @@ export function runPipeline(
     !directives.some((d) => d.key === 'SHOULD_LINEMERGE')
       ? [...directives, { key: 'SHOULD_LINEMERGE', value: 'false', directiveType: 'SHOULD_LINEMERGE', line: 0 } as ConfDirective]
       : directives;
-  let events = breakLines(truncatedRaw, lineBreakDirectives, metadata, diagnostics);
+  let events = breakLines(truncatedRaw, lineBreakDirectives, effectiveMetadata, diagnostics);
 
   // Step 3: Truncation
   events = safeProcessor('TRUNCATE', events, () => truncateEvents(events, directives, diagnostics), diagnostics);
@@ -329,15 +369,21 @@ export function runPipeline(
   if (options?.perEventPipeline) {
     // Resolve per-event directives; re-match stanzas for events whose metadata changed at index-time.
     const directivesCache = new Map<string, ConfDirective[]>();
-    directivesCache.set(originalMetaKey, directives);
+    directivesCache.set(originalMetaKey, searchTimeDirectives);
 
     const eventDirectives = events.map((event) => {
       const key = metaKey(event.metadata);
       if (directivesCache.has(key)) return directivesCache.get(key)!;
-      const stanzas = matchStanzas(propsConf.stanzas, event.metadata);
-      const resolved = mergeDirectives(stanzas);
-      directivesCache.set(key, resolved);
-      return resolved;
+      // Same resolution the batch path uses: an input-time `sourcetype`
+      // assignment first, then `rename` for the search-time set (#186).
+      const perEvent = resolveStanzasForEvent(propsConf.stanzas, event.metadata);
+      const renamed = getRenamedSourcetype(perEvent.stanzas);
+      const stanzas = renamed
+        ? matchStanzas(propsConf.stanzas, { ...perEvent.metadata, sourcetype: renamed })
+        : perEvent.stanzas;
+      const resolvedDirs = mergeDirectives(stanzas);
+      directivesCache.set(key, resolvedDirs);
+      return resolvedDirs;
     });
 
     // Annotate events whose metadata was rewritten so the trace shows the re-match.
@@ -398,26 +444,26 @@ export function runPipeline(
     }
 
     // Step 8: EXTRACT (inline field extraction)
-    events = safeProcessor('EXTRACT', events, () => extractFields(events, directives, diagnostics, captureOffsets), diagnostics);
+    events = safeProcessor('EXTRACT', events, () => extractFields(events, searchTimeDirectives, diagnostics, captureOffsets), diagnostics);
 
     // Step 9: Search-time REPORT transforms (run BEFORE automatic KV — Splunk's
     // documented order is inline EXTRACT → REPORT field transforms → automatic KV).
-    events = safeProcessor('REPORT', events, () => applyTransforms(events, directives, transformsConf, 'search-time', diagnostics), diagnostics, 'transforms.conf');
+    events = safeProcessor('REPORT', events, () => applyTransforms(events, searchTimeDirectives, transformsConf, 'search-time', diagnostics), diagnostics, 'transforms.conf');
 
     // Step 10: KV_MODE (automatic key-value extraction)
-    events = safeProcessor('KV_MODE', events, () => applyKvMode(events, directives, diagnostics), diagnostics);
+    events = safeProcessor('KV_MODE', events, () => applyKvMode(events, searchTimeDirectives, diagnostics), diagnostics);
 
     // Step 11: FIELDALIAS
-    events = safeProcessor('FIELDALIAS', events, () => applyFieldAliases(events, directives, diagnostics), diagnostics);
+    events = safeProcessor('FIELDALIAS', events, () => applyFieldAliases(events, searchTimeDirectives, diagnostics), diagnostics);
 
     // Step 12: EVAL (calculated fields)
-    events = safeProcessor('EVAL', events, () => applyEvalExpressions(events, directives, diagnostics), diagnostics);
+    events = safeProcessor('EVAL', events, () => applyEvalExpressions(events, searchTimeDirectives, diagnostics), diagnostics);
 
     // Step 13: attribute index-time `_raw` rewrites (SEDCMD, DEST_KEY = _raw) to
     // the fields whose extracted value they changed or destroyed. Runs last
     // because it replays search-time extraction against the pre-rewrite text,
     // which is the only way the association can be computed at all.
-    events = safeProcessor('SEDCMD attribution', events, () => attributeRawMutations(events, () => directives, transformsConf), diagnostics);
+    events = safeProcessor('SEDCMD attribution', events, () => attributeRawMutations(events, () => searchTimeDirectives, transformsConf), diagnostics);
   }
 
   // Belt and braces: a processor that threw leaves `rawMutations` in place, and

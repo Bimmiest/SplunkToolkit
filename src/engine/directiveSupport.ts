@@ -183,26 +183,12 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
     issue: 185,
     note: 'The punct field is never generated.',
   },
-  sourcetype: {
-    support: 'ignored',
-    issue: 186,
-    note: 'A sourcetype rename inside a stanza does not re-resolve which stanzas apply.',
-  },
-  rename: {
-    support: 'ignored',
-    issue: 186,
-    note: 'The renamed sourcetype is not used for search-time stanza matching.',
-  },
-  priority: {
-    support: 'ignored',
-    issue: 186,
-    note: 'Stanza precedence is decided by specificity alone; an explicit priority is not read.',
-  },
-  disabled: {
-    support: 'ignored',
-    issue: 186,
-    note: 'A disabled stanza is applied as though it were enabled.',
-  },
+  // The stanza-level four (#186). All change which stanza applies rather than
+  // what one directive does, so getting one wrong moves every downstream result.
+  sourcetype: { support: 'simulated' },
+  rename: { support: 'simulated' },
+  priority: { support: 'simulated' },
+  disabled: { support: 'simulated' },
 
   // ---- Routing ----------------------------------------------------------
   CLONE_SOURCETYPE: {

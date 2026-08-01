@@ -4,6 +4,22 @@ All notable changes to Splunk Toolkit are documented here, newest first.
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **The four `props.conf` directives that act on the stanza rather than on the event are now honoured** (#186) — `disabled`, `priority`, `sourcetype` and `rename` were all recognised by the registry and read by nothing in the engine. Three of them decide *which stanza applies*, so ignoring them changed every downstream result rather than one field.
+  - **`disabled`** was the one worth fixing first: a stanza the user had explicitly switched off ran anyway. It now takes no part in resolution at all, and a later `disabled = 0` beats an earlier `disabled = 1` — which is exactly what a `local/` layer re-enabling a `default/` stanza produces once the layers are concatenated.
+  - **`priority`** outranks the `source` > `host` > `sourcetype` ordering, which is the point of it: it exists so a config can invert that ranking. Stanzas that declare none fall back to Splunk's documented defaults, 100 for the pattern-matched kinds and 0 for `[<sourcetype>]`, so a `priority = 50` on a sourcetype stanza still loses to an undeclared `source::` stanza — the case a naive "explicit beats implicit" reading gets backwards. With nothing declaring a priority the ordering is bit-for-bit what it was.
+  - **`sourcetype`** in a `[source::…]` or `[host::…]` stanza assigns the sourcetype at input, which decides what else matches — so it cannot be read out of the resolved directive set, because doing that would mean resolving against the sourcetype it is about to replace. Matching runs twice instead. A second pass is the fixed point rather than one step of an unbounded loop, since the newly matched `[<sourcetype>]` stanza cannot itself assign one.
+  - **`rename`** applies at search time only. Events stay indexed as their original sourcetype and only search-time configuration comes from the target — and from the target *alone*, since Splunk does not merge the original's search-time settings in. An `EXTRACT` on the original stanza silently stops applying, which is the surprising half and the reason this is worth simulating rather than approximating. Both rewrites are reported rather than performed silently. ([src/engine/parser/stanzaMatcher.ts](src/engine/parser/stanzaMatcher.ts), [src/engine/pipeline.ts](src/engine/pipeline.ts))
+
+### Changed
+
+- **All four are reclassified from `ignored` to `simulated`**, taking the simulated surface from 32 directives to 36. Their rules come from `props.conf.spec` rather than from a fidelity capture, which is a weaker footing than the rest of stanza resolution stands on — the README now says so under *Simplified*, naming `priority`'s default scale as the part most worth pinning against a real instance. ([src/engine/directiveSupport.ts](src/engine/directiveSupport.ts))
+
+---
+
 ## 1.0.0 — 2026-08-01
 
 The first released version. What it contains is below; what it does **not** contain is the more useful half, and is stated plainly.
