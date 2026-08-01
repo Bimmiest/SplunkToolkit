@@ -25,3 +25,9 @@ dist-ssr
 
 .claude
 CLAUDE.md
+
+# Playwright
+/playwright-report/
+/test-results/
+/blob-report/
+/.playwright/

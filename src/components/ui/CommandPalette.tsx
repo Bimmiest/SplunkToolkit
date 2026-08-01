@@ -39,7 +39,9 @@ export function CommandPalette() {
   // Global Ctrl+K / Cmd+K shortcut
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      // Compare case-insensitively: with Caps Lock on, `e.key` is "K", and the
+      // shortcut did nothing at all.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         toggleCommandPalette();
       }
