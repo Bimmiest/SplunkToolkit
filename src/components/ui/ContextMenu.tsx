@@ -17,7 +17,14 @@ import type React from 'react';
  *     </ContextMenuContent>
  *   </ContextMenu>
  */
-export const ContextMenu = RCM.Root;
+// A wrapper component rather than `export const ContextMenu = RCM.Root`.
+// react-refresh/only-export-components cannot tell that a re-exported binding is
+// a component, so the bare alias reads to it as a non-component export and
+// disables Fast Refresh for this whole file. Declaring it is also what the other
+// five exports here already do.
+export function ContextMenu(props: React.ComponentProps<typeof RCM.Root>) {
+  return <RCM.Root {...props} />;
+}
 
 export function ContextMenuTrigger({ children, asChild = true }: { children: React.ReactNode; asChild?: boolean }) {
   return <RCM.Trigger asChild={asChild}>{children}</RCM.Trigger>;
