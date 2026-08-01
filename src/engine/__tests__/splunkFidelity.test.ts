@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // ---------------------------------------------------------------------------
 // splunkFidelity.test.ts
 // Replays the fidelity corpus through the engine and asserts it reproduces
@@ -9,6 +10,14 @@
 //
 // Hermetic: reads committed JSON, never contacts Splunk. Regenerate with
 // scripts/capture-fixtures.ts (see scripts/capture-fixtures.md).
+//
+// Runs under jsdom rather than the engine default of `node`, because the engine
+// is a *browser* target and parts of it reach for browser APIs: `KV_MODE = xml`
+// calls `DOMParser`, which does not exist in Node. Under `node` that path threw,
+// was swallowed by its own try/catch, and extracted nothing -- so the fixture
+// recorded a divergence that the shipped app does not have. A fidelity suite
+// that cannot run a directive is worse than one that skips it, since the empty
+// result reads as a finding.
 // ---------------------------------------------------------------------------
 
 import { describe, it, expect } from 'vitest';

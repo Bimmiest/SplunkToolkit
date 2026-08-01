@@ -216,28 +216,41 @@ function extractXml(raw: string, fields: Record<string, string | string[]>, adde
     return;
   }
   // If parsing failed, the document contains a <parsererror> element.
+  let wrapped = true;
   if (doc.querySelector('parsererror')) {
     // Try wrapping the raw text as-is in case it is already a valid document.
     try {
       doc = new DOMParser().parseFromString(raw, 'text/xml');
       if (doc.querySelector('parsererror')) return;
+      wrapped = false;
     } catch {
       return;
     }
   }
 
-  walkXmlElement(doc.documentElement, fields, added, true);
+  // Walk from the *document's* root elements, not from the synthetic wrapper:
+  // field names are dotted paths and `_root_` must not appear in any of them.
+  const roots = wrapped ? Array.from(doc.documentElement.children) : [doc.documentElement];
+  for (const root of roots) {
+    walkXmlElement(root, fields, added, []);
+  }
 }
 
 function walkXmlElement(
   el: Element,
   fields: Record<string, string | string[]>,
   added: string[],
-  isRoot: boolean,
+  parentPath: string[],
 ): void {
   const tagName = el.localName;
+  // Splunk names an XML field by its dotted path from the document root and
+  // includes the root element itself, so `<event><user>…` extracts `event.user`
+  // rather than `user` -- pinned by the `kvmode-xml` capture from 10.4.0.
+  const path = [...parentPath, tagName];
 
-  // Extract attributes.
+  // Extract attributes. These keep their bare names rather than taking the path
+  // prefix the element leaves get: no capture pins attribute naming, and the
+  // WinEventLog convention below is the one behaviour here we do know.
   for (const attr of Array.from(el.attributes)) {
     // "Name" attribute on an element uses TagName_Name as field name (Windows EventLog convention).
     const fieldName = attr.name === 'Name' ? `${tagName}_Name` : attr.name;
@@ -253,14 +266,14 @@ function walkXmlElement(
     const value = el.textContent?.trim() ?? '';
     // For <Tag Name="fieldName">value</Tag>, use the Name attribute as the field name.
     const nameAttr = el.getAttribute('Name');
-    const fieldKey = nameAttr ?? (isRoot ? null : tagName);
-    if (fieldKey && value) {
+    const fieldKey = nameAttr ?? path.join('.');
+    if (value) {
       addMvField(fields, added, fieldKey, value);
     }
   } else {
     // Parent node — recurse into children.
     for (const child of children) {
-      walkXmlElement(child, fields, added, false);
+      walkXmlElement(child, fields, added, path);
     }
   }
 }
