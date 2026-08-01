@@ -4,10 +4,42 @@ All notable changes to Splunk Toolkit are documented here, newest first.
 
 ---
 
+## 1.0.0 — 2026-08-01
+
+The first released version. What it contains is below; what it does **not** contain is the more useful half, and is stated plainly.
+
+### What is guaranteed
+
+- **32 directives are simulated**, and every one of them is asserted by tests. The full classification is in [`src/engine/directiveSupport.ts`](src/engine/directiveSupport.ts) and tabulated in the README.
+- **The fidelity corpus carries no known mismatch.** All 73 cases replay through the engine and assert against output captured from **Splunk 10.4.0** (build `f798d4d49089`) — not against a reading of the documentation. Several long-standing bugs in this project were reasonable readings of `props.conf.spec` that real Splunk contradicts, which is why that distinction is the one worth making.
+- **Everything outside the boundary says so where you are looking.** A directive the engine does not honour produces a diagnostic under its editor, a note on its hover, a marker on its autocomplete entry, and a callout in the dictionary. The tool never renders output as though a line you wrote were absent.
+- **977 tests**, with coverage floored in CI: 65% overall and 88% statements / 96% functions for `src/engine/**`, which is where correctness lives.
+
+### The support boundary
+
+- **25 directives are `documented`** — recognised on purpose, outside the simulation for a reason that will not change. Lookups need a lookup table, which a browser with no backend has nowhere to get. `EVENT_BREAKER` and `CHARSET` belong to the forwarder and input layers. `MATCH_LIMIT` and `DEPTH_LIMIT` bound how hard a match tries, not what it produces.
+- **22 directives are `ignored`** — they should be simulated and are not yet. Each names its tracking issue: #85, #87, #183, #184, #185, #186, #190.
+- **`INDEXED_EXTRACTIONS`** simulates every format it names, but the attributes that customise the delimited ones are ignored (#184).
+- **Known divergences** beyond the directive surface are listed in the README under *Known issues / inconsistencies vs Splunk* — stanza specificity is a heuristic, several eval functions are stubs that warn when evaluated, and the ReDoS heuristic documents what it cannot see.
+- **Layered conf parsing (`default/` + `local/`) is engine API only.** `runPipeline` accepts ordered layers and returns full provenance; the app's editors hold one flat file each, and surfacing that in the UI is #86.
+
+### Verifying a claim
+
+Every fidelity case is reproducible:
+
+```bash
+npx vitest run src/engine/__tests__/splunkFidelity.test.ts -t "<case-id>"
+```
+
+Re-capturing against a different Splunk version is a documented, manual step — see [`scripts/capture-fixtures.md`](scripts/capture-fixtures.md). A second captured version can sit alongside the first; the suite asserts each independently.
+
+---
+
 ## 2026-08-01
 
 ### Added
 
+- **A real version, surfaced in the app** (#156) — `package.json` said `0.0.0` and there were no tags, so 43 KB of thorough history was anchored to nothing a user could name in a bug report. The version now comes from `package.json` through a build-time define and appears in the status bar, so `npm version` is the only place a release number is written. `private: true` stays: it is correct for an unpublished app, and publishing the engine to npm is separate scope rather than a quiet flag flip. ([vite.config.ts](vite.config.ts), [src/components/layout/StatusBar.tsx](src/components/layout/StatusBar.tsx))
 - **The editor now catches two classes of config mistake that Splunk itself is silent about** — both share a shape: the config loads clean, the search runs, and the setting does nothing, so short of reading the `.spec` line by line there is no way to find out. That is squarely this tool's remit, since the whole claim is "this is what Splunk will do". **A transforms setting that is inert in the phase its stanza is used in** (#177) — eleven settings are valid in one phase and ignored in the other, and which phase a stanza is in is decided by how props.conf reaches it (`TRANSFORMS-` is index-time, `REPORT-` is search-time), which the pipeline already worked out while cross-referencing. A stanza reached from both is left alone, since every setting is live in one of them. `REPEAT_MATCH` alongside `DEST_KEY = _raw` is checked separately, because that restriction depends on a sibling directive rather than on phase. **A value that is not the type the directive documents** (#179) — `TRUNCATE = -1`, `SHOULD_LINEMERGE = yes please` and `KV_MODE = XLM` were all accepted in silence, and Splunk's response to each is to quietly use the default. Deliberately conservative: only booleans that are not boolean literals, non-integers, negatives where the spec says non-negative, and values outside a documented enum. A false positive on correct config is worse than a missed one here — a user told their working config is wrong stops trusting every other diagnostic. ([src/engine/directiveLint.ts](src/engine/directiveLint.ts))
 - **`MUST_NOT_BREAK_BEFORE`, `MUST_NOT_BREAK_AFTER` and `LINE_BREAKER_LOOKBEHIND` are in the registry** (#176) — a gap in an otherwise complete group, so a valid config using them got no autocomplete and no hover. The first two are the negative half of line merging and the engine does not honour them yet, so they are classified `ignored` and tracked in #190; `LINE_BREAKER_LOOKBEHIND` is `documented`, since it governs how far Splunk looks back across an internal chunk boundary and the simulator holds the whole input in memory with no chunk boundaries to look across. ([src/engine/directiveRegistry.ts](src/engine/directiveRegistry.ts))
 - **Test coverage is measured, and floored in CI** (#155) — "well tested" was an impression rather than a number: 65 test files, no coverage tooling, no gate. It is now `@vitest/coverage-v8` with thresholds in `vitest.config.ts` rather than in a workflow flag, so `npm run test:coverage` gives the same verdict CI does. The floors are what the suite measures today (65% statements overall), *not* a round target picked in advance and backfilled toward — that only produces tests written to move a number. The engine carries its own, much higher floor via a per-glob threshold (88% statements, 96% functions): a simulator whose UI is under-tested is annoying, whereas one whose pipeline is under-tested is wrong, and a single aggregate would let engine coverage rot behind a healthy-looking global figure. Worker entry points are excluded and say why — they are a `self.onmessage` wrapper around functions that are tested, a `node` test cannot instantiate one, and leaving them in would drag the floor down while saying nothing. ([vitest.config.ts](vitest.config.ts), [.github/workflows/ci.yml](.github/workflows/ci.yml))

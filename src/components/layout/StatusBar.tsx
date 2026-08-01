@@ -115,6 +115,11 @@ export function StatusBar() {
         {result && errorCount === 0 && warningCount === 0 && (
           <span style={{ color: 'var(--color-success)' }}>✓ Valid</span>
         )}
+        {/* Last, and muted: a bug report needs to be able to name the build it
+            came from, but the version is not something a user is looking for. */}
+        <span style={{ color: 'var(--color-text-muted)' }} title={`Splunk Toolkit ${__APP_VERSION__}`}>
+          v{__APP_VERSION__}
+        </span>
       </div>
     </div>
   );

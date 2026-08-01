@@ -3,6 +3,11 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  // Mirrors the build-time define in vite.config.ts. Without it any component
+  // reading the version throws under test.
+  define: {
+    __APP_VERSION__: JSON.stringify('test'),
+  },
   test: {
     // Default to node for engine tests; component tests opt into jsdom via
     // a `// @vitest-environment jsdom` pragma at the top of the file.

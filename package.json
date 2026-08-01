@@ -1,7 +1,7 @@
 {
   "name": "splunk-toolkit",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Browser-based simulator for Splunk's props.conf and transforms.conf processing pipeline.",
   "license": "MIT",
   "repository": {
