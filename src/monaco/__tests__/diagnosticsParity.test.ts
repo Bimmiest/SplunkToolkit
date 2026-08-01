@@ -1,0 +1,103 @@
+import { describe, it, expect } from 'vitest';
+import { computeDiagnostics } from '../splunkConfDiagnostics';
+import { parseConf } from '../../engine/parser/confParser';
+import type { editor } from 'monaco-editor';
+
+function fakeModel(text: string): editor.ITextModel {
+  const lines = text.split('\n');
+  return {
+    getLineCount: () => lines.length,
+    getLineContent: (n: number) => lines[n - 1] ?? '',
+    getValue: () => text,
+  } as unknown as editor.ITextModel;
+}
+
+// #124: the linter used `line.indexOf('=') > 0` and suppressed the malformed-line
+// marker for indented lines, while confParser's DIRECTIVE_RE rejects a key that
+// starts with whitespace. The two validators sit side by side in the UI.
+describe('computeDiagnostics — agrees with confParser on what a directive is (#124)', () => {
+  it('flags an indented directive, as the engine does', () => {
+    const text = '[st]\n  KV_MODE = json\n';
+    const engineErrors = parseConf(text, 'props.conf').errors;
+    const markers = computeDiagnostics(fakeModel(text), 'props.conf');
+
+    expect(engineErrors.some((e) => /Malformed line/.test(e.message))).toBe(true);
+    expect(markers.some((m) => m.startLineNumber === 2 && /Malformed line/.test(m.message))).toBe(true);
+  });
+
+  it('explains why indentation is not a continuation', () => {
+    const markers = computeDiagnostics(fakeModel('[st]\n  KV_MODE = json\n'), 'props.conf');
+    expect(markers.find((m) => m.startLineNumber === 2)?.message).toMatch(/trailing backslash/);
+  });
+
+  it('still accepts an ordinary directive', () => {
+    const markers = computeDiagnostics(fakeModel('[st]\nKV_MODE = json\n'), 'props.conf');
+    expect(markers.filter((m) => /Malformed line/.test(m.message))).toHaveLength(0);
+  });
+
+  it('still accepts a real backslash continuation on the following line', () => {
+    const markers = computeDiagnostics(fakeModel('[st]\nTIME_FORMAT = %Y \\\n%m %d'), 'props.conf');
+    expect(markers.some((m) => m.startLineNumber === 3)).toBe(false);
+  });
+
+  it('flags a line with no "=" at all', () => {
+    const markers = computeDiagnostics(fakeModel('[st]\ngarbage\n'), 'props.conf');
+    expect(markers.some((m) => m.startLineNumber === 2 && /Malformed line/.test(m.message))).toBe(true);
+  });
+});
+
+// #125: the checks ran over the whole document, so directives in unrelated
+// stanzas satisfied each other's conditions.
+describe('computeDiagnostics — best-practice checks are stanza-scoped (#125)', () => {
+  const linemergeWarning = (markers: { message: string }[]) =>
+    markers.filter((m) => /SHOULD_LINEMERGE = false/.test(m.message));
+  const timeFormatWarning = (markers: { message: string }[]) =>
+    markers.filter((m) => /Set TIME_FORMAT when using TIME_PREFIX/.test(m.message));
+
+  it('does not let another stanza satisfy SHOULD_LINEMERGE', () => {
+    const text = [
+      '[sourcetype_a]',
+      'LINE_BREAKER = ([\\r\\n]+)#',
+      '',
+      '[sourcetype_b]',
+      'SHOULD_LINEMERGE = false',
+    ].join('\n');
+    const warnings = linemergeWarning(computeDiagnostics(fakeModel(text), 'props.conf'));
+    expect(warnings).toHaveLength(1);
+  });
+
+  it('anchors the warning on the offending stanza, not the first match in the file', () => {
+    const text = [
+      '[a]',
+      'SHOULD_LINEMERGE = false',
+      'LINE_BREAKER = ([\\r\\n]+)#',
+      '',
+      '[b]',
+      'LINE_BREAKER = ([\\r\\n]+)#',
+    ].join('\n');
+    const markers = computeDiagnostics(fakeModel(text), 'props.conf');
+    const warnings = linemergeWarning(markers) as unknown as { startLineNumber: number }[];
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].startLineNumber).toBe(6); // stanza [b]'s LINE_BREAKER
+  });
+
+  it('does not let another stanza satisfy TIME_FORMAT', () => {
+    const text = ['[a]', 'TIME_PREFIX = ^', '', '[b]', 'TIME_FORMAT = %Y-%m-%d'].join('\n');
+    expect(timeFormatWarning(computeDiagnostics(fakeModel(text), 'props.conf'))).toHaveLength(1);
+  });
+
+  it('stays quiet when the pair is in the same stanza', () => {
+    const text = ['[a]', 'TIME_PREFIX = ^', 'TIME_FORMAT = %Y-%m-%d'].join('\n');
+    expect(timeFormatWarning(computeDiagnostics(fakeModel(text), 'props.conf'))).toHaveLength(0);
+  });
+
+  it('warns once per offending stanza', () => {
+    const text = ['[a]', 'TIME_PREFIX = ^', '', '[b]', 'TIME_PREFIX = ^'].join('\n');
+    expect(timeFormatWarning(computeDiagnostics(fakeModel(text), 'props.conf'))).toHaveLength(2);
+  });
+
+  it('does not apply props.conf rules to transforms.conf', () => {
+    const text = '[t]\nTIME_PREFIX = ^\n';
+    expect(timeFormatWarning(computeDiagnostics(fakeModel(text), 'transforms.conf'))).toHaveLength(0);
+  });
+});
