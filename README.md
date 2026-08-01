@@ -79,9 +79,16 @@ This is within-stanza only — a directive that wins its stanza can still lose t
 
 ### Layout
 
-Header, two-panel split (inputs left, output right), bottom status bar. The left column stacks Raw log → Metadata → props.conf → transforms.conf in a resizable group; editors collapse to fixed-height bars at the bottom so the resize handle reclaims their space. Each major panel is wrapped in an `ErrorBoundary`.
+Header, an icon-only activity rail, the active view, and a bottom status bar. The rail switches between two top-level views:
 
-**Keyboard:** `Ctrl/Cmd+K` opens the command palette (examples, navigate, actions). The header info button (ⓘ) opens a slide-out reference to the 11 pipeline stages.
+- **Simulator** — two-panel split (inputs left, output right). The left column stacks Raw log → Metadata → props.conf → transforms.conf in a resizable group; editors collapse to fixed-height bars at the bottom so the resize handle reclaims their space.
+- **Dictionary** — a browsable reference for every directive and stanza kind (see below).
+
+Both views stay mounted and switch with `hidden` rather than rendering conditionally, so moving to the dictionary and back preserves Monaco's undo history, cursor and folding state along with the output filters. Each major panel is wrapped in an `ErrorBoundary`.
+
+Below 768px the rail is replaced by `MobileShell`'s labelled tab strip — the rail's labels live in hover tooltips, which touch has no way to reach.
+
+**Keyboard:** `Ctrl/Cmd+K` opens the command palette (examples, navigate, look up a directive, actions). The header info button (ⓘ) opens a slide-out reference to the 11 pipeline stages.
 
 **Status bar:** worker status, pipeline timing, event count, distinct-field count, error/warning counts, and a "Per-event pipeline" chip when that setting is on.
 
@@ -130,6 +137,10 @@ src/
 │   ├── types.ts               # SplunkEvent, ProcessingResult, ConfDirective
 │   ├── pipeline.ts            # runPipeline() — sole entry point
 │   ├── pipelineWorker.ts      # Web Worker wrapper
+│   ├── directiveRegistry.ts   # 78 directive entries — drives completion,
+│   │                          #   hover, linting AND the dictionary
+│   ├── stanzaRegistry.ts      # The four stanza header kinds + precedence
+│   ├── pipelineStages.ts      # The 11 stages, and key → stage lookup
 │   ├── parser/
 │   │   ├── confParser.ts      # INI parser + default/local layer merge → ParsedConf
 │   │   ├── provenance.ts      # Locate a diagnostic at a directive/stanza (+ its layer)
@@ -141,18 +152,20 @@ src/
 │       └── flattenJson.ts     # With prototype-pollution guard
 │
 ├── monaco/                    # Monaco language support
-│   ├── directiveRegistry.ts   # 45+ directive entries (drives all three features)
 │   ├── splunkConfCompletion.ts
 │   ├── splunkConfHover.ts
 │   ├── splunkConfFolding.ts
-│   └── splunkConfDiagnostics.ts
+│   ├── splunkConfDiagnostics.ts
+│   └── dictionaryCommand.ts   # "Open in dictionary" command id + URI
 │
 ├── store/useAppStore.ts       # Zustand store (flat; subscribe per slice)
 ├── hooks/                     # useProcessingPipeline, useDebounce, useTheme, usePagination
 ├── utils/                     # splunkRegex, strftime, diffEngine, fieldHighlight
 │
 └── components/
-    ├── layout/                # AppShell, Header, StatusBar
+    ├── layout/                # AppShell, ActivityRail, SimulatorView,
+    │                          #   MobileShell, Header, StatusBar
+    ├── dictionary/            # DictionaryView + list, detail, badges, entries
     ├── raw/                   # RawPanel (Monaco plaintext)
     ├── metadata/              # MetadataPanel
     ├── editor/                # SplunkEditor + props/transforms editors, editorRegistry
@@ -204,7 +217,17 @@ Custom `splunk-conf` language:
 - Linting via `setModelMarkers` — unknown directives, invalid regex, type mismatches, duplicate stanzas, missing brackets, best-practice warnings.
 - Light / dark themes (`splunk-light`, `splunk-dark`) tracking the app's zinc/indigo palette.
 
-`directiveRegistry.ts` drives all three features. Add a `DirectiveInfo` entry and autocomplete, hover, and linting pick it up automatically.
+`directiveRegistry.ts` drives all three features. Add a `DirectiveInfo` entry and autocomplete, hover, and linting pick it up automatically — as does the dictionary.
+
+Monaco's widgets (hover, suggest, folding, find, multi-cursor) are *contributions*, imported separately from the API surface in `MonacoEditor.tsx` via `editor.all`. `editor.api` alone registers providers that nothing ever renders. `vite.config.ts` names both entries in `manualChunks`.
+
+## Dictionary
+
+A reference view for every `props.conf` and `transforms.conf` setting the simulator knows about, plus the four stanza header kinds. Search by key or description, filter by phase (index-time / search-time) and conf file, hide deprecated keys, and read each entry's description, example, default, valid values and pipeline stage.
+
+There is no prose here that the editor does not also have: entries are built from `directiveRegistry.ts` and `stanzaRegistry.ts`, so the dictionary and the hover tooltips cannot drift apart. The pipeline reference drawer and the dictionary answer different questions — "what runs when" versus "what does this key do" — and cross-link both ways.
+
+Three routes in: the activity rail, `Ctrl/Cmd+K` → "Dictionary: KEY", and the "Open in dictionary" link at the bottom of any directive hover.
 
 ## Eval expression engine
 
@@ -302,6 +325,7 @@ rawData / metadata / propsConf / transformsConf     User inputs (ephemeral)
 processingResult / validationDiagnostics            Pipeline output
 lastProcessingMs / workerStatus                     StatusBar telemetry
 theme / activeOutputTab / collapsedPanels / ...     UI state
+activeView / dictionarySelection                    Rail view + dictionary deep link
 settings                                            Simulator options (e.g. perEventPipeline)
 ```
 
@@ -314,7 +338,9 @@ Monaco editor instances live in a module-level `Map` in `editorRegistry.ts`, not
 - Skip-to-content link (visible on focus).
 - Semantic HTML (`<main>`, `<header>`, proper heading hierarchy).
 - WAI-ARIA tablist: `role="tablist"` / `role="tab"` / `role="tabpanel"`, `aria-selected`, `aria-controls`, `aria-labelledby`.
-- Arrow keys navigate tabs; Home/End jump to first/last.
+- Arrow keys navigate tabs; Home/End jump to first/last. The activity rail is vertical and declares `aria-orientation`.
+- The rail's buttons carry `aria-label`, not just a tooltip: they have no visible text, and a Radix tooltip contributes `aria-describedby`, which supplements an accessible name rather than supplying one.
+- The dictionary list is a `role="listbox"` driven by `aria-activedescendant`, so one Tab stop covers 80-odd rows.
 - All inputs have associated `<label>` via `htmlFor`/`id`.
 - `focus-visible:ring-2` on all interactive elements.
 - Panel-level `ErrorBoundary` with "Try Again" recovery.
