@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useAppStore } from '../../../store/useAppStore';
-import { safeRegex } from '../../../utils/splunkRegex';
-import { strftimeToRegex, parseTimestamp } from '../../../utils/strftime';
 import { parseConf } from '../../../engine/parser/confParser';
 import { matchStanzas, mergeDirectives } from '../../../engine/parser/stanzaMatcher';
+import { useTimestampMatch } from '../../../hooks/useTimestampMatch';
+import type { TimeConfig, TimestampProbe } from '../../../engine/timestampMatch';
 import type { EventMetadata } from '../../../engine/types';
 import type { EnrichedEvent } from '../PreviewPanel';
 
@@ -149,22 +149,8 @@ const STRPTIME_REFERENCE: StrptimeCategory[] = [
   },
 ];
 
-interface TimeConfig {
-  timePrefix: string | null;
-  timeFormat: string | null;
-  maxLookahead: number;
-  tz: string | null;
-}
-
-interface TimestampMatch {
-  prefixStart: number;
-  prefixEnd: number;
-  lookaheadEnd: number;
-  tsStart: number;
-  tsEnd: number;
-  parsedTime: Date | null;
-  matchedText: string;
-}
+// TimeConfig / TimestampMatch / the probe itself now live in
+// `engine/timestampMatch`, so the worker and this tab share one definition.
 
 // Resolve the time directives the ENGINE would actually apply for the current
 // metadata — using the same parse → stanza-match → merge path as the pipeline —
@@ -180,36 +166,6 @@ function parseTimeConfig(propsConf: string, metadata: EventMetadata): TimeConfig
     maxLookahead: Number.isFinite(lookahead) && lookahead > 0 ? lookahead : 128,
     tz: get('TZ') ?? null,
   };
-}
-
-function matchTimestamp(raw: string, config: TimeConfig): TimestampMatch | null {
-  if (!config.timeFormat) return null;
-
-  let prefixStart = 0;
-  let prefixEnd = 0;
-
-  if (config.timePrefix) {
-    const prefixRegex = safeRegex(config.timePrefix);
-    if (!prefixRegex) return null;
-    const prefixMatch = prefixRegex.exec(raw);
-    if (!prefixMatch) return null;
-    prefixStart = prefixMatch.index;
-    prefixEnd = prefixMatch.index + prefixMatch[0].length;
-  }
-
-  const lookaheadEnd = Math.min(prefixEnd + config.maxLookahead, raw.length);
-  const searchRegion = raw.substring(prefixEnd, lookaheadEnd);
-
-  const formatRegex = strftimeToRegex(config.timeFormat);
-  const formatMatch = formatRegex.exec(searchRegion);
-  if (!formatMatch) return null;
-
-  const tsStart = prefixEnd + formatMatch.index;
-  const tsEnd = tsStart + formatMatch[0].length;
-  const matchedText = formatMatch[0];
-  const parsedTime = parseTimestamp(matchedText, config.timeFormat, config.tz ?? undefined);
-
-  return { prefixStart, prefixEnd, lookaheadEnd, tsStart, tsEnd, parsedTime, matchedText };
 }
 
 /** Extract strftime directives from a format string */
@@ -246,6 +202,12 @@ export function TimestampTab({ items, currentPage, eventsPerPage }: TimestampTab
   const [refSearch, setRefSearch] = useState('');
 
   const config = useMemo(() => parseTimeConfig(propsConf, metadata), [propsConf, metadata]);
+
+  // Probing runs in a terminatable worker (#117): TIME_PREFIX is a user regex,
+  // and executing it during render had nothing to interrupt it. Memoised so the
+  // hook re-probes when the events or the config change, not on every render.
+  const raws = useMemo(() => items.map((item) => item.event._raw), [items]);
+  const { status, probes } = useTimestampMatch(raws, config);
 
   const directives = useMemo(
     () => config.timeFormat ? extractDirectives(config.timeFormat) : [],
@@ -363,6 +325,19 @@ export function TimestampTab({ items, currentPage, eventsPerPage }: TimestampTab
           <div className="flex items-center justify-center py-12 text-[var(--color-text-muted)] text-sm">
             No TIME_FORMAT configured in props.conf
           </div>
+        ) : status === 'timeout' ? (
+          // The refusal path the old synchronous version could never reach: it
+          // had no way to notice, so the tab simply stopped responding.
+          <div className="flex flex-col items-center justify-center gap-1 py-12 text-center">
+            <span className="text-sm font-medium text-[var(--color-error)]">
+              Timestamp matching timed out
+            </span>
+            <span className="text-xs text-[var(--color-text-muted)] max-w-md">
+              TIME_PREFIX took too long to match. The usual cause is a regular expression
+              that backtracks catastrophically — nested or overlapping quantifiers such as{' '}
+              <code className="font-mono">(a|a)*</code>.
+            </span>
+          </div>
         ) : (
           items.map((item, idx) => {
             const globalIdx = (currentPage - 1) * eventsPerPage + idx + 1;
@@ -372,6 +347,8 @@ export function TimestampTab({ items, currentPage, eventsPerPage }: TimestampTab
                 raw={item.event._raw}
                 globalIdx={globalIdx}
                 config={config}
+                probe={probes[idx] ?? null}
+                pending={status === 'pending'}
               />
             );
           })
@@ -396,8 +373,21 @@ function ConfigValue({ label, value, color }: { label: string; value: string | n
   );
 }
 
-function TimestampEventCard({ raw, globalIdx, config }: { raw: string; globalIdx: number; config: TimeConfig }) {
-  const result = useMemo(() => matchTimestamp(raw, config), [raw, config]);
+function TimestampEventCard({
+  raw,
+  globalIdx,
+  config,
+  probe,
+  pending,
+}: {
+  raw: string;
+  globalIdx: number;
+  config: TimeConfig;
+  probe: TimestampProbe | null;
+  pending: boolean;
+}) {
+  const result = probe?.match ?? null;
+  const parsedTime = result?.parsedTimeMs != null ? new Date(result.parsedTimeMs) : null;
 
   return (
     <div className="border border-[var(--color-border)] rounded bg-[var(--color-bg-secondary)]">
@@ -406,9 +396,13 @@ function TimestampEventCard({ raw, globalIdx, config }: { raw: string; globalIdx
           Event #{globalIdx}
         </span>
         <div className="flex items-center gap-2">
-          {result?.parsedTime ? (
+          {pending ? (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] font-medium">
+              Matching…
+            </span>
+          ) : parsedTime ? (
             <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-success)]/20 text-[var(--color-success)] font-medium font-mono">
-              {result.parsedTime.toISOString()}
+              {parsedTime.toISOString()}
             </span>
           ) : (
             <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-error)]/20 text-[var(--color-error)] font-medium">
@@ -418,22 +412,25 @@ function TimestampEventCard({ raw, globalIdx, config }: { raw: string; globalIdx
         </div>
       </div>
       <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-all">
-        <TimestampOverlay raw={raw} result={result} config={config} />
+        <TimestampOverlay raw={raw} probe={probe} config={config} />
       </pre>
     </div>
   );
 }
 
-function TimestampOverlay({ raw, result, config }: { raw: string; result: TimestampMatch | null; config: TimeConfig }) {
+function TimestampOverlay({ raw, probe, config }: { raw: string; probe: TimestampProbe | null; config: TimeConfig }) {
+  const result = probe?.match ?? null;
   if (!result) {
-    // No match — show full lookahead window if prefix matched, otherwise plain text
-    if (config.timePrefix) {
-      const prefixRegex = safeRegex(config.timePrefix);
-      const prefixMatch = prefixRegex?.exec(raw);
-      if (prefixMatch) {
-        const pStart = prefixMatch.index;
-        const pEnd = pStart + prefixMatch[0].length;
-        const laEnd = Math.min(pEnd + config.maxLookahead, raw.length);
+    // No match — show the full lookahead window if the prefix matched, otherwise
+    // plain text. The prefix span comes back on the probe rather than being
+    // re-derived here: re-running the user's TIME_PREFIX during render is the
+    // whole bug (#117), and this branch is exactly where it used to happen.
+    const prefix = probe?.prefix;
+    {
+      if (prefix) {
+        const pStart = prefix.start;
+        const pEnd = prefix.end;
+        const laEnd = prefix.lookaheadEnd;
         const segments: React.ReactNode[] = [];
         if (pStart > 0) {
           segments.push(<span key="pre" className="text-[var(--color-text-primary)] opacity-40">{raw.substring(0, pStart)}</span>);
@@ -504,7 +501,7 @@ function TimestampOverlay({ raw, result, config }: { raw: string; result: Timest
       key="ts"
       style={{ backgroundColor: tint(FORMAT_COLOR, 21), borderBottom: `2px solid ${FORMAT_COLOR}` }}
       className="rounded-sm px-0.5"
-      title={`TIME_FORMAT: ${config.timeFormat}\nParsed: ${result.parsedTime?.toISOString() ?? 'failed'}`}
+      title={`TIME_FORMAT: ${config.timeFormat}\nParsed: ${result.parsedTimeMs != null ? new Date(result.parsedTimeMs).toISOString() : 'failed'}`}
     >
       {raw.substring(cursor, result.tsEnd)}
     </span>
