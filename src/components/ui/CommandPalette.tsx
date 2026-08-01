@@ -8,7 +8,10 @@ import { Icon } from './Icon';
 import { useOverlay } from '../../hooks/useOverlay';
 
 // Static registry, so the lookup list is built once rather than per keystroke.
-const DIRECTIVE_KEYS = getAllDirectives().map((d) => d.key);
+// Deduplicated because a few keys (MATCH_LIMIT, DEPTH_LIMIT) are registered once
+// per conf file: one palette entry per key is what a lookup wants, and repeated
+// keys would collide as React list keys.
+const DIRECTIVE_KEYS = [...new Set(getAllDirectives().map((d) => d.key))];
 
 type OutputTabId = 'preview' | 'cim' | 'fields' | 'transforms' | 'architecture';
 
