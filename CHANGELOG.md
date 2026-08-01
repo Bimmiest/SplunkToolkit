@@ -6,6 +6,10 @@ All notable changes to Propslab are documented here, newest first.
 
 ## Unreleased
 
+### Fixed
+
+- **The deploy action was pinned to a 2021 build** ([azure-static-web-apps-thankful-hill-0778ab003.yml](.github/workflows/azure-static-web-apps-thankful-hill-0778ab003.yml)). Upstream publishes `v1` as both a tag and a branch, frozen at 2021-03-03 and maintained respectively, and resolving `v1` to a SHA picks the tag. Every deploy therefore ran an action that predated two of the inputs the workflow passes it: `skip_api_build` and `github_id_token` were logged as unknown and dropped, so the OIDC token the job fetches was being thrown away and the deploy authenticated on the API token alone. Now pinned to the branch head.
+
 ### Changed
 
 - **The project is now called Propslab.** It was "Splunk Toolkit", a name that led with someone else's product rather than with its own. The descriptive line is unchanged and stays accurate — this simulates Splunk's `props.conf` and `transforms.conf` pipeline, and the README says exactly that. What changed is the name, the page title, the header, the GitHub repository, and the `localStorage` key prefix (`propslab:`) — the old keys are still *read*, never written, so an existing user keeps their theme and settings and does not get the intro banner a second time. ([src/store/useAppStore.ts](src/store/useAppStore.ts), [src/components/onboarding/FirstRunBanner.tsx](src/components/onboarding/FirstRunBanner.tsx))
