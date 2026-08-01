@@ -36,9 +36,9 @@ jobs:
     # browser or a hung install; without this the ceiling is six hours.
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # Kept in step with .nvmrc and package.json "engines". Node 20 went
           # end-of-life in April 2026, so CI was building on an unsupported
@@ -79,7 +79,7 @@ jobs:
 
       - name: Cache Playwright browser
         id: playwright-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ steps.playwright.outputs.version }}
@@ -113,7 +113,7 @@ jobs:
         # fires when lint failed, where no report was ever written — that upload
         # finds nothing, warns, and leaves a misleading empty artifact link.
         if: ${{ failure() && steps.e2e.outcome == 'failure' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: playwright-report/
@@ -128,9 +128,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           # No `cache: npm` and no `npm ci`: npm audit resolves the tree from
