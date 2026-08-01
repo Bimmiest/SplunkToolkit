@@ -278,7 +278,17 @@ export function breakLines(
 
   // ── Step 2: SHOULD_LINEMERGE ──────────────────────────────────────
   const shouldLineMergeVal = getDirective(directives, 'SHOULD_LINEMERGE');
-  const shouldLineMerge = shouldLineMergeVal === undefined || shouldLineMergeVal.toLowerCase() === 'true';
+  // SHOULD_LINEMERGE defaults to true, EXCEPT when INDEXED_EXTRACTIONS is set:
+  // structured formats are one record per line, so merging would hand the
+  // extractor several records glued together. For JSON that is not a subtle
+  // error — `JSON.parse` of two concatenated objects throws, so the whole event
+  // extracted nothing and #164 read as "INDEXED_EXTRACTIONS = JSON is not
+  // implemented" when the extractor was never given a parseable event.
+  // An explicit SHOULD_LINEMERGE still wins, as it does in Splunk.
+  const structuredFormat = getDirective(directives, 'INDEXED_EXTRACTIONS')?.trim().toLowerCase();
+  const structured = structuredFormat !== undefined && structuredFormat !== '' && structuredFormat !== 'none';
+  const shouldLineMerge =
+    shouldLineMergeVal === undefined ? !structured : shouldLineMergeVal.toLowerCase() === 'true';
 
   let mergedSegments: { text: string; offset: number }[];
   let maxEventsTriggered = false;

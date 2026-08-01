@@ -286,7 +286,7 @@ A simulator's correctness oracle is "matches real Splunk", which is a closed-sou
 
 Writing a directive that is not `simulated` produces a diagnostic under its editor — a warning for `ignored`, an informational note for `documented`. The dictionary and the editor hover say the same thing on the entry itself. The point is that the tool never silently renders output as though a line you wrote were absent.
 
-One `simulated` entry carries a caveat rather than a clean bill of health: `INDEXED_EXTRACTIONS` handles csv, tsv, psv and w3c but not JSON ([#164](https://github.com/Bimmiest/SplunkToolkit/issues/164)).
+One `simulated` entry carries a caveat rather than a clean bill of health: `INDEXED_EXTRACTIONS` simulates every format it names — csv, tsv, psv, w3c and json — but the attributes that customise the delimited ones are `ignored` ([#184](https://github.com/Bimmiest/SplunkToolkit/issues/184)).
 
 ### Not simulated yet (`ignored`)
 

@@ -375,7 +375,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'indexed-extractions-json',
-    knownMismatch: '#164',
     directives: ['INDEXED_EXTRACTIONS'],
     phase: 'index-time',
     props:

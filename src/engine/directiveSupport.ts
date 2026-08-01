@@ -93,7 +93,7 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   TRANSFORMS: { support: 'simulated' },
   INDEXED_EXTRACTIONS: {
     support: 'simulated',
-    note: 'csv, tsv, psv and w3c are simulated; JSON is not (#164).',
+    note: 'The format itself is simulated; the attributes that customise it are not (#184).',
   },
   FIELDALIAS: { support: 'simulated' },
   EVAL: { support: 'simulated' },
