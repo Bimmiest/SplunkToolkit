@@ -1,13 +1,39 @@
 import { useMemo, useEffect, useRef } from 'react';
-import Editor, { type OnMount } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { useAppStore } from '../../store/useAppStore';
 import { MetadataPanel } from '../metadata/MetadataPanel';
 import { Icon } from '../ui/Icon';
 import { ClearButton } from '../editor/ClearButton';
+import { MonacoEditor } from '../editor/MonacoEditor';
 import { ensureSplunkMonaco } from '../editor/splunkMonacoSetup';
 import { registerEditor, unregisterEditor } from '../editor/editorRegistry';
 import { EditorValidationList } from '../editor/EditorValidationList';
+
+// Module-level so the identity is stable: MonacoEditor treats a new `options`
+// object as a change and re-runs updateOptions.
+const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
+  minimap: { enabled: false },
+  wordWrap: 'on',
+  lineNumbers: 'on',
+  fontSize: 14,
+  fontFamily: "'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace",
+  scrollBeyondLastLine: false,
+  contextmenu: false,
+  quickSuggestions: false,
+  suggestOnTriggerCharacters: false,
+  parameterHints: { enabled: false },
+  codeLens: false,
+  folding: false,
+  renderWhitespace: 'none',
+  overviewRulerLanes: 0,
+  hideCursorInOverviewRuler: true,
+  overviewRulerBorder: false,
+  padding: { top: 6 },
+  scrollbar: {
+    verticalScrollbarSize: 8,
+    horizontalScrollbarSize: 8,
+  },
+};
 
 export function RawPanel() {
   const rawData = useAppStore((s) => s.rawData);
@@ -18,7 +44,7 @@ export function RawPanel() {
   // Register the raw-log editor so data-quality diagnostics (e.g. malformed JSON)
   // can focus and reveal the offending input line, the same way conf editors do.
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
-  const handleMount: OnMount = (instance) => {
+  const handleMount = (instance: editor.IStandaloneCodeEditor) => {
     editorRef.current = instance;
     registerEditor('raw', instance);
   };
@@ -50,37 +76,14 @@ export function RawPanel() {
       </div>
 
       <div className="relative flex-1 min-h-0">
-        <Editor
-          height="100%"
+        <MonacoEditor
           language="plaintext"
           value={rawData}
-          onChange={(val) => setRawData(val ?? '')}
+          onChange={setRawData}
           onMount={handleMount}
           beforeMount={ensureSplunkMonaco}
           theme={theme === 'dark' ? 'splunk-dark' : 'splunk-light'}
-          options={{
-            minimap: { enabled: false },
-            wordWrap: 'on',
-            lineNumbers: 'on',
-            fontSize: 14,
-            fontFamily: "'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace",
-            scrollBeyondLastLine: false,
-            contextmenu: false,
-            quickSuggestions: false,
-            suggestOnTriggerCharacters: false,
-            parameterHints: { enabled: false },
-            codeLens: false,
-            folding: false,
-            renderWhitespace: 'none',
-            overviewRulerLanes: 0,
-            hideCursorInOverviewRuler: true,
-            overviewRulerBorder: false,
-            padding: { top: 6 },
-            scrollbar: {
-              verticalScrollbarSize: 8,
-              horizontalScrollbarSize: 8,
-            },
-          }}
+          options={EDITOR_OPTIONS}
         />
         {!rawData && (
           <div
