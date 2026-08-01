@@ -4,15 +4,22 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+# Deploys are not interchangeable the way CI runs are. Cancelling one mid-upload
+# can leave the site serving a partially published artifact, and the run that
+# starts last is not reliably the one that finishes last — two quick pushes to
+# main could land the older bundle on top of the newer. Queue them instead.
+concurrency:
+  group: deploy-static-web-app
+  cancel-in-progress: false
 
 jobs:
-  # Lint / type-check / test live in ci.yml, which runs on the same push/PR
-  # events. This workflow is build-and-deploy only, so checks aren't run twice
-  # per PR (the SWA deploy action runs `npm run build`, so a broken build still
-  # fails the deploy).
+  # Lint / type-check / test live in ci.yml, which runs on the same push event.
+  # This workflow builds and deploys only, so checks aren't run twice.
   build_and_deploy_job:
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     name: Build and Deploy Job
     permissions:
       id-token: write
@@ -20,28 +27,51 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true
           lfs: false
-      - name: Install OIDC Client from Core Package
-        run: npm install @actions/core@1.6.0 @actions/http-client
+
+      # The build used to happen inside the Static Web Apps container, where
+      # Oryx picked its own Node. That left the one artifact users actually load
+      # as the only thing outside the .nvmrc / engines / CI alignment — CI could
+      # be green on 22.22.2 while the deployed bundle came off whatever Oryx
+      # chose. Building here and uploading with skip_app_build means what ships
+      # came off the toolchain that passed CI.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
       - name: Get Id Token
         uses: actions/github-script@v7
         id: idtoken
         with:
-          script: |
-            const coredemo = require('@actions/core')
-            return await coredemo.getIDToken()
+          # `core` is injected by github-script. The generated template ran
+          # `npm install @actions/core @actions/http-client` at the repo root
+          # first — solely to make `require('@actions/core')` resolve from the
+          # workspace — which rewrote package.json and package-lock.json, so
+          # every deploy built from a manifest carrying two dependencies that
+          # CI had never seen and the lockfile no longer matched the commit.
+          script: return await core.getIDToken()
           result-encoding: string
+
       - name: Build And Deploy
         id: builddeploy
+        # Third-party and holding the deployment token, on a tag the upstream
+        # can move. Worth pinning to a commit SHA.
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_THANKFUL_HILL_0778AB003 }}
           action: "upload"
-          ###### Repository/Build Configurations - These values can be configured to match your app requirements. ######
-          # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
-          app_location: "/" # App source code path
-          api_location: "" # Api source code path - optional
-          output_location: "dist" # Built app content directory - optional
+          # With skip_app_build, app_location is the built output to upload
+          # rather than the source to build, and output_location goes unused.
+          app_location: "dist"
+          api_location: ""
+          output_location: ""
+          skip_app_build: true
+          skip_api_build: true
           github_id_token: ${{ steps.idtoken.outputs.result }}
-          ###### End of Repository/Build Configurations ######
