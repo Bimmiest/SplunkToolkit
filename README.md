@@ -12,7 +12,11 @@ npm run preview      # Serve production build
 npm run lint         # ESLint
 npm test             # vitest (one-shot)
 npm run test:watch   # vitest watch mode
+npm run test:e2e     # Playwright smoke tests (builds, then serves dist/)
+npm run test:e2e:ui  # …in Playwright's interactive runner
 ```
+
+First e2e run on a clean checkout needs the browser: `npx playwright install chromium`.
 
 ## Architecture
 
@@ -115,6 +119,10 @@ src/
     ├── onboarding/            # FirstRunBanner
     ├── help/                  # HelpPanel (pipeline reference slide-out)
     └── ui/                    # Tabs, Badge, Tooltip, CommandPalette, etc.
+
+e2e/                           # Playwright smoke tests (production build, Chromium)
+├── fixtures.ts                # Console/CSP error collection + readiness helpers
+└── smoke.spec.ts
 ```
 
 ## Output tabs
@@ -175,11 +183,25 @@ All expressions are evaluated per-event before any are applied, matching Splunk'
 
 ## Tests
 
-Tests live in `src/**/__tests__/` and run under vitest. Engine tests target the highest-risk modules — line breaking, eval, regex transforms, dest-key routing, stanza matching, indexed extractions, and a statelessness regression suite. Component smoke tests cover StatusBar, HighlightedTab, FieldsTab, and RegexTab in jsdom. Current total: 490 tests.
+Tests live in `src/**/__tests__/` and run under vitest. Engine tests target the highest-risk modules — line breaking, eval, regex transforms, dest-key routing, stanza matching, indexed extractions, and a statelessness regression suite. Component smoke tests cover StatusBar, HighlightedTab, FieldsTab, and RegexTab in jsdom. (`npm test` prints the current total; a number written here has gone stale three times.)
 
 Engine tests default to the `node` environment; component tests opt into jsdom with `// @vitest-environment jsdom` at the top of each file so engine tests don't pay the jsdom cost.
 
-`ci.yml` runs lint → build (`tsc -b && vite build`) → tests → `npm audit` on every PR and on pushes to main. The Azure SWA deploy workflow is separate and has no test job of its own: it triggers on push to main and runs its own build, so it is gated by CI only in the sense that both run on the same commit. Node is pinned once, in `.nvmrc`, which `ci.yml` and `package.json`'s `engines` both follow.
+### End-to-end (`npm run test:e2e`)
+
+A small Playwright suite in `e2e/` runs Chromium against a **production build** — `playwright.config.ts` rebuilds before serving, because a stale `dist/` produces confident wrong answers. `npm run test:e2e:ui` opens the interactive runner.
+
+It exists for the things vitest structurally cannot reach, each of which has failed silently here before:
+
+- **The Content-Security-Policy.** It lives in `index.html` and only means anything in a browser. `img-src` was missing for the entire life of the policy, so Chromium refused every one of Monaco's `data:` squiggle SVGs and the lint underlines never drew — visible only as a console error nobody was watching. The suite asserts zero CSP violations and zero console errors on boot.
+- **Worker bundling.** The whole simulation runs in a Web Worker created via `new Worker(new URL(…), { type: 'module' })`. Whether Vite emits a loadable chunk for that is a build-time question with a runtime answer.
+- **The Monaco chunk split.** `main.tsx` imports the slim `editor.api` entry and `vite.config.ts` hand-rolls `manualChunks` around it. A bad split type-checks, builds, and then fails to mount an editor.
+
+One note if you extend it: the app runs the pipeline once on mount with an empty raw log, and `runPipeline` returns a real result for empty input (`eventCount: 0`). So the status bar reads "Worker idle · 0 events" *before* anything is loaded — wait on a non-zero event count, as `loadExample` does, not on the idle state.
+
+`@playwright/test` is pinned to `~1.56` to match the Chromium revision preinstalled in the dev container; bump it freely, since CI installs the matching browser itself.
+
+`ci.yml` runs lint → build (`tsc -b && vite build`) → tests → e2e smoke → `npm audit` on every PR and on pushes to main. The Azure SWA deploy workflow is separate and has no test job of its own: it triggers on push to main and runs its own build, so it is gated by CI only in the sense that both run on the same commit. Node is pinned once, in `.nvmrc`, which `ci.yml` and `package.json`'s `engines` both follow.
 
 ## Known issues / inconsistencies vs Splunk
 
@@ -189,8 +211,8 @@ Places where the simulator diverges from real Splunk. Verify anything suspicious
 
 - **Lookups.** `LOOKUP-*` directives are parsed and a warning is emitted, but lookup tables are not evaluated; fields sourced from lookups will not appear.
 - **Crypto functions.** `md5()`, `sha1()`, `sha256()`, `sha512()` return a placeholder string (e.g. `[md5() not simulated]`) and emit a warning.
-- **Partial stubs.** `cidrmatch()`, `searchmatch()`, `relative_time()`, and `strptime()` have simplified implementations; results may not match Splunk on edge cases.
-- **`SEDCMD` transliteration.** Only the `s/` substitute form is supported; the `y/abc/ABC/` transliteration form is silently ignored.
+- **Partial stubs.** `cidrmatch()`, `searchmatch()`, `relative_time()`, `strptime()`, `mvfilter()` (returns its input unfiltered), and `sigfig()` / `exact()` (return the value unrounded) have simplified implementations; results may not match Splunk on edge cases. Every one of them emits a warning when evaluated, so a stubbed result is never mistaken for a computed one.
+- **`SEDCMD` transliteration.** Only the `s/` substitute form is simulated. The `y/abc/ABC/` transliteration form, the numeric occurrence flag (`s/…/…/2`), a value that is not a sed expression at all, and a pattern that will not compile each emit a warning rather than being dropped in silence.
 
 ### Simplified
 
@@ -206,7 +228,7 @@ Places where the simulator diverges from real Splunk. Verify anything suspicious
 ### Other
 
 - **ReDoS protection is heuristic first, worker-backed second.** `safeRegex()` rejects a best-effort class of catastrophically backtracking patterns before compiling them — nested/grouped quantifiers (`(a+)+`, `(.*)*x`, `(.*,){20}`) and adjacent same-atom quantifiers (`a*a*`, `\d+\d+`) — but it does **not** catch alternation-overlap forms like `(a|aa)+` or `(a+|b)+` (detecting those without rejecting benign alternations such as `(foo|bar)+` needs a real overlap analysis). Both the main processing pipeline (5 s watchdog) and the **Regex tab's live tester** (its own 2 s watchdog) run matching inside a Web Worker, so a pattern that slips the heuristic hangs the worker — which is terminated and restarted — rather than freezing the UI. The one remaining main-thread matcher is the **Create-EXTRACT dialog's** live capture (a single event's text), still guarded only by the heuristic.
-- **Raw data capped at 1 MB.** Large inputs are rejected at the store boundary.
+- **Raw data capped at 1 MB.** The cap is applied inside the pipeline, not at the store: a larger input is accepted, stored and sent to the worker in full, then *truncated* for processing — cut back to the last complete line, so the trailing partial event is dropped rather than mis-broken, with a warning saying so. Nothing rejects the input, and the editor still holds all of it.
 - **Sourcetype stanzas match by strict equality.** This matches real Splunk — sourcetype names are literal, no wildcards — noted here so contributors don't add wildcard support by analogy with `source::` / `host::`.
 - **Monaco find-widget tooltip flicker.** Upstream bug in Monaco's hover service ([microsoft/monaco-editor#5208](https://github.com/microsoft/monaco-editor/issues/5208)); no local fix.
 

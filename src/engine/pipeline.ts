@@ -242,7 +242,7 @@ export function runPipeline(
   const indexedExtDir = directives.find((d) => d.key === 'INDEXED_EXTRACTIONS');
   const lineBreakDirectives =
     indexedExtDir && STRUCTURED_EXTRACTIONS.has(indexedExtDir.value.trim().toLowerCase()) &&
-    !directives.some((d) => d.key.toUpperCase() === 'SHOULD_LINEMERGE')
+    !directives.some((d) => d.key === 'SHOULD_LINEMERGE')
       ? [...directives, { key: 'SHOULD_LINEMERGE', value: 'false', directiveType: 'SHOULD_LINEMERGE', line: 0 } as ConfDirective]
       : directives;
   let events = breakLines(truncatedRaw, lineBreakDirectives, metadata, diagnostics);

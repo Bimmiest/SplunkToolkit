@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', 'playwright-report', 'test-results']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -27,6 +27,21 @@ export default defineConfig([
         argsIgnorePattern: '^_',
         caughtErrorsIgnorePattern: '^_',
       }],
+    },
+  },
+  {
+    // End-to-end tests and the Playwright config run in Node, not the browser,
+    // and export helpers alongside their fixtures — neither of which the
+    // browser-globals / react-refresh defaults above are about.
+    files: ['e2e/**/*.ts', 'playwright.config.ts'],
+    languageOptions: {
+      globals: globals.node,
+    },
+    rules: {
+      'react-refresh/only-export-components': 'off',
+      // Playwright fixtures take a callback named `use`, which the React rule
+      // reads as a hook call outside a component.
+      'react-hooks/rules-of-hooks': 'off',
     },
   },
 ])

@@ -60,14 +60,16 @@ export function FieldsTab() {
     }
   }, [sortKey]);
 
-  // Build alias mapping: target → source from FIELDALIAS processing traces
+  // Alias mapping (target → source), read as data off the FIELDALIAS steps.
+  // This was recovered by running a regex over `trace.description` — a display
+  // string — so rewording that sentence, or a field name containing a space,
+  // silently emptied this column and stopped alias rows being de-duplicated.
   const aliasMap = useMemo(() => {
-    const map = new Map<string, string>(); // target → source
+    const map = new Map<string, string>();
     for (const event of events) {
       for (const trace of event.processingTrace) {
-        if (trace.processor !== 'FIELDALIAS') continue;
-        for (const match of trace.description.matchAll(/(\S+)\s+\(from\s+(\S+)\)/g)) {
-          map.set(match[1], match[2]);
+        for (const { target, source } of trace.fieldAliases ?? []) {
+          map.set(target, source);
         }
       }
     }
@@ -87,6 +89,13 @@ export function FieldsTab() {
     }>();
 
     for (const event of events) {
+      // Entries this event contributed to, so the trace can be walked ONCE and
+      // indexed into. Nesting the trace loop inside the field loop made this
+      // O(fields × traces × fieldsAdded) per event — for a few hundred events
+      // with a wide KV sourcetype, millions of `includes()` scans on every
+      // re-render of the tab.
+      const thisEvent = new Map<string, ReturnType<typeof fields.get>>();
+
       for (const [key, value] of Object.entries(event.fields)) {
         if (!fields.has(key)) {
           fields.set(key, { name: key, values: new Set(), count: 0, sources: new Set(), phases: new Set(), aliases: [], maskedBy: new Set() });
@@ -95,18 +104,21 @@ export function FieldsTab() {
         entry.count++;
         const vals = Array.isArray(value) ? value : [value];
         vals.forEach((v) => entry.values.add(v));
+        thisEvent.set(key, entry);
+      }
 
-        for (const trace of event.processingTrace) {
-          if (trace.fieldsAdded?.includes(key)) {
-            entry.sources.add(trace.processor);
-            entry.phases.add(trace.phase);
-          }
-          // The field extracts fine but an index-time rewrite destroyed its
-          // value. Without this the row looks like a working extraction, and a
-          // blank-looking value reads as "the extraction is wrong".
-          if (trace.fieldsModified?.includes(key)) {
-            entry.maskedBy.add(trace.processor);
-          }
+      for (const trace of event.processingTrace) {
+        for (const name of trace.fieldsAdded ?? []) {
+          const entry = thisEvent.get(name);
+          if (!entry) continue;
+          entry.sources.add(trace.processor);
+          entry.phases.add(trace.phase);
+        }
+        // The field extracts fine but an index-time rewrite destroyed its
+        // value. Without this the row looks like a working extraction, and a
+        // blank-looking value reads as "the extraction is wrong".
+        for (const name of trace.fieldsModified ?? []) {
+          thisEvent.get(name)?.maskedBy.add(trace.processor);
         }
       }
     }

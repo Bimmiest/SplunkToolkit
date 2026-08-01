@@ -4,6 +4,7 @@ import { isInternalField } from '../utils/internalFields';
 import { byClassName } from '../utils/asciiCompare';
 import { unquoteFieldName } from '../utils/fieldRef';
 import { getMetadataField } from '../utils/metadataFields';
+import { getField, hasField, setField } from '../utils/fieldBag';
 import { atDirective } from '../parser/provenance';
 
 export function extractFields(
@@ -65,7 +66,7 @@ export function extractFields(
           !reportedStrippedRefs.has(extraction.sourceField)
         ) {
           const stripped = extraction.sourceField.replace(/^_+/, '');
-          if (stripped && event.fields[stripped] !== undefined) {
+          if (stripped && hasField(event.fields, stripped)) {
             reportedStrippedRefs.add(extraction.sourceField);
             diagnostics.push({
               level: 'warning',
@@ -95,12 +96,12 @@ export function extractFields(
         // Real Splunk's behaviour when two search-time extractions yield the same
         // field is closer to producing a multivalue field; verify against a live
         // indexer before relying on the collision outcome here.
-        if (newFields[name] !== undefined) continue;
-        newFields[name] = value;
+        if (hasField(newFields, name)) continue;
+        setField(newFields, name, value);
         added.push(name);
         const span = indices?.[name];
         if (span) {
-          newOffsets[name] = [[span[0], span[1]]];
+          setField(newOffsets, name, [[span[0], span[1]]]);
           offsetsChanged = true;
         }
       }
@@ -139,7 +140,7 @@ function parseExtractValue(value: string): { pattern: string; sourceField?: stri
 
 function getFieldValue(event: SplunkEvent, fieldName: string): string | undefined {
   if (fieldName === '_raw') return event._raw;
-  const val = event.fields[fieldName];
+  const val = getField(event.fields, fieldName);
   if (Array.isArray(val)) return val[0];
   // `EXTRACT-app = …(?<app>\w+)… in source` is a staple TA idiom: host/source/
   // sourcetype/index are default fields at search time, so extraction can run

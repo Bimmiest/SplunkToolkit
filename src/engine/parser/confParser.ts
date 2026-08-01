@@ -36,8 +36,14 @@ const STANZA_RE = /^\[(.+)\]\s*$/;
  * The key may not start with whitespace and the `=` may be surrounded by
  * optional whitespace.  The value extends to the end of the line (trailing
  * whitespace is preserved because Splunk does the same).
+ *
+ * Exported so the Monaco linter can decide what a directive is with the same
+ * rule the engine uses. Deciding separately (`line.indexOf('=') > 0`) meant an
+ * indented `  KV_MODE = json` linted clean in the editor while the diagnostics
+ * list reported it as a malformed line — two validators, side by side in the
+ * UI, disagreeing about the same line.
  */
-const DIRECTIVE_RE = /^([^\s=][^=]*?)\s*=\s*(.*)$/;
+export const DIRECTIVE_RE = /^([^\s=][^=]*?)\s*=\s*(.*)$/;
 
 /** Matches a comment line. Splunk .conf uses `#` only — `;` is not a comment. */
 const COMMENT_RE = /^#/;

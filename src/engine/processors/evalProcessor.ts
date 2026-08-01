@@ -2,6 +2,7 @@ import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types'
 import { safeRegex } from '../../utils/splunkRegex';
 import { fieldQuotingWarning } from '../utils/fieldRef';
 import { getMetadataField } from '../utils/metadataFields';
+import { deleteField, getField as getOwnField, setField } from '../utils/fieldBag';
 import { atDirective } from '../parser/provenance';
 
 type EvalValue = string | number | boolean | null | string[];
@@ -85,7 +86,7 @@ export function applyEvalExpressions(
 
   return events.map((event) => {
     // Eval expressions run in parallel — compute all before applying
-    const results = new Map<string, EvalValue>();
+    const results = new Map<string, { value: EvalValue; expression: string }>();
 
     for (const c of compiled) {
       if (c.error !== null) {
@@ -94,7 +95,7 @@ export function applyEvalExpressions(
       }
       try {
         const value = evalNode(c.ast!, { event, onStubWarning: (fn) => pushStub(c.dir, fn) });
-        results.set(c.fieldName, value);
+        results.set(c.fieldName, { value, expression: c.dir.value.trim() });
       } catch (err) {
         pushError(c.dir, c.fieldName, err instanceof Error ? err.message : String(err));
       }
@@ -104,16 +105,21 @@ export function applyEvalExpressions(
 
     const newFields = { ...event.fields };
     const added: string[] = [];
+    // The expression behind each computed field, so the UI never has to
+    // re-parse props.conf to recover it. These are the directives that survived
+    // stanza matching for this event, which a text scan cannot know.
+    const evalExpressions: Record<string, string> = {};
 
-    for (const [field, value] of results) {
+    for (const [field, { value, expression }] of results) {
       if (value === null) {
-        delete newFields[field];
+        deleteField(newFields, field);
       } else if (Array.isArray(value)) {
-        newFields[field] = value;
+        setField(newFields, field, value);
       } else {
-        newFields[field] = String(value);
+        setField(newFields, field, String(value));
       }
       added.push(field);
+      evalExpressions[field] = expression;
     }
 
     return {
@@ -126,6 +132,7 @@ export function applyEvalExpressions(
           phase: 'search-time' as const,
           description: `Computed fields: ${added.join(', ')}`,
           fieldsAdded: added,
+          evalExpressions,
         },
       ],
     };
@@ -506,7 +513,7 @@ interface EvalCtx {
 function getField(event: SplunkEvent, name: string): EvalValue {
   if (name === '_raw') return event._raw;
   if (name === '_time') return event._time ? event._time.getTime() / 1000 : null;
-  const val = event.fields[name];
+  const val = getOwnField(event.fields, name);
   // host/source/sourcetype/index are default fields at search time, so an eval
   // may read them directly (`EVAL-idx = index`, `EVAL-x = if(sourcetype=="…")`).
   if (val === undefined) return getMetadataField(event, name) ?? null;
@@ -724,11 +731,20 @@ function evalBuiltin(fn: string, args: EvalValue[], ctx: EvalCtx): EvalValue {
     case 'ln': { const n = numArg(args[0]); return n === null ? null : Math.log(n); }
     case 'exp': { const n = numArg(args[0]); return n === null ? null : Math.exp(n); }
     case 'pi': return Math.PI;
-    case 'exact': return numArg(args[0]);
     case 'min': return minMax(args, 'min');
     case 'max': return minMax(args, 'max');
     case 'random': return Math.floor(Math.random() * 2147483648); // 0 .. 2^31-1, like Splunk
-    case 'sigfig': return numArg(args[0]);
+
+    // Precision control — not simulated. Both return the value unrounded, which
+    // is the one stub shape that looks like a correct answer rather than an
+    // obvious placeholder: `sigfig(3.14159)` showing `3.14159` reads as a
+    // working computation. So they warn, like every other unsimulated function.
+    case 'exact':
+      ctx.onStubWarning?.('exact');
+      return numArg(args[0]);
+    case 'sigfig':
+      ctx.onStubWarning?.('sigfig');
+      return numArg(args[0]);
 
     // Multivalue
     case 'mvcount': {

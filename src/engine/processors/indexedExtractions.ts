@@ -1,5 +1,6 @@
 import type { SplunkEvent, ConfDirective } from '../types';
 import { flattenJson, flattenArray } from '../utils/flattenJson';
+import { setField } from '../utils/fieldBag';
 
 export function applyIndexedExtractions(events: SplunkEvent[], directives: ConfDirective[]): SplunkEvent[] {
   const extractionDir = directives.find((d) => d.key === 'INDEXED_EXTRACTIONS');
@@ -81,7 +82,7 @@ function extractDelimited(events: SplunkEvent[], delimiter: string, mode: string
 
     for (let i = 0; i < headers.length && i < values.length; i++) {
       if (headers[i] && values[i]) {
-        fields[headers[i]] = values[i];
+        setField(fields, headers[i], values[i]);
         added.push(headers[i]);
       }
     }
@@ -128,7 +129,7 @@ function extractW3c(events: SplunkEvent[]): SplunkEvent[] {
 
     for (let i = 0; i < headers.length && i < values.length; i++) {
       if (headers[i] && values[i] && values[i] !== '-') {
-        fields[headers[i]] = values[i];
+        setField(fields, headers[i], values[i]);
         added.push(headers[i]);
       }
     }

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { useAppStore } from '../../../store/useAppStore';
+import { getField, hasField } from '../../../engine/utils/fieldBag';
 import type { EnrichedEvent } from '../PreviewPanel';
 import { FIELD_COLORS, isFieldActive, isAnyFocused, useFieldFocus } from './shared/useFieldFocus';
 import { FieldEventCard } from './shared/FieldEventCard';
@@ -43,15 +43,6 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
   const [fieldFilter, setFieldFilter] = useState<FieldFilter>('all');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { pinnedFields, activeFields, togglePin, setHoveredField } = useFieldFocus();
-  const propsConf = useAppStore((s) => s.propsConf);
-
-  const evalDirectives = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const match of propsConf.matchAll(/^\s*EVAL-(\S+)\s*=\s*(.+)$/gmi)) {
-      map.set(match[1], match[2].trim());
-    }
-    return map;
-  }, [propsConf]);
 
   const { autoFields, manualFields, calcFields, fieldProcessorMap } = useMemo(() => {
     const auto = new Set<string>();
@@ -139,7 +130,9 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
     const out: { item: EnrichedEvent; globalIdx: number }[] = [];
     allEvents.forEach((item, i) => {
       for (const pinned of pinnedFields) {
-        if (pinned in item.event.fields) {
+        // `in` walks the prototype chain, so pinning a field named `toString`
+        // would match every event in the dataset.
+        if (hasField(item.event.fields, pinned)) {
           out.push({ item, globalIdx: i + 1 });
           break;
         }
@@ -192,14 +185,18 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
   const eventBadgeCounts = useMemo(() =>
     filteredItems.map(({ item }) => {
       const eventFields = Object.keys(item.event.fields).filter((f) => highlightColorMap.has(f));
+      // Straight off the EVAL step: the expressions that actually ran for THIS
+      // event, already resolved through stanza matching. This used to be a
+      // case-insensitive regex over the raw props.conf text, which ignored
+      // stanza scoping (an EVAL- under a sourcetype the user is not simulating
+      // still appeared), line continuations, and the case-sensitivity rule the
+      // parser enforces one step earlier.
       const evalTrace = item.event.processingTrace.find((t) => t.processor === 'EVAL');
       const eventCalcFields = showCalcStrip
-        ? Array.from(evalDirectives.entries()).flatMap(([fieldName, expression]) => {
-            const wasComputed = evalTrace?.fieldsAdded?.includes(fieldName) ?? false;
-            if (!wasComputed) return [];
-            const value = item.event.fields[fieldName];
-            if (value === undefined || value === null || value === 'null' || value === '') return [];
-            return [{ name: fieldName, expression, value }];
+        ? Object.entries(evalTrace?.evalExpressions ?? {}).flatMap(([name, expression]) => {
+            const value = getField(item.event.fields, name);
+            if (value === undefined || value === 'null' || value === '') return [];
+            return [{ name, expression, value }];
           })
         : [];
       let autoCount = 0;
@@ -218,7 +215,7 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
       }
       return { eventCalcFields, autoCount, manualCount, calcCount };
     }),
-    [filteredItems, fieldFilter, highlightColorMap, evalDirectives, showCalcStrip, manualFields, calcFields]
+    [filteredItems, fieldFilter, highlightColorMap, showCalcStrip, manualFields, calcFields]
   );
 
   const sidebar = (
@@ -257,11 +254,20 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
     />
   );
 
+  // Category membership overlaps by design (see fieldColorMap above), so summing
+  // the three sizes double-counts a field that is, say, both manual and calc —
+  // and the sidebar a few pixels away shows the DISTINCT count. Union, so the
+  // two labels agree by construction rather than by coincidence.
+  const distinctFieldCount = useMemo(
+    () => new Set([...autoFields, ...manualFields, ...calcFields]).size,
+    [autoFields, manualFields, calcFields],
+  );
+
   const filterButtons: { id: FieldFilter; label: string; count: number }[] = [
     { id: 'auto', label: 'Auto', count: autoFields.size },
     { id: 'manual', label: 'Manual', count: manualFields.size },
     { id: 'calc', label: 'Calculated', count: calcFields.size },
-    { id: 'all', label: 'All', count: autoFields.size + manualFields.size + calcFields.size },
+    { id: 'all', label: 'All', count: distinctFieldCount },
   ];
 
   return (

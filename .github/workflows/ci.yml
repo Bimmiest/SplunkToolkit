@@ -38,6 +38,27 @@ jobs:
       - name: Test
         run: npm test
 
+      # Chromium only — the e2e suite covers browser-level wiring (CSP, worker
+      # bundling, Monaco's chunk split), not cross-browser rendering, so the
+      # other engines would cost minutes to re-assert the same facts.
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-end smoke tests
+        # Runs against a production build (the config rebuilds before serving,
+        # so a stale dist/ can never be what gets tested). Guards the things
+        # vitest cannot reach: the Content-Security-Policy, the pipeline Web
+        # Worker round-trip, and that Monaco actually mounts.
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
       - name: Audit dependencies
         # Fails the build on a high/critical advisory. Production deps are what
         # ship to the browser, so they gate; dev-only advisories are reported

@@ -4,7 +4,19 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/toolkit.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval'; worker-src 'self' blob:; font-src 'self' data:;" />
+    <!--
+      No 'unsafe-eval': main.tsx imports monaco-editor's slim editor.api entry
+      rather than the barrel, so the TypeScript/JSON/CSS/HTML language services
+      (the parts that need eval) are never in the bundle. Verified by loading a
+      production build in Chromium with this policy and exercising the editor.
+      'unsafe-inline' in style-src stays — Tailwind and Monaco's dynamic theming
+      both write inline styles. img-src needs data: because Monaco draws its
+      error/warning squiggles as inline data: SVGs; with only default-src to
+      fall back on, the browser blocked them and the underlines silently did
+      not render. frame-ancestors cannot be set from a <meta> tag; it needs a
+      response header from the host.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self' blob:; font-src 'self' data:;" />
     <title>Splunk Toolkit</title>
   </head>
   <body class="h-full">

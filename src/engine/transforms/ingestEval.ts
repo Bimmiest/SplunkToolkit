@@ -1,6 +1,7 @@
 import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 import { evaluateExpression } from '../processors/evalProcessor';
 import { stripLeadingUnderscoreForField } from '../utils/internalFields';
+import { deleteField, setField } from '../utils/fieldBag';
 import { atDirective } from '../parser/provenance';
 
 // Split "field=expr, field2=fn(a,b)" on top-level commas only — not inside parens
@@ -96,11 +97,11 @@ export function applyIngestEval(
             const queue = result === null ? '' : String(Array.isArray(result) ? result[0] : result);
             currentEvent._meta = { ...currentEvent._meta, _queue: queue };
           } else if (result === null) {
-            delete currentEvent.fields[fieldName];
+            deleteField(currentEvent.fields, fieldName);
           } else if (Array.isArray(result)) {
-            currentEvent.fields[fieldName] = result;
+            setField(currentEvent.fields, fieldName, result);
           } else {
-            currentEvent.fields[fieldName] = String(result);
+            setField(currentEvent.fields, fieldName, String(result));
           }
         } catch (err) {
           if (diagnostics && !reportedErrors.has(fieldName)) {

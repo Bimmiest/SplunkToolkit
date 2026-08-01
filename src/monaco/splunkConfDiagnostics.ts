@@ -1,6 +1,22 @@
 import type { editor } from 'monaco-editor';
 import { getDirectiveInfo, getClassBasedDirectiveBase } from '../engine/directiveRegistry';
+import { DIRECTIVE_RE } from '../engine/parser/confParser';
 import { validateRegex } from '../utils/splunkRegex';
+
+/**
+ * One directive as the linter saw it, for the stanza-scoped checks below.
+ * `value` is the joined value (continuations resolved), `line` is 1-based.
+ */
+interface SeenDirective {
+  line: number;
+  value: string;
+}
+
+/** A stanza and the directives defined in it (last definition of a key wins). */
+interface SeenStanza {
+  name: string;
+  directives: Map<string, SeenDirective>;
+}
 
 export interface DiagnosticMarker {
   severity: 8 | 4 | 2 | 1; // Error=8, Warning=4, Info=2, Hint=1
@@ -18,6 +34,18 @@ export function computeDiagnostics(
   const markers: DiagnosticMarker[] = [];
   const lineCount = model.getLineCount();
   const seenStanzas = new Set<string>();
+
+  // Stanzas in file order, for the best-practice checks. Directives before any
+  // header belong to an implicit [default], matching confParser.
+  const stanzas: SeenStanza[] = [];
+  let currentStanza: SeenStanza | null = null;
+  const stanzaFor = (): SeenStanza => {
+    if (!currentStanza) {
+      currentStanza = { name: 'default', directives: new Map() };
+      stanzas.push(currentStanza);
+    }
+    return currentStanza;
+  };
 
   // Splunk continues a directive onto the next line when the line ends with a
   // trailing backslash (NOT when the next line begins with whitespace). Only a
@@ -71,23 +99,29 @@ export function computeDiagnostics(
         });
       }
       seenStanzas.add(stanzaName);
+      currentStanza = { name: stanzaName, directives: new Map() };
+      stanzas.push(currentStanza);
       continue;
     }
 
-    // Directives
+    // Directives. Recognised with the ENGINE's rule (`DIRECTIVE_RE`) rather than
+    // a looser `indexOf('=')` test, so the editor and the diagnostics list agree
+    // about what counts as a directive. In particular a leading-whitespace line
+    // is malformed to Splunk, and used to be skipped here without a marker.
     const eqIdx = line.indexOf('=');
-    if (eqIdx <= 0) {
-      // Not a continuation line (doesn't start with whitespace)
-      if (!line.startsWith(' ') && !line.startsWith('\t')) {
-        markers.push({
-          severity: 4,
-          message: `Unrecognized line format — expected "key = value" or stanza header`,
-          startLineNumber: i,
-          startColumn: 1,
-          endLineNumber: i,
-          endColumn: line.length + 1,
-        });
-      }
+    if (!DIRECTIVE_RE.test(line)) {
+      markers.push({
+        severity: 8,
+        message: `Malformed line — expected "key = value" or a stanza header. ${
+          /^\s/.test(line)
+            ? 'Directive keys cannot be indented; Splunk continues a value with a trailing backslash, not with leading whitespace.'
+            : 'Splunk .conf lines are "key = value", "[stanza]", or a "#" comment.'
+        }`,
+        startLineNumber: i,
+        startColumn: 1,
+        endLineNumber: i,
+        endColumn: line.length + 1,
+      });
       continue;
     }
 
@@ -103,6 +137,10 @@ export function computeDiagnostics(
     const value = endsWithBackslash
       ? joinContinuedValue(model, i, line.substring(eqIdx + 1), lineCount)
       : line.substring(eqIdx + 1).trim();
+
+    // Record for the stanza-scoped checks. Last definition of a key wins, which
+    // is Splunk's rule and the one mergeDirectives applies.
+    stanzaFor().directives.set(key, { line: i, value });
 
     // Check if directive is known
     let info = getDirectiveInfo(key, fileType);
@@ -210,8 +248,8 @@ export function computeDiagnostics(
     }
   }
 
-  // Cross-stanza best practice checks
-  checkBestPractices(model, markers, fileType);
+  // Best-practice checks, evaluated within each stanza.
+  checkBestPractices(stanzas, markers, fileType);
 
   return markers;
 }
@@ -273,50 +311,59 @@ function hasCapturingGroup(pattern: string): boolean {
   return false;
 }
 
+/**
+ * Best-practice pairings, checked WITHIN each stanza.
+ *
+ * These used to run as `/^LINE_BREAKER\s*=/m` and friends over the whole
+ * document, which is not what either rule means. Splunk resolves directives per
+ * stanza, so a `LINE_BREAKER` in one sourcetype was silenced by a
+ * `SHOULD_LINEMERGE = false` in an entirely different one — a false negative on
+ * exactly the "config that ships dead" class this linter exists to catch. The
+ * document-wide search also anchored the marker at the FIRST matching line in
+ * the file, so with several stanzas the warning could land on a line that was
+ * not the offending one.
+ */
 function checkBestPractices(
-  model: editor.ITextModel,
+  stanzas: SeenStanza[],
   markers: DiagnosticMarker[],
-  _fileType: 'props.conf' | 'transforms.conf'
+  fileType: 'props.conf' | 'transforms.conf'
 ): void {
-  const text = model.getValue();
-  const hasLineBreaker = /^LINE_BREAKER\s*=/m.test(text);
-  // Inspect the VALUE, not mere presence: `SHOULD_LINEMERGE = true` is the wrong
-  // setting alongside a custom LINE_BREAKER, yet it used to suppress the very
-  // warning that asks for `= false`.
-  const shouldLinemergeMatch = /^SHOULD_LINEMERGE\s*=\s*(\S+)/m.exec(text);
-  const linemergeDisabled = shouldLinemergeMatch
-    ? ['false', '0', 'no'].includes(shouldLinemergeMatch[1].toLowerCase())
-    : false;
-  const hasTimeFormat = /^TIME_FORMAT\s*=/m.test(text);
-  const hasTimePrefix = /^TIME_PREFIX\s*=/m.test(text);
+  // Both rules are about props.conf directives; transforms.conf has no
+  // LINE_BREAKER or TIME_PREFIX to reason about.
+  if (fileType !== 'props.conf') return;
 
-  // Warn if LINE_BREAKER is set without explicitly setting SHOULD_LINEMERGE = false
-  if (hasLineBreaker && !linemergeDisabled) {
-    const lineIdx = text.split('\n').findIndex((l) => /^LINE_BREAKER\s*=/.test(l));
-    if (lineIdx >= 0) {
-      markers.push({
-        severity: 4,
-        message: 'Best practice: Set SHOULD_LINEMERGE = false when using a custom LINE_BREAKER',
-        startLineNumber: lineIdx + 1,
-        startColumn: 1,
-        endLineNumber: lineIdx + 1,
-        endColumn: 1,
-      });
+  const at = (directive: SeenDirective, message: string): DiagnosticMarker => ({
+    severity: 4,
+    message,
+    startLineNumber: directive.line,
+    startColumn: 1,
+    endLineNumber: directive.line,
+    endColumn: 1,
+  });
+
+  for (const stanza of stanzas) {
+    const lineBreaker = stanza.directives.get('LINE_BREAKER');
+    const shouldLinemerge = stanza.directives.get('SHOULD_LINEMERGE');
+    const timePrefix = stanza.directives.get('TIME_PREFIX');
+    const timeFormat = stanza.directives.get('TIME_FORMAT');
+
+    // Inspect the VALUE, not mere presence: `SHOULD_LINEMERGE = true` is the
+    // wrong setting alongside a custom LINE_BREAKER, yet mere presence used to
+    // suppress the very warning that asks for `= false`.
+    const linemergeDisabled = shouldLinemerge
+      ? ['false', '0', 'no'].includes(shouldLinemerge.value.trim().toLowerCase())
+      : false;
+
+    if (lineBreaker && !linemergeDisabled) {
+      markers.push(
+        at(lineBreaker, 'Best practice: Set SHOULD_LINEMERGE = false when using a custom LINE_BREAKER'),
+      );
     }
-  }
 
-  // Warn if TIME_PREFIX is set without TIME_FORMAT
-  if (hasTimePrefix && !hasTimeFormat) {
-    const lineIdx = text.split('\n').findIndex((l) => /^TIME_PREFIX\s*=/.test(l));
-    if (lineIdx >= 0) {
-      markers.push({
-        severity: 4,
-        message: 'Best practice: Set TIME_FORMAT when using TIME_PREFIX for reliable timestamp extraction',
-        startLineNumber: lineIdx + 1,
-        startColumn: 1,
-        endLineNumber: lineIdx + 1,
-        endColumn: 1,
-      });
+    if (timePrefix && !timeFormat) {
+      markers.push(
+        at(timePrefix, 'Best practice: Set TIME_FORMAT when using TIME_PREFIX for reliable timestamp extraction'),
+      );
     }
   }
 }

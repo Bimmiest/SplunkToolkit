@@ -1,7 +1,7 @@
 import type { SplunkEvent, ConfStanza, ConfDirective } from '../types';
 import { safeRegex, convertSplunkToJsRegex } from '../../utils/splunkRegex';
 import { stripLeadingUnderscoreForField } from '../utils/internalFields';
-import { hasField, setField, addFieldValue } from '../utils/fieldBag';
+import { getField, hasField, setField, addFieldValue } from '../utils/fieldBag';
 import { getSourceKeyValue } from '../utils/metadataFields';
 
 export interface TransformResult {
@@ -15,9 +15,18 @@ export interface TransformResult {
 const CAPTURE_REF_PATTERN = /\$(\d+)/g;
 const NAMED_REF_PATTERN = /\$\{(\w+)\}/g;
 
+interface CompiledRegex { plain: RegExp; global: RegExp }
+
 // Cache compiled regexes per stanza to avoid re-compiling on every event.
 // WeakMap so entries are GC'd when stanza objects are collected.
-const regexCache = new WeakMap<ConfStanza, { plain: RegExp; global: RegExp } | null>();
+//
+// Keyed on the PATTERN as well as the stanza. Keying on the stanza alone was
+// correct only by accident of lifecycle — parseConf builds fresh stanza objects
+// every run, so a stanza's REGEX could not change without invalidating the key —
+// and nothing said so. A caller that mutated a stanza in place, or reused a
+// ParsedConf across runs, would silently get the previous pattern back, and a
+// stale regex is a *valid* regex: no error, just quietly wrong extractions.
+const regexCache = new WeakMap<ConfStanza, Map<string, CompiledRegex | null>>();
 
 // These DEST_KEY targets are single-valued slots in Splunk's pipeline.
 // FORMAT is applied to the first match only — multi-value accumulation would
@@ -33,12 +42,19 @@ const SINGLE_VALUE_DEST_KEYS = new Set([
   'queue',
 ]);
 
-function getCompiledRegex(transformStanza: ConfStanza, jsPattern: string): { plain: RegExp; global: RegExp } | null {
-  if (regexCache.has(transformStanza)) return regexCache.get(transformStanza)!;
+function getCompiledRegex(transformStanza: ConfStanza, jsPattern: string): CompiledRegex | null {
+  let byPattern = regexCache.get(transformStanza);
+  if (!byPattern) {
+    byPattern = new Map();
+    regexCache.set(transformStanza, byPattern);
+  }
+  const cached = byPattern.get(jsPattern);
+  if (cached !== undefined) return cached;
+
   const plain = safeRegex(jsPattern);
   const global = safeRegex(jsPattern, 'g');
   const result = plain && global ? { plain, global } : null;
-  regexCache.set(transformStanza, result);
+  byPattern.set(jsPattern, result);
   return result;
 }
 
@@ -154,7 +170,7 @@ function resolvePriorDestValue(event: SplunkEvent, destKey: string | undefined):
     case 'MetaData:Source': return event.metadata.source;
     case 'MetaData:Sourcetype': return event.metadata.sourcetype;
   }
-  const v = event.fields[destKey];
+  const v = getField(event.fields, destKey);
   return (Array.isArray(v) ? v[0] : v) ?? '';
 }
 
@@ -177,7 +193,7 @@ function resolveSourceValue(event: SplunkEvent, sourceKeyDir?: ConfDirective): s
   // pattern this registry documents as its own example.
   const builtin = getSourceKeyValue(event, sourceKey);
   if (builtin !== undefined) return builtin;
-  const v = event.fields[sourceKey];
+  const v = getField(event.fields, sourceKey);
   return (Array.isArray(v) ? v[0] : v) ?? '';
 }
 

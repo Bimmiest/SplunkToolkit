@@ -11,11 +11,21 @@ import { safeRegex } from '../../utils/splunkRegex';
 import { atDirective } from '../parser/provenance';
 
 /**
- * Helper to find a directive value by key (case-insensitive).
+ * Find a directive by key.
+ *
+ * The comparison is case-SENSITIVE, like every other processor. Splunk
+ * attribute names are case-sensitive, and `confParser` already warns that a
+ * mis-cased one "is ignored" — matching case-insensitively here made the
+ * simulator honour the very directive it had just told the user was dead
+ * (`line_breaker = (X)` warned, then broke the events anyway), which is worse
+ * than either behaviour alone: the warning made the wrong output look checked.
  */
+function findDirective(directives: ConfDirective[], key: string): ConfDirective | undefined {
+  return directives.find((dir) => dir.key === key);
+}
+
 function getDirective(directives: ConfDirective[], key: string): string | undefined {
-  const d = directives.find((dir) => dir.key.toUpperCase() === key.toUpperCase());
-  return d?.value;
+  return findDirective(directives, key)?.value;
 }
 
 /**
@@ -95,7 +105,7 @@ function warnUncompilableBreakPattern(
     level: 'warning',
     message: `${key} pattern (${pattern}) could not be compiled safely (invalid regex or rejected as ReDoS-prone). The option was ignored, so events were broken as if it were not set.`,
     file: 'props.conf',
-    ...atDirective(directives.find((d) => d.key.toUpperCase() === key)),
+    ...atDirective(findDirective(directives, key)),
     directiveKey: key,
   });
 }
@@ -148,7 +158,7 @@ export function breakLines(
           level: 'warning',
           message: `LINE_BREAKER pattern (${lineBreakerPattern}) could not be compiled safely (invalid regex or rejected as ReDoS-prone). Event breaking was skipped — the entire input is treated as one event.`,
           file: 'props.conf',
-          ...atDirective(directives.find((d) => d.key.toUpperCase() === 'LINE_BREAKER')),
+          ...atDirective(findDirective(directives, 'LINE_BREAKER')),
         });
       }
       segments = [rawData];

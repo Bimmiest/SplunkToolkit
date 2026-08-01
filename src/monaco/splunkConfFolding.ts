@@ -1,7 +1,7 @@
 import type { languages, editor, CancellationToken } from 'monaco-editor';
 // Value import from the slim entry only — a value import from the `monaco-editor`
 // barrel would drag editor.main (every language + its web worker) into the
-// bundle. See TOOL-2.
+// bundle. See the import comment in main.tsx.
 import { languages as monacoLanguages } from 'monaco-editor/esm/vs/editor/editor.api';
 
 export function createFoldingRangeProvider(): languages.FoldingRangeProvider {

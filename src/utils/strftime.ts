@@ -137,7 +137,25 @@ interface TokenisedFormat {
   captures: string[];
 }
 
+/**
+ * Tokenised formats, keyed on the format string.
+ *
+ * `parseTimestamp` calls `tokenise` on every invocation, and auto-recognition
+ * calls `parseTimestamp` once per candidate format per event — so a 2000-event
+ * run re-walked and re-compiled the same dozen formats thousands of times.
+ * Formats come from config, so the key space is small and bounded by the conf.
+ */
+const tokeniseCache = new Map<string, TokenisedFormat>();
+
 function tokenise(format: string): TokenisedFormat {
+  const cached = tokeniseCache.get(format);
+  if (cached) return cached;
+  const result = tokeniseUncached(format);
+  tokeniseCache.set(format, result);
+  return result;
+}
+
+function tokeniseUncached(format: string): TokenisedFormat {
   const expanded = expandComposites(format);
   const captures: string[] = [];
   let regexStr = '';

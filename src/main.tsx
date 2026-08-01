@@ -6,7 +6,7 @@ import { loader } from '@monaco-editor/react'
 // language services (their main-thread modes *and* web workers, the ts.worker
 // alone being ~7 MB). This app registers its own `splunk-conf` language, so it
 // needs none of them; editor.api keeps every editor contribution we do use
-// (find, folding, suggest, hover). See TOOL-2 in CODE_REVIEW.md.
+// (find, folding, suggest, hover).
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import * as RadixTooltip from '@radix-ui/react-tooltip'

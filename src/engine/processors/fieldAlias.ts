@@ -2,6 +2,7 @@ import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types'
 import { isInternalField } from '../utils/internalFields';
 import { byClassName } from '../utils/asciiCompare';
 import { getMetadataField } from '../utils/metadataFields';
+import { getField, hasField, setField } from '../utils/fieldBag';
 import {
   unquoteFieldName,
   isQuotedFieldName,
@@ -38,26 +39,27 @@ export function applyFieldAliases(
 
   return events.map((event) => {
     const newFields = { ...event.fields };
-    const added: string[] = [];
+    // Structured, so consumers never have to parse `description` back apart.
+    const created: { target: string; source: string }[] = [];
 
     for (const alias of aliases) {
       // `FIELDALIAS-cim = host AS dvc` is one of the most common CIM mappings:
       // the metadata-backed default fields are aliasable like any other.
-      const sourceValue = event.fields[alias.source] ?? getMetadataField(event, alias.source);
+      const sourceValue = getField(event.fields, alias.source) ?? getMetadataField(event, alias.source);
       if (sourceValue === undefined) {
         maybeWarnStrippedRef(alias, event, diagnostics, reportedStrippedRefs);
         continue;
       }
 
-      if (alias.mode === 'ASNEW' && newFields[alias.target] !== undefined) {
+      if (alias.mode === 'ASNEW' && hasField(newFields, alias.target)) {
         continue;
       }
 
-      newFields[alias.target] = sourceValue;
-      added.push(`${alias.target} (from ${alias.source})`);
+      setField(newFields, alias.target, sourceValue);
+      created.push({ target: alias.target, source: alias.source });
     }
 
-    if (added.length === 0) return event;
+    if (created.length === 0) return event;
 
     return {
       ...event,
@@ -67,8 +69,9 @@ export function applyFieldAliases(
         {
           processor: 'FIELDALIAS',
           phase: 'search-time' as const,
-          description: `Created aliases: ${added.join(', ')}`,
-          fieldsAdded: added.map((a) => a.split(' ')[0]),
+          description: `Created aliases: ${created.map((a) => `${a.target} (from ${a.source})`).join(', ')}`,
+          fieldsAdded: created.map((a) => a.target),
+          fieldAliases: created,
         },
       ],
     };
@@ -138,7 +141,7 @@ function maybeWarnStrippedRef(
     return;
   }
   const stripped = alias.source.replace(/^_+/, '');
-  if (stripped && event.fields[stripped] !== undefined) {
+  if (stripped && hasField(event.fields, stripped)) {
     reportedStrippedRefs.add(alias.source);
     diagnostics.push({
       level: 'warning',

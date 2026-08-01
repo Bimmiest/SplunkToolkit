@@ -389,7 +389,35 @@ function hasAmbiguousRepetition(source: string, depth: number): boolean {
   return false;
 }
 
+/**
+ * Memo of the risk verdict, keyed on the pattern source.
+ *
+ * The VERDICT is cached, not the compiled `RegExp`: a cached RegExp would be
+ * shared across unrelated call sites, and a shared `g`-flagged regex carries
+ * `lastIndex` between them — a much harder bug than the cost this avoids.
+ * Compilation is cheap and the engine caches it internally; the structural
+ * analysis below is the expensive part, and it is a pure function of the source.
+ *
+ * Bounded so a long session over pathological input cannot grow it without
+ * limit. A Map preserves insertion order, so evicting the first key is FIFO.
+ */
+const REDOS_VERDICT_CACHE_LIMIT = 500;
+const redosVerdictCache = new Map<string, boolean>();
+
 export function hasReDoSRisk(pattern: string): boolean {
+  const cached = redosVerdictCache.get(pattern);
+  if (cached !== undefined) return cached;
+
+  const verdict = computeReDoSRisk(pattern);
+  if (redosVerdictCache.size >= REDOS_VERDICT_CACHE_LIMIT) {
+    const oldest = redosVerdictCache.keys().next().value;
+    if (oldest !== undefined) redosVerdictCache.delete(oldest);
+  }
+  redosVerdictCache.set(pattern, verdict);
+  return verdict;
+}
+
+function computeReDoSRisk(pattern: string): boolean {
   if (REDOS_ADJACENT_QUANTIFIER.test(pattern)) return true;
   if (pattern.length > REDOS_ANALYSIS_MAX_LENGTH) return REDOS_NESTED_GROUP.test(pattern);
   return hasAmbiguousRepetition(pattern, 0);
