@@ -272,16 +272,24 @@ function extractKeyValue(
   added: string[],
   escaped: boolean,
 ): void {
-  // Match key=value, key="value", key='value'
-  // Key character class broadened to include hyphen, dot, colon (e.g. x-forwarded-for=...)
-  // In auto_escaped mode the quoted patterns allow backslash escapes inside the value
-  // (e.g. key="say \"hi\""), which Splunk's auto_escaped KV_MODE honours.
-  const doubleQuoted = escaped
-    ? /(?:^|[\s,;])([\w.\-:]+)="((?:[^"\\]|\\.)*)"/g
-    : /(?:^|[\s,;])([\w.\-:]+)="([^"]*)"/g;
-  const singleQuoted = escaped
-    ? /(?:^|[\s,;])([\w.\-:]+)='((?:[^'\\]|\\.)*)'/g
-    : /(?:^|[\s,;])([\w.\-:]+)='([^']*)'/g;
+  // Match key="value" and key='value' in ONE left-to-right pass, alternating on
+  // the quote character, rather than a double-quoted sweep followed by a
+  // single-quoted one.
+  //
+  // Two independent sweeps cannot be made correct by ordering, because each
+  // quoting style can nest inside the other. Whichever ran first mined the
+  // other's values: with a double-quoted-first order, `msg="an x='inner' thing"`
+  // invented a field `x = inner` from text inside msg's value; reversing the
+  // order just moved the bug to `msg='an x="inner" thing'`. A single scan
+  // settles it by position — the quote that opens first consumes through its own
+  // close, so whatever is nested inside is never a candidate.
+  //
+  // Key character class includes hyphen, dot, colon (e.g. x-forwarded-for=...).
+  // In auto_escaped mode the quoted branches allow backslash escapes inside the
+  // value (e.g. key="say \"hi\""), which Splunk's auto_escaped KV_MODE honours.
+  const quoted = escaped
+    ? /(?:^|[\s,;])([\w.\-:]+)=(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')/g
+    : /(?:^|[\s,;])([\w.\-:]+)=(?:"([^"]*)"|'([^']*)')/g;
   const bare = /(?:^|[\s,;])([\w.\-:]+)=([\w.:\-/\\@#+]+)/g;
 
   // Working copy for the bare pass. Quoted key=value spans are blanked out here
@@ -310,24 +318,20 @@ function extractKeyValue(
     added.push(key);
   };
 
-  const runQuoted = (re: RegExp, unescape: boolean): void => {
-    for (const match of raw.matchAll(re)) {
-      const start = match.index ?? 0;
-      bareScan =
-        bareScan.slice(0, start) +
-        ' '.repeat(match[0].length) +
-        bareScan.slice(start + match[0].length);
-      const key = match[1];
-      let value = match[2];
-      if (key && value !== undefined) {
-        if (unescape) value = value.replace(/\\(["'\\])/g, '$1');
-        record(key, value);
-      }
+  for (const match of raw.matchAll(quoted)) {
+    const start = match.index ?? 0;
+    bareScan =
+      bareScan.slice(0, start) +
+      ' '.repeat(match[0].length) +
+      bareScan.slice(start + match[0].length);
+    const key = match[1];
+    // Exactly one of the two quote branches participates in a given match.
+    let value = match[2] ?? match[3];
+    if (key && value !== undefined) {
+      if (escaped) value = value.replace(/\\(["'\\])/g, '$1');
+      record(key, value);
     }
-  };
-
-  runQuoted(doubleQuoted, escaped);
-  runQuoted(singleQuoted, escaped);
+  }
 
   for (const match of bareScan.matchAll(bare)) {
     const key = match[1];
