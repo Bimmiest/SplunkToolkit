@@ -175,7 +175,7 @@ All expressions are evaluated per-event before any are applied, matching Splunk'
 
 ## Tests
 
-Tests live in `src/**/__tests__/` and run under vitest. Engine tests target the highest-risk modules — line breaking, eval, regex transforms, dest-key routing, stanza matching, indexed extractions, and a statelessness regression suite. Component smoke tests cover StatusBar, HighlightedTab, FieldsTab, and RegexTab in jsdom. Current total: 490 tests.
+Tests live in `src/**/__tests__/` and run under vitest. Engine tests target the highest-risk modules — line breaking, eval, regex transforms, dest-key routing, stanza matching, indexed extractions, and a statelessness regression suite. Component smoke tests cover StatusBar, HighlightedTab, FieldsTab, and RegexTab in jsdom. (`npm test` prints the current total; a number written here has gone stale three times.)
 
 Engine tests default to the `node` environment; component tests opt into jsdom with `// @vitest-environment jsdom` at the top of each file so engine tests don't pay the jsdom cost.
 
@@ -206,7 +206,7 @@ Places where the simulator diverges from real Splunk. Verify anything suspicious
 ### Other
 
 - **ReDoS protection is heuristic first, worker-backed second.** `safeRegex()` rejects a best-effort class of catastrophically backtracking patterns before compiling them — nested/grouped quantifiers (`(a+)+`, `(.*)*x`, `(.*,){20}`) and adjacent same-atom quantifiers (`a*a*`, `\d+\d+`) — but it does **not** catch alternation-overlap forms like `(a|aa)+` or `(a+|b)+` (detecting those without rejecting benign alternations such as `(foo|bar)+` needs a real overlap analysis). Both the main processing pipeline (5 s watchdog) and the **Regex tab's live tester** (its own 2 s watchdog) run matching inside a Web Worker, so a pattern that slips the heuristic hangs the worker — which is terminated and restarted — rather than freezing the UI. The one remaining main-thread matcher is the **Create-EXTRACT dialog's** live capture (a single event's text), still guarded only by the heuristic.
-- **Raw data capped at 1 MB.** Large inputs are rejected at the store boundary.
+- **Raw data capped at 1 MB.** The cap is applied inside the pipeline, not at the store: a larger input is accepted, stored and sent to the worker in full, then *truncated* for processing — cut back to the last complete line, so the trailing partial event is dropped rather than mis-broken, with a warning saying so. Nothing rejects the input, and the editor still holds all of it.
 - **Sourcetype stanzas match by strict equality.** This matches real Splunk — sourcetype names are literal, no wildcards — noted here so contributors don't add wildcard support by analogy with `source::` / `host::`.
 - **Monaco find-widget tooltip flicker.** Upstream bug in Monaco's hover service ([microsoft/monaco-editor#5208](https://github.com/microsoft/monaco-editor/issues/5208)); no local fix.
 
