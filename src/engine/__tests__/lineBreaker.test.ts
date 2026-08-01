@@ -27,13 +27,16 @@ describe('breakLines — basic LINE_BREAKER', () => {
 });
 
 describe('breakLines — MAX_EVENTS line cap (SEM-5)', () => {
-  it('caps a merged event at MAX_EVENTS input lines', () => {
-    // 10 date-less lines would all merge into one event by default; MAX_EVENTS=3
-    // forces a break every 3 lines.
-    const raw = Array.from({ length: 9 }, (_, i) => `line${i}`).join('\n');
+  it('caps a merged event at MAX_EVENTS *continuation* lines', () => {
+    // Date-less lines would all merge into one event by default. MAX_EVENTS
+    // bounds the continuation lines merged in, not the event's total line
+    // count, so MAX_EVENTS=3 yields four-line events -- pinned by the Splunk
+    // 10.4.0 capture `linebreak-max-events` (#162), which is what corrected the
+    // reading this test previously encoded.
+    const raw = Array.from({ length: 12 }, (_, i) => `line${i}`).join('\n');
     const events = breakLines(raw, [dir('MAX_EVENTS', '3')], META);
     expect(events).toHaveLength(3);
-    expect(events[0]!._raw.split('\n')).toHaveLength(3);
+    expect(events[0]!._raw.split('\n')).toHaveLength(4);
   });
 
   it('defaults to 256 lines (no cap for small inputs)', () => {
@@ -136,5 +139,55 @@ describe('breakLines — uncompilable break patterns are reported (#75.2)', () =
     const diags: ValidationDiagnostic[] = [];
     breakLines('a\nb\nc', [], META, diags);
     expect(diags.filter((d) => d.message.includes('BREAK_ONLY_BEFORE'))).toHaveLength(0);
+  });
+});
+
+describe('#172 — a LINE_BREAKER with no capture group', () => {
+  it('falls back to breaking on newlines, leaving the delimiter as its own event', () => {
+    const raw = '2026-01-15T10:00:00Z one\n-----\n2026-01-15T10:00:01Z two\n';
+    const events = breakLines(raw, [dir('SHOULD_LINEMERGE', 'false'), dir('LINE_BREAKER', '-----')], META);
+    expect(events.map((e) => e._raw)).toEqual([
+      '2026-01-15T10:00:00Z one',
+      '-----',
+      '2026-01-15T10:00:01Z two',
+    ]);
+  });
+
+  it('leaves no trailing newline in _raw', () => {
+    const events = breakLines('a\nb\n', [dir('SHOULD_LINEMERGE', 'false'), dir('LINE_BREAKER', 'X')], META);
+    expect(events.every((e) => !e._raw.endsWith('\n'))).toBe(true);
+  });
+
+  it('says why, rather than silently ignoring the pattern', () => {
+    const diags: ValidationDiagnostic[] = [];
+    breakLines('a\nb\n', [dir('LINE_BREAKER', '-----')], META, diags);
+    expect(diags.some((d) => d.message.includes('no capturing group'))).toBe(true);
+  });
+
+  it('still honours a pattern that does have a group', () => {
+    const events = breakLines('a-----b', [dir('SHOULD_LINEMERGE', 'false'), dir('LINE_BREAKER', '(-----)')], META);
+    expect(events.map((e) => e._raw)).toEqual(['a', 'b']);
+  });
+});
+
+describe('#161 — MUST_BREAK_AFTER does not license merging', () => {
+  it('breaks every line when it is the only rule in force', () => {
+    const raw = '2026-01-15T10:00:00Z alpha\nmiddle\nEND\n2026-01-15T10:00:01Z beta\nmiddle\nEND\n';
+    const events = breakLines(
+      raw,
+      [dir('SHOULD_LINEMERGE', 'true'), dir('BREAK_ONLY_BEFORE_DATE', 'false'), dir('MUST_BREAK_AFTER', 'END')],
+      META,
+    );
+    expect(events).toHaveLength(6);
+  });
+
+  it('still merges when a continue rule is present alongside it', () => {
+    const raw = 'START one\ncont\nEND\nSTART two\ncont\n';
+    const events = breakLines(
+      raw,
+      [dir('BREAK_ONLY_BEFORE', '^START'), dir('BREAK_ONLY_BEFORE_DATE', 'false'), dir('MUST_BREAK_AFTER', 'END')],
+      META,
+    );
+    expect(events).toHaveLength(2);
   });
 });

@@ -198,7 +198,6 @@ export const CORPUS: FixtureCase[] = [
   // -------------------------------------------------------------------------
   {
     id: 'linebreak-max-events',
-    knownMismatch: '#162, #163',
     directives: ['MAX_EVENTS', 'SHOULD_LINEMERGE'],
     phase: 'index-time',
     props: 'SHOULD_LINEMERGE = true\nBREAK_ONLY_BEFORE_DATE = true\nMAX_EVENTS = 3\nTZ = UTC\n',
@@ -219,7 +218,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'linebreak-must-break-after',
-    knownMismatch: '#161',
     directives: ['MUST_BREAK_AFTER', 'SHOULD_LINEMERGE'],
     phase: 'index-time',
     props: 'SHOULD_LINEMERGE = true\nBREAK_ONLY_BEFORE_DATE = false\nMUST_BREAK_AFTER = END\nTZ = UTC\n',
@@ -328,7 +326,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'sedcmd-transliterate',
-    knownMismatch: '#160',
     directives: ['SEDCMD'],
     phase: 'index-time',
     props: 'SHOULD_LINEMERGE = false\nTZ = UTC\nSEDCMD-upper = y/abc/ABC/\n',
@@ -626,7 +623,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'linebreak-no-capture-group',
-    knownMismatch: '#172',
     directives: ['LINE_BREAKER', 'SHOULD_LINEMERGE'],
     phase: 'index-time',
     props: 'SHOULD_LINEMERGE = false\nLINE_BREAKER = -----\nTZ = UTC\n',

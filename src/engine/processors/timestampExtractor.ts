@@ -116,6 +116,33 @@ export function extractTimestamps(
       ? new RegExp(`^\\s*(?:${formatRegex.source})`, formatRegex.flags)
       : null;
 
+  // Splunk assigns an event with no parseable timestamp the `_time` of the
+  // event before it, and only falls back to the time of ingest when there is no
+  // previous event to inherit from. Returning null instead left whole events
+  // unplaceable on a timeline — and any breaking config that can emit a
+  // continuation event produces them, so this is not specific to one directive
+  // (#163). Carried across the batch, so a later event inherits from the last
+  // event that actually parsed one.
+  let lastResolved: Date | null = null;
+
+  /** Apply inheritance to an event whose own text yielded no timestamp. */
+  const inherit = (event: SplunkEvent): SplunkEvent => {
+    if (!lastResolved) return event;
+    const inherited = lastResolved;
+    return {
+      ...event,
+      _time: inherited,
+      processingTrace: [
+        ...event.processingTrace,
+        {
+          processor: 'timestampExtractor',
+          phase: 'index-time' as const,
+          description: `No timestamp in this event — inherited ${inherited.toISOString()} from the previous event`,
+        },
+      ],
+    };
+  };
+
   return events.map((event) => {
     const raw = event._raw;
     let searchStart = 0;
@@ -125,7 +152,7 @@ export function extractTimestamps(
       if (match) {
         searchStart = match.index + match[0].length;
       } else {
-        return event;
+        return inherit(event);
       }
     }
 
@@ -138,10 +165,14 @@ export function extractTimestamps(
       // otherwise (no prefix) scan the lookahead window from the start.
       const activeRegex = formatRegexAnchored ?? formatRegex;
       const formatMatch = activeRegex.exec(searchRegion);
-      if (!formatMatch) return event;
+      if (!formatMatch) return inherit(event);
 
       const timestampStr = formatMatch[0];
       const parsedTime = parseTimestamp(timestampStr, timeFormat, tz, onUnresolvedTz);
+      // A match that will not parse is still a failure to read a timestamp, so
+      // it inherits rather than leaving the event unplaced.
+      if (!parsedTime) return inherit(event);
+      lastResolved = parsedTime;
 
       return {
         ...event,
@@ -161,7 +192,8 @@ export function extractTimestamps(
 
     // No TIME_FORMAT → automatic timestamp recognition (datetime.xml-style).
     const auto = autoRecognize(searchRegion, tz, onUnresolvedTz);
-    if (!auto) return event;
+    if (!auto) return inherit(event);
+    lastResolved = auto.date;
 
     return {
       ...event,

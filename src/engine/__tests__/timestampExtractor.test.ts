@@ -154,10 +154,21 @@ describe('extractTimestamps — timezone resolution (#12)', () => {
   const fmt = dir('TIME_FORMAT', '%Y-%m-%d %H:%M:%S');
 
   it('warns when the TZ cannot be resolved and falls back to UTC', () => {
+    // A name no time-zone database has. Europe/London used to stand in for this
+    // case, but IANA names resolve for real now (#159), so only a genuinely
+    // unknown zone still exercises the fallback.
     const diags: ValidationDiagnostic[] = [];
-    const e = extractTimestamps([event('2024-01-15 10:00:00 x')], [fmt, dir('TZ', 'Europe/London')], diags)[0]!;
+    const e = extractTimestamps([event('2024-01-15 10:00:00 x')], [fmt, dir('TZ', 'Middle/Earth')], diags)[0]!;
     expect(iso(e._time)).toBe('2024-01-15T10:00:00.000Z');
-    expect(diags.some((d) => d.level === 'warning' && /Europe\/London/.test(d.message))).toBe(true);
+    expect(diags.some((d) => d.level === 'warning' && /Middle\/Earth/.test(d.message))).toBe(true);
+  });
+
+  it('resolves an IANA zone name against its real offset, without warning (#159)', () => {
+    const diags: ValidationDiagnostic[] = [];
+    // London is BST (+01:00) in July, so 10:00 local is 09:00Z.
+    const e = extractTimestamps([event('2024-07-15 10:00:00 x')], [fmt, dir('TZ', 'Europe/London')], diags)[0]!;
+    expect(iso(e._time)).toBe('2024-07-15T09:00:00.000Z');
+    expect(diags).toHaveLength(0);
   });
 
   it('does not warn for a resolvable numeric TZ offset', () => {
@@ -172,9 +183,50 @@ describe('extractTimestamps — timezone resolution (#12)', () => {
     const diags: ValidationDiagnostic[] = [];
     extractTimestamps(
       [event('2024-01-15 10:00:00 a'), event('2024-01-16 11:00:00 b')],
-      [fmt, dir('TZ', 'Europe/London')],
+      [fmt, dir('TZ', 'Middle/Earth')],
       diags,
     );
-    expect(diags.filter((d) => /Europe\/London/.test(d.message))).toHaveLength(1);
+    expect(diags.filter((d) => /Middle\/Earth/.test(d.message))).toHaveLength(1);
+  });
+});
+
+describe('#163 — an event with no timestamp inherits the previous one', () => {
+  const fmt = dir('TIME_FORMAT', '%Y-%m-%d %H:%M:%S');
+
+  it('inherits from the preceding event', () => {
+    const out = extractTimestamps(
+      [event('2024-01-15 10:00:00 first'), event('continuation with no date')],
+      [fmt],
+    );
+    expect(iso(out[0]!._time)).toBe('2024-01-15T10:00:00.000Z');
+    expect(iso(out[1]!._time)).toBe('2024-01-15T10:00:00.000Z');
+  });
+
+  it('leaves the first event null when there is nothing to inherit from', () => {
+    const out = extractTimestamps([event('no date here'), event('2024-01-15 10:00:00 later')], [fmt]);
+    expect(out[0]!._time).toBeNull();
+    expect(iso(out[1]!._time)).toBe('2024-01-15T10:00:00.000Z');
+  });
+
+  it('inherits the most recent resolved time, not the first of the batch', () => {
+    const out = extractTimestamps(
+      [event('2024-01-15 10:00:00 a'), event('2024-01-16 11:00:00 b'), event('no date')],
+      [fmt],
+    );
+    expect(iso(out[2]!._time)).toBe('2024-01-16T11:00:00.000Z');
+  });
+
+  it('inherits when TIME_PREFIX does not match at all', () => {
+    const out = extractTimestamps(
+      [event('ts=2024-01-15 10:00:00 a'), event('no prefix on this line')],
+      [fmt, dir('TIME_PREFIX', 'ts=')],
+    );
+    expect(iso(out[1]!._time)).toBe('2024-01-15T10:00:00.000Z');
+  });
+
+  it('records the inheritance in the trace rather than implying extraction', () => {
+    const out = extractTimestamps([event('2024-01-15 10:00:00 a'), event('no date')], [fmt]);
+    const step = out[1]!.processingTrace.at(-1);
+    expect(step?.description).toContain('inherited');
   });
 });

@@ -20,6 +20,22 @@ import { atDirective } from '../parser/provenance';
  * (`line_breaker = (X)` warned, then broke the events anyway), which is worse
  * than either behaviour alone: the warning made the wrong output look checked.
  */
+/**
+ * How many capturing groups a pattern declares, or 0 if it will not compile.
+ *
+ * Counted by compiling `pattern|` — an alternation with an empty branch always
+ * matches, and the resulting array has one entry per group, which is more
+ * reliable than counting unescaped `(` by hand.
+ */
+function countCaptureGroups(pattern: string | undefined): number {
+  if (pattern === undefined) return 0;
+  try {
+    return new RegExp(`${pattern}|`).exec('')!.length - 1;
+  } catch {
+    return 0;
+  }
+}
+
 function findDirective(directives: ConfDirective[], key: string): ConfDirective | undefined {
   return directives.find((dir) => dir.key === key);
 }
@@ -122,7 +138,30 @@ export function breakLines(
   }
 
   // ── Step 1: LINE_BREAKER ──────────────────────────────────────────
-  const lineBreakerPattern = getDirective(directives, 'LINE_BREAKER') ?? '([\\r\\n]+)';
+  const DEFAULT_LINE_BREAKER = '([\\r\\n]+)';
+  const declaredLineBreaker = getDirective(directives, 'LINE_BREAKER');
+
+  // LINE_BREAKER identifies the break by its CAPTURE GROUP, so a pattern with
+  // no group names nothing to remove and Splunk falls back to the default —
+  // breaking on newlines, which leaves the would-be delimiter as an event of
+  // its own. Treating the whole match as the separator instead both failed to
+  // break where Splunk does and left the newlines in `_raw` (#172).
+  const groupCount = countCaptureGroups(declaredLineBreaker);
+  const lineBreakerUnusable = declaredLineBreaker !== undefined && groupCount === 0;
+  if (lineBreakerUnusable && diagnostics) {
+    diagnostics.push({
+      level: 'warning',
+      message:
+        `LINE_BREAKER pattern (${declaredLineBreaker}) has no capturing group, so it names nothing ` +
+        'to break on. Splunk falls back to breaking on newlines, and the text this pattern matches ' +
+        'becomes an event of its own. Wrap the delimiter in parentheses to break on it.',
+      file: 'props.conf',
+      ...atDirective(findDirective(directives, 'LINE_BREAKER')),
+      directiveKey: 'LINE_BREAKER',
+    });
+  }
+  const lineBreakerPattern =
+    lineBreakerUnusable || declaredLineBreaker === undefined ? DEFAULT_LINE_BREAKER : declaredLineBreaker;
 
   let segments: string[];
   const segmentOffsets: number[] = []; // character offset of each segment in rawData
@@ -275,12 +314,28 @@ export function breakLines(
       'MUST_BREAK_AFTER', mustBreakAfterStr, mustBreakAfterRegex, directives, diagnostics,
     );
 
-    // MAX_EVENTS caps how many input lines may merge into a single event (Splunk
-    // default 256). Once reached, Splunk breaks even with no break pattern match —
-    // this is what stops a date-less log from merging into one giant event.
+    // MAX_EVENTS caps how many CONTINUATION lines may be merged into an event,
+    // not how many lines the event may total: MAX_EVENTS = 3 produces a
+    // four-line event, as the `linebreak-max-events` capture records. Reading it
+    // as a total broke one line early (#162).
     const maxEventsStr = getDirective(directives, 'MAX_EVENTS');
     const parsedMaxEvents = maxEventsStr !== undefined ? parseInt(maxEventsStr.trim(), 10) : 256;
-    const maxEvents = Number.isFinite(parsedMaxEvents) && parsedMaxEvents > 0 ? parsedMaxEvents : 256;
+    const maxContinuationLines =
+      Number.isFinite(parsedMaxEvents) && parsedMaxEvents > 0 ? parsedMaxEvents : 256;
+    const maxEvents = maxContinuationLines + 1;
+
+    // MUST_BREAK_AFTER adds a mandatory break; it does not license merging up to
+    // that break. When it is the ONLY rule in force — BREAK_ONLY_BEFORE absent
+    // and BREAK_ONLY_BEFORE_DATE explicitly false — Splunk has no rule saying
+    // when to continue an event, so it breaks on every line. The engine instead
+    // read MUST_BREAK_AFTER as the sole break rule and merged up to each match,
+    // producing 2 events where Splunk produces 6 (#161).
+    //
+    // Deliberately narrow: with no MUST_BREAK_AFTER either, merging still
+    // happens as before (bounded by MAX_EVENTS), which is what Splunk documents
+    // and what no capture contradicts.
+    const canMerge =
+      breakOnlyBeforeAnchoredRegex !== null || breakOnlyBeforeDate || mustBreakAfterRegex === null;
 
     mergedSegments = [firstSegment];
     let currentLineCount = countLines(firstSegment.text);
@@ -300,6 +355,9 @@ export function breakLines(
         startNewEvent = true;
         forceBreakNext = false;
       }
+
+      // No continue rule in force: every segment is its own event.
+      if (!canMerge) startNewEvent = true;
 
       // MAX_EVENTS: break when adding this segment would exceed the line cap.
       if (!startNewEvent && currentLineCount + segLines > maxEvents) {

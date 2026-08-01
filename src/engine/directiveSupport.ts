@@ -97,10 +97,7 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   },
   FIELDALIAS: { support: 'simulated' },
   EVAL: { support: 'simulated' },
-  SEDCMD: {
-    support: 'simulated',
-    note: 'The s/// substitute form only; y/// transliteration is not applied (#160).',
-  },
+  SEDCMD: { support: 'simulated' },
   KV_MODE: { support: 'simulated' },
   AUTO_KV_JSON: { support: 'simulated' },
   REGEX: { support: 'simulated' },
@@ -112,10 +109,7 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   REPEAT_MATCH: { support: 'simulated' },
   WRITE_META: { support: 'simulated' },
   INGEST_EVAL: { support: 'simulated' },
-  MV_ADD: {
-    support: 'simulated',
-    note: 'Honoured for named capture groups; the FORMAT-pairs path still accumulates (#174).',
-  },
+  MV_ADD: { support: 'simulated' },
   CLEAN_KEYS: { support: 'simulated' },
   KEEP_EMPTY_VALS: { support: 'simulated' },
   DEFAULT_VALUE: {
