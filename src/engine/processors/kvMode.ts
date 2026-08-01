@@ -93,7 +93,7 @@ export function applyKvMode(
   return result;
 }
 
-function* jsonObjectCandidates(raw: string): Generator<string> {
+function* jsonObjectCandidates(raw: string): Generator<string, void, undefined> {
   let searchFrom = 0;
   let attempts = 0;
   while (attempts < 5) {
@@ -183,9 +183,9 @@ function extractJson(
   const candidate = jsonObjectCandidates(raw).next().value;
   if (candidate !== undefined) {
     try {
-      const obj = JSON.parse(candidate);
+      const obj: unknown = JSON.parse(candidate);
       if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
-        return { depthLimited: flattenJson(obj, fields, added) };
+        return { depthLimited: flattenJson(obj as Record<string, unknown>, fields, added) };
       }
     } catch {
       // The outermost embedded object is itself malformed — fall through to the

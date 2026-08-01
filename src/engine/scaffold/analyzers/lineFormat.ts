@@ -78,7 +78,7 @@ function isJsonLine(line: string): boolean {
 
 function tryParse(text: string): boolean {
   try {
-    const v = JSON.parse(text);
+    const v: unknown = JSON.parse(text);
     return typeof v === 'object' && v !== null;
   } catch {
     return false;

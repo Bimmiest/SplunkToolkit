@@ -130,7 +130,7 @@ function parseFormatPairs(format: string): FormatPair[] {
 function expandFormat(format: string, match: RegExpExecArray, priorDestValue?: string): string {
   // match[0] is the whole match; match[1..maxIndex] are the capture groups.
   const maxIndex = match.length - 1;
-  let result = format.replace(CAPTURE_REF_PATTERN, (whole, digits) => {
+  let result = format.replace(CAPTURE_REF_PATTERN, (whole: string, digits: string) => {
     // The pattern greedily grabs every trailing digit, but a reference resolves
     // to at most `maxIndex`. Mirror PCRE/JS `$nn` fallback: take the LONGEST
     // leading digit-run that names an existing group; any remaining digits are
@@ -152,7 +152,7 @@ function expandFormat(format: string, match: RegExpExecArray, priorDestValue?: s
   });
   if (match.groups) {
     const groups = match.groups;
-    result = result.replace(NAMED_REF_PATTERN, (_, name) => groups[name] ?? '');
+    result = result.replace(NAMED_REF_PATTERN, (_: string, name: string) => groups[name] ?? '');
   }
   return result;
 }
@@ -200,7 +200,7 @@ function resolveSourceValue(event: SplunkEvent, sourceKeyDir?: ConfDirective): s
 
 /** Decode the escape sequences Splunk allows inside DELIMS/FIELDS quoted tokens. */
 function decodeDelimEscapes(s: string): string {
-  return s.replace(/\\([tnr"\\])/g, (_, c) =>
+  return s.replace(/\\([tnr"\\])/g, (_: string, c: string) =>
     c === 't' ? '\t' : c === 'n' ? '\n' : c === 'r' ? '\r' : c,
   );
 }

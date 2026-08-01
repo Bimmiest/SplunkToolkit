@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { copyToClipboard } from '../clipboard';
+import { copyToClipboard, copyQuietly } from '../clipboard';
 
 // jsdom does not implement document.execCommand, so assign a stub directly.
 function stubExecCommand(result: boolean): ReturnType<typeof vi.fn> {
@@ -34,5 +34,52 @@ describe('copyToClipboard — fallback failure (#30.4)', () => {
     forceFallback();
     stubExecCommand(true);
     await expect(copyToClipboard('hi')).resolves.toBeUndefined();
+  });
+});
+
+describe('copyQuietly', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    delete (document as unknown as { execCommand?: unknown }).execCommand;
+  });
+
+  // The runner's process, reached through a local type: this file is compiled
+  // under tsconfig.app.json, whose `types` is browser-only and deliberately
+  // excludes @types/node.
+  const runner = (globalThis as unknown as {
+    process: {
+      on(event: 'unhandledRejection', listener: () => void): void;
+      off(event: 'unhandledRejection', listener: () => void): void;
+    };
+  }).process;
+
+  // Context-menu items have nowhere to report a failed copy, but the rejection
+  // still has to be settled — left floating it reaches the console as an
+  // unhandled rejection.
+  it('settles the rejection a failed copy produces', async () => {
+    vi.stubGlobal('navigator', {
+      clipboard: { writeText: () => Promise.reject(new Error('unavailable')) },
+    });
+    const exec = stubExecCommand(false);
+    const unhandled = vi.fn();
+    runner.on('unhandledRejection', unhandled);
+    try {
+      expect(() => copyQuietly('hi')).not.toThrow();
+      // Let the promise chain settle before checking for a stray rejection.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(exec).toHaveBeenCalledWith('copy');
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      runner.off('unhandledRejection', unhandled);
+    }
+  });
+
+  it('copies through on the happy path', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    copyQuietly('hi');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(writeText).toHaveBeenCalledWith('hi');
   });
 });

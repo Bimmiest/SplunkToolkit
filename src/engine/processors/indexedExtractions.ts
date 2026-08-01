@@ -27,7 +27,7 @@ export function applyIndexedExtractions(events: SplunkEvent[], directives: ConfD
 function extractJsonFields(events: SplunkEvent[]): SplunkEvent[] {
   return events.map((event) => {
     try {
-      const obj = JSON.parse(event._raw);
+      const obj: unknown = JSON.parse(event._raw);
       if (typeof obj !== 'object' || obj === null) return event;
 
       const fields = { ...event.fields };
@@ -35,8 +35,8 @@ function extractJsonFields(events: SplunkEvent[]): SplunkEvent[] {
       const sourceKeys: Record<string, string> = {};
       const opts = { stripLeadingUnderscore: true, sourceKeys };
       const depthTruncated = Array.isArray(obj)
-        ? flattenArray(obj, fields, added, '', 0, opts)
-        : flattenJson(obj, fields, added, '', 0, opts);
+        ? flattenArray(obj as unknown[], fields, added, '', 0, opts)
+        : flattenJson(obj as Record<string, unknown>, fields, added, '', 0, opts);
 
       return {
         ...event,

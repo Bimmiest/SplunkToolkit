@@ -11,13 +11,20 @@ export default defineConfig([
     files: ['**/*.{ts,tsx}'],
     extends: [
       js.configs.recommended,
-      tseslint.configs.recommended,
+      tseslint.configs.recommendedTypeChecked,
       reactHooks.configs.flat.recommended,
       reactRefresh.configs.vite,
     ],
     languageOptions: {
-      ecmaVersion: 2020,
+      // Matches the `target` in tsconfig.app.json. Left at 2020 this was below
+      // what the compiler emits, so syntax the build accepts could still trip
+      // the parser.
+      ecmaVersion: 2022,
       globals: globals.browser,
+      // Type-aware linting. `projectService` resolves each file through the
+      // tsconfig that already owns it (app / node / e2e), so the lint and the
+      // build agree on types rather than maintaining a second project list.
+      parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
     },
     rules: {
       // Honour the TypeScript convention of prefixing intentionally unused
@@ -27,6 +34,20 @@ export default defineConfig([
         argsIgnorePattern: '^_',
         caughtErrorsIgnorePattern: '^_',
       }],
+    },
+  },
+  {
+    files: ['src/**/__tests__/**/*.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
+    rules: {
+      // This engine extracts fields whose names collide with Object.prototype
+      // members on purpose — `toString`, `valueOf`, `hasOwnProperty` are the
+      // subject of prototypeFieldNames.test.ts. Reading `fields['toString']`
+      // resolves to the index signature, but the rule matches on the property
+      // name and reports every such assertion as an unbound method. The one
+      // remaining use is deliberate too (capturing RegExp.prototype.exec to
+      // restore it after a spy), and the rule guards against accidental `this`
+      // rebinding in shipped code, which is where it stays enabled.
+      '@typescript-eslint/unbound-method': 'off',
     },
   },
   {

@@ -20,7 +20,7 @@ function hoverText(line: string): string {
     fakeModel(line),
     at(1, 2),
     {} as never,
-    undefined as never,
+    undefined,
   ) as languages.Hover | null | undefined;
   return result?.contents?.map((c) => c.value).join('\n') ?? '';
 }

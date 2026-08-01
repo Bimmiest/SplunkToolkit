@@ -1,6 +1,6 @@
 import { isFieldActive, isAnyFocused } from './useFieldFocus';
 import { type FieldNode, nodeMatchesSearch } from './fieldTreeUtils';
-import { copyToClipboard } from '../../../../utils/clipboard';
+import { copyQuietly } from '../../../../utils/clipboard';
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuLabel } from '../../../ui/ContextMenu';
 
 interface FieldTreeNodeProps {
@@ -83,7 +83,7 @@ export function FieldTreeNode({
           <ContextMenuTrigger>{row}</ContextMenuTrigger>
           <ContextMenuContent>
             <ContextMenuLabel>{node.name}</ContextMenuLabel>
-            <ContextMenuItem onSelect={() => copyToClipboard(node.name)}>Copy field name</ContextMenuItem>
+            <ContextMenuItem onSelect={() => copyQuietly(node.name)}>Copy field name</ContextMenuItem>
             <ContextMenuItem onSelect={() => onClick(node.name)}>{pinned ? 'Unpin field' : 'Pin field'}</ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
