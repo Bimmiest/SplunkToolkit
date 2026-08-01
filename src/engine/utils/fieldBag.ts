@@ -19,11 +19,9 @@
  * `spath` / `KV_MODE` / `INDEXED_EXTRACTIONS`, which extract them verbatim.
  */
 
-const hasOwn = Object.prototype.hasOwnProperty;
-
 /** True when `name` is an own (not inherited) property of `fields`. */
 export function hasField(fields: object, name: string): boolean {
-  return hasOwn.call(fields, name);
+  return Object.hasOwn(fields, name);
 }
 
 /**

@@ -12,7 +12,7 @@ export function detectTruncate(lines: string[]): ScaffoldSuggestion[] {
   if (lengths.length === 0) return [];
 
   const p99 = percentile(lengths, 0.99);
-  const maxLen = lengths[lengths.length - 1];
+  const maxLen = lengths.at(-1) ?? 0;
   // Clamp the p99-based headroom up to at least the longest event, rounded to
   // the next 1000. Otherwise a long tail (e.g. one 50000-char event among 8000-
   // char ones) yields a suggestion BELOW maxLen that would truncate real events —
@@ -34,5 +34,5 @@ export function detectTruncate(lines: string[]): ScaffoldSuggestion[] {
 function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return 0;
   const idx = Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1);
-  return sorted[Math.max(0, idx)];
+  return sorted[Math.max(0, idx)] ?? 0;
 }

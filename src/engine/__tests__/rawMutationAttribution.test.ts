@@ -13,7 +13,7 @@ function stepFor(
   transformsConf = '',
 ): ProcessingStep {
   const { result } = runPipeline(raw, meta, propsConf, transformsConf);
-  const step = result.events[0].processingTrace.find(match);
+  const step = result.events[0]!.processingTrace.find(match);
   if (!step) throw new Error('expected step not found in trace');
   return step;
 }
@@ -93,7 +93,7 @@ describe('SEDCMD field attribution', () => {
       ),
       '',
     );
-    const steps = result.events[0].processingTrace.filter((s) => s.processor.startsWith('SEDCMD'));
+    const steps = result.events[0]!.processingTrace.filter((s) => s.processor.startsWith('SEDCMD'));
 
     expect(steps.map((s) => [s.processor, s.fieldsModified])).toEqual([
       ['SEDCMD-a_ssn', ['ssn']],
@@ -118,7 +118,7 @@ describe('SEDCMD field attribution', () => {
       '',
       { perEventPipeline: true },
     );
-    const step = result.events[0].processingTrace.find((s) => s.processor.startsWith('SEDCMD'));
+    const step = result.events[0]!.processingTrace.find((s) => s.processor.startsWith('SEDCMD'));
 
     expect(step?.fieldsModified).toEqual(['ssn']);
   });

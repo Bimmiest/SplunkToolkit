@@ -27,7 +27,7 @@ describe('settings — per-event mode implies manual apply (#27)', () => {
   it('leaves persisted state consistent with live state', () => {
     useAppStore.getState().togglePerEventPipeline();
     useAppStore.getState().toggleManualApply();
-    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}');
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') as Record<string, unknown>;
     expect(saved.manualApply).toBe(true);
     expect(saved.perEventPipeline).toBe(true);
   });

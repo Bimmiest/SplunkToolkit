@@ -43,8 +43,7 @@ function autoRecognize(
   onUnresolvedTz?: (tz: string) => void,
 ): { date: Date; format: string } | null {
   let best: { index: number; priority: number; date: Date; format: string } | null = null;
-  for (let priority = 0; priority < AUTO_PATTERNS.length; priority++) {
-    const { fmt, regex } = AUTO_PATTERNS[priority];
+  for (const [priority, { fmt, regex }] of AUTO_PATTERNS.entries()) {
     const m = regex.exec(region);
     if (!m) continue;
     const date = parseTimestamp(m[0], fmt, tz, onUnresolvedTz);
@@ -60,7 +59,7 @@ function autoRecognize(
   // Anchored to avoid mistaking arbitrary long numbers elsewhere for a timestamp.
   const epoch = /^\s*(\d{13}|\d{10})(?![0-9])/.exec(region);
   if (epoch) {
-    const digits = epoch[1];
+    const digits = epoch[1] ?? '';
     const ms = digits.length >= 13 ? Number(digits) : Number(digits) * 1000;
     const date = new Date(ms);
     if (!isNaN(date.getTime())) return { date, format: 'epoch' };

@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { getField, hasField } from '../../../engine/utils/fieldBag';
 import type { EnrichedEvent } from '../PreviewPanel';
-import { FIELD_COLORS, isFieldActive, isAnyFocused, useFieldFocus } from './shared/useFieldFocus';
+import { fieldColorAt, isFieldActive, isAnyFocused, useFieldFocus } from './shared/useFieldFocus';
 import { FieldEventCard } from './shared/FieldEventCard';
 import { FieldSidebar } from './shared/FieldSidebar';
 import { FieldSplitLayout } from './shared/FieldSplitLayout';
@@ -102,7 +102,7 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
           (includeAuto && isAuto) || (includeManual && isManual) || (includeCalc && isCalc);
         if (!inSelectedFilter) continue;
         if (!map.has(key)) {
-          map.set(key, FIELD_COLORS[colorIdx % FIELD_COLORS.length]);
+          map.set(key, fieldColorAt(colorIdx));
           colorIdx++;
         }
       }
@@ -348,7 +348,8 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
             </div>
           )}
           {filteredItems.map(({ item, globalIdx }, idx) => {
-            const { eventCalcFields, autoCount, manualCount, calcCount } = eventBadgeCounts[idx];
+            const { eventCalcFields, autoCount, manualCount, calcCount } =
+              eventBadgeCounts[idx] ?? { eventCalcFields: [], autoCount: 0, manualCount: 0, calcCount: 0 };
 
             const fieldValues = new Map<string, string | string[]>(
               Object.entries(item.event.fields).filter(([k]) => highlightColorMap.has(k))

@@ -88,10 +88,10 @@ function EventRow({ item, globalIdx, originalMetadata, search }: { item: Enriche
   const [selection, setSelection] = useState<RawSelection | null>(null);
   const searching = search.trim().length > 0;
   const hasTokenSelection = !searching && selection !== null;
-  const selectedText = hasTokenSelection ? event._raw.slice(selection!.start, selection!.end) : '';
+  const selectedText = hasTokenSelection ? event._raw.slice(selection.start, selection.end) : '';
   // The token selection's real offset in _raw lets the scaffold anchor on the
   // exact occurrence picked (not the first match of the same text).
-  const selectionStart = hasTokenSelection ? selection!.start : undefined;
+  const selectionStart = hasTokenSelection ? selection.start : undefined;
 
   const preRef = useRef<HTMLPreElement>(null);
   const [overflows, setOverflows] = useState(false);

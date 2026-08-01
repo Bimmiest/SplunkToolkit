@@ -15,8 +15,8 @@ describe('parseConf — basic structure', () => {
   it('parses stanzas and key = value directives', () => {
     const parsed = parseConf('[mysourcetype]\nSHOULD_LINEMERGE = false', 'props.conf');
     expect(parsed.stanzas).toHaveLength(1);
-    expect(parsed.stanzas[0].name).toBe('mysourcetype');
-    expect(parsed.stanzas[0].directives[0]).toMatchObject({ key: 'SHOULD_LINEMERGE', value: 'false' });
+    expect(parsed.stanzas[0]!.name).toBe('mysourcetype');
+    expect(parsed.stanzas[0]!.directives[0]).toMatchObject({ key: 'SHOULD_LINEMERGE', value: 'false' });
   });
 
   it('treats # as a comment but NOT ;', () => {
@@ -30,14 +30,14 @@ describe('parseConf — duplicate same-name stanzas merge (last-wins) (#59.1)', 
   it('merges repeated stanzas of the same name into one', () => {
     const parsed = parseConf('[st]\nKV_MODE = json\n[st]\nSHOULD_LINEMERGE = false', 'props.conf');
     expect(parsed.stanzas).toHaveLength(1);
-    expect(parsed.stanzas[0].directives.map((d) => d.key)).toEqual(['KV_MODE', 'SHOULD_LINEMERGE']);
+    expect(parsed.stanzas[0]!.directives.map((d) => d.key)).toEqual(['KV_MODE', 'SHOULD_LINEMERGE']);
   });
 
   it('preserves file order so within-stanza last-wins picks the later value', () => {
     const parsed = parseConf('[st]\nKV_MODE = json\n[st]\nKV_MODE = none', 'props.conf');
     expect(parsed.stanzas).toHaveLength(1);
     // Both KV_MODE lines survive in order; mergeDirectives resolves last-wins.
-    const kvValues = parsed.stanzas[0].directives.filter((d) => d.key === 'KV_MODE').map((d) => d.value);
+    const kvValues = parsed.stanzas[0]!.directives.filter((d) => d.key === 'KV_MODE').map((d) => d.value);
     expect(kvValues).toEqual(['json', 'none']);
   });
 
@@ -103,7 +103,7 @@ describe('parseConf — line continuation (SEM-18)', () => {
 describe('parseConf — class-directive prefixes are case-sensitive (#60)', () => {
   it('does not classify a mis-cased prefix as a class directive', () => {
     const conf = parseConf('[st]\nextract-f = (?<a>\\d+)', 'props.conf');
-    const dir = conf.stanzas[0].directives[0];
+    const dir = conf.stanzas[0]!.directives[0]!;
     expect(dir.directiveType).toBe('extract-f');
     expect(dir.className).toBeUndefined();
   });
@@ -117,7 +117,7 @@ describe('parseConf — class-directive prefixes are case-sensitive (#60)', () =
 
   it('still accepts the correctly-cased form', () => {
     const conf = parseConf('[st]\nEXTRACT-f = (?<a>\\d+)', 'props.conf');
-    const dir = conf.stanzas[0].directives[0];
+    const dir = conf.stanzas[0]!.directives[0]!;
     expect(dir.directiveType).toBe('EXTRACT');
     expect(dir.className).toBe('f');
     expect(conf.errors.some((e) => e.message.includes('case-sensitive'))).toBe(false);

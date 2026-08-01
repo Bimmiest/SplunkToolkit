@@ -17,13 +17,9 @@ export interface RegexMatchInfo {
   groupSpans: Record<string, [number, number]>;
 }
 
-type WithIndices = RegExpExecArray & {
-  indices?: { groups?: Record<string, [number, number] | undefined> };
-};
-
 function matchOne(regex: RegExp, raw: string): RegexMatchInfo | null {
   regex.lastIndex = 0;
-  const m = regex.exec(raw) as WithIndices | null;
+  const m = regex.exec(raw);
   if (!m) return null;
   const info: RegexMatchInfo = { index: m.index, match: m[0], groups: {}, groupSpans: {} };
   if (m.groups) {

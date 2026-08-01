@@ -6,14 +6,14 @@ describe('findFieldValuePositions — basic context matching', () => {
     const raw = '{"user":"alice","status":"active"}';
     const pos = findFieldValuePositions(raw, 'user', 'alice');
     expect(pos).toHaveLength(1);
-    expect(raw.substring(pos[0], pos[0] + 5)).toBe('alice');
+    expect(raw.substring(pos[0]!, pos[0]! + 5)).toBe('alice');
   });
 
   it('matches JSON numeric value via context pattern', () => {
     const raw = '{"pid":1234,"ppid":5678}';
     const pos = findFieldValuePositions(raw, 'pid', '1234');
     expect(pos).toHaveLength(1);
-    expect(raw.substring(pos[0], pos[0] + 4)).toBe('1234');
+    expect(raw.substring(pos[0]!, pos[0]! + 4)).toBe('1234');
   });
 
   it('matches key=value via context pattern', () => {
@@ -46,7 +46,7 @@ describe('findFieldValuePositions — underscore-stripped JSON keys (originalKey
     const pos = findFieldValuePositions(raw, 'GID', '100', '_GID');
     expect(pos).toHaveLength(1);
     // Should point into `"_GID":"100"`, not into _EGID or _FSGID
-    const match = raw.substring(pos[0], pos[0] + 3);
+    const match = raw.substring(pos[0]!, pos[0]! + 3);
     expect(match).toBe('100');
     // Verify the preceding context is "_GID":"
     const context = raw.substring(0, pos[0]);
@@ -70,7 +70,7 @@ describe('findFieldValuePositions — underscore-stripped JSON keys (originalKey
     const raw2 = '{"_AUDIT_SESSION":"3","_AUDIT_FIELD_EXIT":"0"}';
     const pos = findFieldValuePositions(raw2, 'AUDIT_SESSION', '3', '_AUDIT_SESSION');
     expect(pos).toHaveLength(1);
-    expect(raw2.substring(pos[0], pos[0] + 1)).toBe('3');
+    expect(raw2.substring(pos[0]!, pos[0]! + 1)).toBe('3');
   });
 
   it('does not highlight single-char value without context match', () => {

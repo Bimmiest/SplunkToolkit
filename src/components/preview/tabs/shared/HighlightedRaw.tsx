@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { findFieldValuePositions } from '../../../../utils/fieldHighlight';
 import { isFieldActive, isAnyFocused } from './useFieldFocus';
-import { copyToClipboard } from '../../../../utils/clipboard';
+import { copyQuietly } from '../../../../utils/clipboard';
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuLabel } from '../../../ui/ContextMenu';
 
 interface Highlight {
@@ -101,7 +101,7 @@ export function HighlightedRaw({
     for (let i = 0; i < cuts.length - 1; i++) {
       const s = cuts[i];
       const e = cuts[i + 1];
-      if (s >= e) continue;
+      if (s === undefined || e === undefined || s >= e) continue;
       let owner: Highlight | null = null;
       for (const h of highlights) {
         if (h.start <= s && h.end >= e && (owner === null || h.end - h.start < owner.end - owner.start)) {
@@ -156,9 +156,9 @@ export function HighlightedRaw({
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuLabel>{hl.field}</ContextMenuLabel>
-          <ContextMenuItem onSelect={() => copyToClipboard(valueStr)}>Copy value</ContextMenuItem>
-          <ContextMenuItem onSelect={() => copyToClipboard(hl.field)}>Copy field name</ContextMenuItem>
-          <ContextMenuItem onSelect={() => copyToClipboard(`${hl.field}=${valueStr}`)}>Copy field=value</ContextMenuItem>
+          <ContextMenuItem onSelect={() => copyQuietly(valueStr)}>Copy value</ContextMenuItem>
+          <ContextMenuItem onSelect={() => copyQuietly(hl.field)}>Copy field name</ContextMenuItem>
+          <ContextMenuItem onSelect={() => copyQuietly(`${hl.field}=${valueStr}`)}>Copy field=value</ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onSelect={() => onFieldClick(hl.field)}>Pin / unpin field</ContextMenuItem>
         </ContextMenuContent>

@@ -97,7 +97,7 @@ describe('HighlightedTab', () => {
       <HighlightedTab items={items} allEvents={items} currentPage={1} eventsPerPage={10} />,
     );
     // Click the "username" field chip in the sidebar to pin it.
-    const sidebarUsername = within(container).getAllByText('username')[0];
+    const sidebarUsername = within(container).getAllByText('username')[0]!;
     fireEvent.click(sidebarUsername);
     // Only events containing `username` (eventWithManual) should remain — pin counter appears.
     expect(screen.getByText(/events match 1 pinned field/i)).toBeInTheDocument();
@@ -118,7 +118,7 @@ describe('HighlightedTab', () => {
       <HighlightedTab items={[toItem(eventWithAuto)]} allEvents={items} currentPage={1} eventsPerPage={1} />,
     );
     // eventWithManual (global index 2) is not on the current page; pinning username surfaces it.
-    fireEvent.click(within(container).getAllByText('username')[0]);
+    fireEvent.click(within(container).getAllByText('username')[0]!);
     expect(screen.getByText(/1\/3 events match/)).toBeInTheDocument();
     expect(screen.getByText(/Event #\s*2/)).toBeInTheDocument();
   });
@@ -133,7 +133,7 @@ describe('HighlightedTab', () => {
     const { container } = render(
       <HighlightedTab items={many.slice(0, 10)} allEvents={many} currentPage={1} eventsPerPage={10} />,
     );
-    fireEvent.click(within(container).getAllByText('username')[0]);
+    fireEvent.click(within(container).getAllByText('username')[0]!);
 
     expect(screen.getAllByText(/Event #/)).toHaveLength(100);
     expect(screen.getByText(/Showing the first 100 of 150 events/i)).toBeInTheDocument();
@@ -143,7 +143,7 @@ describe('HighlightedTab', () => {
     const { container } = render(
       <HighlightedTab items={items} allEvents={items} currentPage={1} eventsPerPage={10} />,
     );
-    fireEvent.click(within(container).getAllByText('username')[0]);
+    fireEvent.click(within(container).getAllByText('username')[0]!);
     expect(screen.queryByText(/Showing the first/i)).not.toBeInTheDocument();
   });
 });

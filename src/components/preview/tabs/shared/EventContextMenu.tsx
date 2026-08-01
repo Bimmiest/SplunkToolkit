@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useAppStore } from '../../../../store/useAppStore';
 import type { SplunkEvent } from '../../../../engine/types';
-import { copyToClipboard } from '../../../../utils/clipboard';
+import { copyQuietly } from '../../../../utils/clipboard';
 import { upsertDirectiveInStanza } from '../../../../engine/scaffold/serialize';
 import { ExtractNameDialog } from './ExtractNameDialog';
 import { TimePrefixDialog } from './TimePrefixDialog';
@@ -74,15 +74,15 @@ export function EventContextMenu({ event, children, selectionText, selectionStar
       <ContextMenu onOpenChange={(open) => { if (open) setNativeSelection(currentSelection()); }}>
         <ContextMenuTrigger>{children}</ContextMenuTrigger>
         <ContextMenuContent>
-          <ContextMenuItem onSelect={() => copyToClipboard(event._raw)}>Copy event</ContextMenuItem>
+          <ContextMenuItem onSelect={() => copyQuietly(event._raw)}>Copy event</ContextMenuItem>
           {Object.keys(event.fields).length > 0 && (
-            <ContextMenuItem onSelect={() => copyToClipboard(JSON.stringify(event.fields, null, 2))}>
+            <ContextMenuItem onSelect={() => copyQuietly(JSON.stringify(event.fields, null, 2))}>
               Copy fields as JSON
             </ContextMenuItem>
           )}
           {selection.length > 0 && (
             <>
-              <ContextMenuItem onSelect={() => copyToClipboard(selection)}>Copy selection</ContextMenuItem>
+              <ContextMenuItem onSelect={() => copyQuietly(selection)}>Copy selection</ContextMenuItem>
               <ContextMenuSeparator />
               <ContextMenuLabel>Scaffold from selection → [{stanza}]</ContextMenuLabel>
               <ContextMenuItem onSelect={() => setExtractOpen(true)}>Create EXTRACT…</ContextMenuItem>

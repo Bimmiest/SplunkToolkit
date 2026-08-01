@@ -10,7 +10,7 @@ import { computeDiff } from '../diffEngine';
  */
 describe('computeDiff', () => {
   it('marks an unchanged line as neither added nor removed', () => {
-    const [segment] = computeDiff('same\n', 'same\n');
+    const segment = computeDiff('same\n', 'same\n')[0]!;
     expect(segment.value).toBe('same\n');
     expect(segment.added).toBeFalsy();
     expect(segment.removed).toBeFalsy();

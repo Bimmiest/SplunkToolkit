@@ -16,9 +16,10 @@ function utf8BoundaryLength(bytes: Uint8Array, maxBytes: number): number {
   // Walk back over trailing continuation bytes (0b10xxxxxx) to the lead byte of
   // the character that straddles the cut.
   let i = maxBytes - 1;
-  while (i >= 0 && (bytes[i] & 0b1100_0000) === 0b1000_0000) i--;
+  while (i >= 0 && ((bytes[i] ?? 0) & 0b1100_0000) === 0b1000_0000) i--;
   if (i < 0) return maxBytes; // all continuation bytes (malformed) — cut as-is
   const lead = bytes[i];
+  if (lead === undefined) return maxBytes;
   let charLen: number;
   if ((lead & 0b1000_0000) === 0) charLen = 1;
   else if ((lead & 0b1110_0000) === 0b1100_0000) charLen = 2;

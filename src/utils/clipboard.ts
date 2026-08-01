@@ -27,3 +27,18 @@ export async function copyToClipboard(text: string): Promise<void> {
   }
   if (!ok) throw new Error('Copy to clipboard failed');
 }
+
+/**
+ * Copy without reporting failure, for context-menu items and other callers with
+ * nowhere to show it.
+ *
+ * `copyToClipboard` rejects when the copy did not happen, so that callers with a
+ * "Copied!" confirmation do not show one for a copy that never occurred. Callers
+ * with no such UI still have to settle the promise — left floating, a failed
+ * copy surfaces as an unhandled rejection in the console.
+ */
+export function copyQuietly(text: string): void {
+  void copyToClipboard(text).catch(() => {
+    // Nothing to report it with; the clipboard is simply unchanged.
+  });
+}

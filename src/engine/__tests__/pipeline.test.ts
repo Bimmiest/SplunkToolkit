@@ -71,14 +71,14 @@ describe('runPipeline — INGEST_EVAL is scoped to referencing stanzas (SEM-2)',
     const props = '[st]\n'; // no TRANSFORMS reference to the eval stanza
     const transforms = '[addtag]\nINGEST_EVAL = tag="prod"';
     const { result } = runPipeline('a log line', PLAIN_META, props, transforms);
-    expect(result.events[0].fields.tag).toBeUndefined();
+    expect(result.events[0]!.fields.tag).toBeUndefined();
   });
 
   it('applies an INGEST_EVAL stanza when a TRANSFORMS-<class> references it', () => {
     const props = '[st]\nTRANSFORMS-t = addtag';
     const transforms = '[addtag]\nINGEST_EVAL = tag="prod"';
     const { result } = runPipeline('a log line', PLAIN_META, props, transforms);
-    expect(result.events[0].fields.tag).toBe('prod');
+    expect(result.events[0]!.fields.tag).toBe('prod');
   });
 });
 

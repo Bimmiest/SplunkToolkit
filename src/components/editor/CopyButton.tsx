@@ -9,10 +9,20 @@ interface CopyButtonProps {
 export function CopyButton({ getText }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
 
-  const handleCopy = useCallback(async () => {
-    await copyToClipboard(getText());
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  // Settled here rather than left to the click handler: a rejected copy must not
+  // flip the label to "Copied!", and as a floating promise it would also reach
+  // the console as an unhandled rejection.
+  const handleCopy = useCallback(() => {
+    copyToClipboard(getText()).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      },
+      () => {
+        // The copy did not happen and there is no error surface here — leave the
+        // button as it was rather than claiming success.
+      },
+    );
   }, [getText]);
 
   return (

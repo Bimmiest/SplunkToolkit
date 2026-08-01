@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-export { FIELD_COLORS } from './fieldColors';
+export { FIELD_COLORS, fieldColorAt } from './fieldColors';
 
 export function isFieldActive(field: string, activeFields: Set<string> | null): boolean {
   return activeFields === null || activeFields.has(field);

@@ -32,7 +32,8 @@ export function applyDestKey(event: SplunkEvent, result: TransformResult): Splun
       const pairRe = /(\S+?)::(?:"([^"]*)"|(\S+))/g;
       let m: RegExpExecArray | null;
       while ((m = pairRe.exec(destValue)) !== null) {
-        meta[m[1]] = m[2] !== undefined ? m[2] : m[3];
+        const key = m[1];
+        if (key !== undefined) meta[key] = m[2] ?? m[3] ?? '';
       }
       return { ...event, _meta: meta, fields: { ...event.fields, ...result.fields } };
     }
