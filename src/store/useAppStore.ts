@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import type { EventMetadata, OutputTabId, ProcessingResult, ValidationDiagnostic } from '../engine/types';
 
+/** Top-level workspace the activity rail switches between. */
+export type ActiveView = 'simulator' | 'dictionary';
+
 interface AppState {
   rawData: string;
   setRawData: (data: string) => void;
@@ -29,6 +32,20 @@ interface AppState {
 
   activeOutputTab: OutputTabId;
   setActiveOutputTab: (tab: OutputTabId) => void;
+
+  activeView: ActiveView;
+  setActiveView: (view: ActiveView) => void;
+
+  /**
+   * Directive key the dictionary should show, set when something outside the
+   * dictionary deep-links into it (editor hover, pipeline reference, command
+   * palette). Null means "no selection yet" — the dictionary falls back to its
+   * own first entry rather than forcing one.
+   */
+  dictionarySelection: string | null;
+  /** Select a directive AND switch to the dictionary — the two always go together. */
+  openDictionaryAt: (key: string) => void;
+  setDictionarySelection: (key: string | null) => void;
 
   currentPage: number;
   setCurrentPage: (page: number) => void;
@@ -142,6 +159,15 @@ export const useAppStore = create<AppState>((set) => ({
 
   activeOutputTab: 'preview',
   setActiveOutputTab: (tab) => set({ activeOutputTab: tab }),
+
+  // Deliberately NOT persisted: the simulator is the product, and restoring a
+  // reload straight into the dictionary would bury it.
+  activeView: 'simulator',
+  setActiveView: (view) => set({ activeView: view }),
+
+  dictionarySelection: null,
+  openDictionaryAt: (key) => set({ dictionarySelection: key, activeView: 'dictionary' }),
+  setDictionarySelection: (key) => set({ dictionarySelection: key }),
 
   currentPage: 1,
   setCurrentPage: (page) => set({ currentPage: page }),
