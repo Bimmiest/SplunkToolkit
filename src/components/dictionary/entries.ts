@@ -13,11 +13,19 @@ export type DictionaryEntry =
 /**
  * Entry ids are the directive key ("TIME_PREFIX") or a `stanza:`-prefixed
  * stanza id ("stanza:source"). One flat string keeps `dictionarySelection` in
- * the store simple enough to deep-link to from a Monaco action or a command
+ * the store simple enough to deep-link to from a Monaco command or a command
  * palette item; the prefix is unambiguous because no Splunk directive key
  * contains a colon.
  */
 export const STANZA_ID_PREFIX = 'stanza:';
+
+/**
+ * A few settings (MATCH_LIMIT, DEPTH_LIMIT) are registered once per conf file
+ * with file-specific wording, so their keys are not unique. Those get the file
+ * appended to keep ids distinct; every other key is used bare, so the common
+ * case stays deep-linkable as just "TIME_PREFIX".
+ */
+export const FILE_ID_SEPARATOR = '@';
 
 export const STANZA_GROUP = 'Stanza Headers';
 
@@ -29,14 +37,39 @@ export function buildEntries(): DictionaryEntry[] {
     stanza,
   }));
 
-  const directives: DictionaryEntry[] = getAllDirectives().map((info) => ({
-    kind: 'directive',
-    id: info.key,
-    title: info.key,
-    info,
-  }));
+  const all = getAllDirectives();
+  const keyCounts = new Map<string, number>();
+  for (const info of all) keyCounts.set(info.key, (keyCounts.get(info.key) ?? 0) + 1);
+
+  const directives: DictionaryEntry[] = all.map((info) => {
+    const ambiguous = (keyCounts.get(info.key) ?? 0) > 1;
+    return {
+      kind: 'directive',
+      id: ambiguous ? `${info.key}${FILE_ID_SEPARATOR}${info.appliesTo}` : info.key,
+      // Say which file up front rather than showing two identical rows.
+      title: ambiguous ? `${info.key} (${info.appliesTo})` : info.key,
+      info,
+    };
+  });
 
   return [...stanzas, ...directives];
+}
+
+/**
+ * Find the entry a stored selection refers to.
+ *
+ * Deep links carry a bare directive key, which is all a Monaco hover or a
+ * command palette item knows. For the handful of keys that exist once per conf
+ * file that key matches no id exactly, so fall back to the first entry for it —
+ * arbitrary between two near-identical records, and far better than showing
+ * nothing.
+ */
+export function findEntry(entries: DictionaryEntry[], id: string | null): DictionaryEntry | undefined {
+  if (!id) return undefined;
+  return (
+    entries.find((entry) => entry.id === id) ??
+    entries.find((entry) => entry.kind === 'directive' && entry.info.key === id)
+  );
 }
 
 /** Group heading an entry belongs under in the browse list. */

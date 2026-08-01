@@ -16,4 +16,11 @@ if (typeof window !== 'undefined') {
     }
     (globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock;
   }
+
+  // Nor scrollIntoView, which any list that keeps a keyboard selection in view
+  // will call. jsdom has no layout, so a no-op is the honest stand-in — without
+  // it the call throws and surfaces as an unhandled error beside passing tests.
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = function scrollIntoView() {};
+  }
 }

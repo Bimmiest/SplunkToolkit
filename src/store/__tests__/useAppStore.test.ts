@@ -39,3 +39,33 @@ describe('settings — per-event mode implies manual apply (#27)', () => {
     expect(useAppStore.getState().settings.manualApply).toBe(false);
   });
 });
+
+describe('dictionary navigation', () => {
+  beforeEach(() => {
+    useAppStore.setState(initial, true);
+    localStorage.clear();
+  });
+
+  it('starts on the simulator', () => {
+    expect(useAppStore.getState().activeView).toBe('simulator');
+    expect(useAppStore.getState().dictionarySelection).toBeNull();
+  });
+
+  it('openDictionaryAt both selects the directive and switches view', () => {
+    useAppStore.getState().openDictionaryAt('TIME_FORMAT');
+    expect(useAppStore.getState().activeView).toBe('dictionary');
+    expect(useAppStore.getState().dictionarySelection).toBe('TIME_FORMAT');
+  });
+
+  it('keeps the selection when switching back to the simulator', () => {
+    useAppStore.getState().openDictionaryAt('KV_MODE');
+    useAppStore.getState().setActiveView('simulator');
+    expect(useAppStore.getState().dictionarySelection).toBe('KV_MODE');
+  });
+
+  it('does not persist the active view — a reload belongs on the simulator', () => {
+    useAppStore.getState().setActiveView('dictionary');
+    const persisted = Object.keys(localStorage).map((k) => localStorage.getItem(k) ?? '');
+    expect(persisted.some((v) => v.includes('dictionary'))).toBe(false);
+  });
+});

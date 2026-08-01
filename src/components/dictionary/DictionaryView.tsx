@@ -8,6 +8,7 @@ import { DictionaryDetail } from './DictionaryDetail';
 import {
   buildEntries,
   filterEntries,
+  findEntry,
   DEFAULT_FILTERS,
   type DictionaryFilters,
 } from './entries';
@@ -38,10 +39,7 @@ export function DictionaryView() {
   // would be indistinguishable from a deliberate selection the next time the
   // filters change.
   const selected =
-    visible.find((entry) => entry.id === selectedId) ??
-    ALL_ENTRIES.find((entry) => entry.id === selectedId) ??
-    visible[0] ??
-    null;
+    findEntry(visible, selectedId) ?? findEntry(ALL_ENTRIES, selectedId) ?? visible[0] ?? null;
 
   const list = (
     <div className="h-full flex flex-col" style={{ backgroundColor: 'var(--color-bg-secondary)' }}>
