@@ -27,9 +27,9 @@ const SKIP_BUILD = process.env.E2E_SKIP_BUILD === '1';
  *  - **Worker bundling.** The entire simulation runs in a Web Worker created
  *    with `new Worker(new URL(...), { type: 'module' })`. Whether Vite emits a
  *    loadable chunk for that is a build-time question with a runtime answer.
- *  - **The Monaco chunk split.** `main.tsx` imports the slim `editor.api` entry
- *    and `vite.config.ts` hand-rolls `manualChunks` around it. A bad split
- *    type-checks, builds, and then fails to mount an editor.
+ *  - **The Monaco chunk split.** `MonacoEditor.tsx` imports the slim
+ *    `editor.api` entry and `vite.config.ts` hand-rolls `manualChunks` around
+ *    it. A bad split type-checks, builds, and then fails to mount an editor.
  *
  * The server command BUILDS before serving on purpose. Serving a stale `dist/`
  * produces confident, wrong results — a tightened CSP that is not in the

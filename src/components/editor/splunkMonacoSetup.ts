@@ -1,3 +1,4 @@
+import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import type { languages } from 'monaco-editor';
 import { createCompletionProvider } from '../../monaco/splunkConfCompletion';
 import { createHoverProvider } from '../../monaco/splunkConfHover';
@@ -21,16 +22,14 @@ let languageRegistered = false;
  * those themes paints — including the plain-text Raw Log editor, which on
  * mobile can mount on its own before any SplunkEditor exists.
  */
-export function ensureSplunkMonaco(monaco: MonacoApi) {
+export function ensureSplunkMonaco() {
   if (!languageRegistered) {
     languageRegistered = true;
-    registerSplunkConfLanguage(monaco);
+    registerSplunkConfLanguage();
   }
-  // Store monaco on window for diagnostics
-  window.monaco = monaco;
 }
 
-function registerSplunkConfLanguage(monaco: MonacoApi) {
+function registerSplunkConfLanguage() {
   monaco.languages.register({ id: PROPS_LANGUAGE_ID });
   monaco.languages.register({ id: TRANSFORMS_LANGUAGE_ID });
 
