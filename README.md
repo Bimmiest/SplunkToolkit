@@ -45,7 +45,16 @@ Runs in Splunk's actual order.
 
 `[source::<pattern>]` > `[host::<pattern>]` > `[<sourcetype>]` > `[default]`. Within a type, more specific patterns win. Directives from all matching stanzas merge in precedence order.
 
-### Conf layers (`default/` vs `local/`)
+### Conf layers (`default/` vs `local/`) — engine API, not a UI feature
+
+> **This one is for callers of the engine, not users of the hosted app.** The
+> app's editors hold a single flat props.conf and a single flat transforms.conf,
+> and there is no control that splits them into layers — so nothing described in
+> this section is reachable from the browser UI. It is here because `runPipeline`
+> is consumed directly (see [Using the engine directly](#using-the-engine-directly)),
+> and a caller reading an app off disk needs it. Surfacing it in the UI is
+> tracked in [#132](https://github.com/Bimmiest/SplunkToolkit/issues/132) and
+> would arrive alongside [#86](https://github.com/Bimmiest/SplunkToolkit/issues/86).
 
 `parseConf`, and therefore `runPipeline`, accept either the text of one flat conf or an ordered list of layers, **lowest precedence first** — which is how a caller reading an app off disk (or out of a Git worktree) hands over `$APP/default/props.conf` and `$APP/local/props.conf`:
 
@@ -75,6 +84,43 @@ Header, two-panel split (inputs left, output right), bottom status bar. The left
 **Keyboard:** `Ctrl/Cmd+K` opens the command palette (examples, navigate, actions). The header info button (ⓘ) opens a slide-out reference to the 11 pipeline stages.
 
 **Status bar:** worker status, pipeline timing, event count, distinct-field count, error/warning counts, and a "Per-event pipeline" chip when that setting is on.
+
+## Using the engine directly
+
+`src/engine/**` is pure logic with no React imports and no runtime dependencies, and it runs unchanged in the browser, in a Web Worker, and under Node. `runPipeline` is the entry point:
+
+```ts
+runPipeline(rawData, metadata, propsConfInput, transformsConfInput, options?)
+```
+
+`options` is `PipelineOptions`:
+
+| Option | Default | What it does |
+|---|---|---|
+| `perEventPipeline` | — | Resolve stanzas per event rather than once for the batch, so metadata rewritten mid-pipeline takes effect downstream. |
+| `captureOffsets` | `true` | Record capture spans for positional EXTRACTs into `fieldOffsets`. |
+
+### Running the engine under Node
+
+**Set `captureOffsets: false` if you are not rendering highlights.** It is not a micro-optimisation. V8 can abandon backtracking mid-match and finish on its linear-time engine:
+
+```
+node --enable-experimental-regexp-engine-on-excessive-backtracks \
+     --regexp-backtracks-before-fallback=1000 your-script.mjs
+```
+
+but **that engine cannot compile a regex carrying `d`, `i` or `u`**. `captureOffsets` is what decides whether every `EXTRACT` gets `d`. Measured on `^(a|a)*(?<f>b)$` against 30 characters, with those flags set:
+
+| | elapsed |
+|---|---|
+| compiled bare | 8.3 ms |
+| compiled with `d` | 91,696 ms |
+
+The flags must be set **before the first regex they protect is compiled** — in ESM, before the first import of the entry point.
+
+**This narrows the unbounded surface; it does not remove it.** A pattern still declines the fallback if it uses a lookahead or a backreference, and both are ordinary in Splunk regexes — the `rfc5424` pattern in this repo's own sample data uses `(?=\s|$)`. The `safeRegex` ReDoS heuristic is likewise structural and documents what it cannot see, notably alternation-overlap forms like `(a|aa)+`.
+
+**So a consumer that executes patterns it did not write needs a thread it can terminate**, with a wall-clock budget — which is what the browser app does, and what the flags are not a substitute for. Treat the flags as a second layer that lowers how often the watchdog fires.
 
 ## Project structure
 

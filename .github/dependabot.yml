@@ -20,15 +20,27 @@ updates:
       production-dependencies:
         dependency-type: production
         update-types: [minor, patch]
+        # monaco-editor is 0.x, where semver makes MINOR the breaking slot — so
+        # "minor" here does not mean what it means for every other entry, and
+        # grouping it hides a breaking change among routine ones. 0.55→0.56
+        # changed the package's `exports` map and broke the
+        # `monaco-editor/esm/vs/editor/editor.api` specifier `main.tsx` imports
+        # (that import is deliberate: it keeps the TS/JSON/CSS/HTML language
+        # services out of the bundle, which is what lets the CSP drop
+        # 'unsafe-eval'). It arrives on its own from now on.
+        exclude-patterns:
+          - monaco-editor
       development-dependencies:
         dependency-type: development
         update-types: [minor, patch]
     # Majors are deliberately left out of both groups, so they arrive one PR at
     # a time. react 19→20 or vite 7→8 is a change to read, not to batch.
 
-  # Actions are pinned by tag, so a stale pin is invisible until something
-  # breaks. This also carries any SHA pins forward, which is what makes pinning
-  # to a SHA sustainable rather than a thing that rots.
+  # Actions are pinned to commit SHAs (#138), which is what stops a mutable tag
+  # from moving an unreviewed change into a job holding the deploy credentials.
+  # A SHA cannot move on its own, so without something raising the pin forward
+  # it rots into a permanently stale action; these updates are that something.
+  # Dependabot rewrites the SHA and the trailing `# vN` comment together.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

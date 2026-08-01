@@ -7,10 +7,29 @@ import { getMetadataField } from '../utils/metadataFields';
 import { getField, hasField, setField } from '../utils/fieldBag';
 import { atDirective } from '../parser/provenance';
 
+/**
+ * @param captureOffsets Compile with `'d'` so positional extractions record the
+ *   capture spans that `fieldOffsets` — and therefore the highlighter — needs.
+ *   Defaults to `true`, which is what the browser wants.
+ *
+ *   A caller that renders no highlights should pass `false`, because the flag
+ *   is not free off the browser. V8 can abandon backtracking mid-match and
+ *   finish on its linear-time engine under
+ *   `--enable-experimental-regexp-engine-on-excessive-backtracks`, but that
+ *   engine **cannot compile a regex carrying `d`, `i` or `u`**. Compiling every
+ *   EXTRACT with `'d'` therefore puts the largest user-controlled regex surface
+ *   the engine has outside what the fallback can bound.
+ *
+ *   This narrows the unbounded surface; it does not remove it. The fallback is
+ *   Node-only (a web page cannot set the flag), and a pattern still declines it
+ *   if it uses lookahead or a backreference — both ordinary in Splunk regexes.
+ *   A caller executing hostile patterns still needs a terminable thread.
+ */
 export function extractFields(
   events: SplunkEvent[],
   directives: ConfDirective[],
   diagnostics?: ValidationDiagnostic[],
+  captureOffsets: boolean = true,
 ): SplunkEvent[] {
   const extractDirectives = directives
     .filter((d) => d.directiveType === 'EXTRACT')
@@ -21,10 +40,12 @@ export function extractFields(
   const extractions = extractDirectives.map((dir) => {
     const { pattern, sourceField } = parseExtractValue(dir.value);
     const jsPattern = pattern ? convertSplunkToJsRegex(pattern) : null;
-    // 'd' records capture offsets for positional extractions. NOT global: inline
-    // EXTRACT extracts the FIRST match only (max_match defaults to 1); multivalue
-    // extraction requires a transforms.conf REGEX with MV_ADD, which EXTRACT lacks.
-    const regex = jsPattern ? safeRegex(jsPattern, 'd') : null;
+    // 'd' records capture offsets for positional extractions, and is requested
+    // only when the caller will read them (see `captureOffsets`). NOT global:
+    // inline EXTRACT extracts the FIRST match only (max_match defaults to 1);
+    // multivalue extraction requires a transforms.conf REGEX with MV_ADD, which
+    // EXTRACT lacks.
+    const regex = jsPattern ? safeRegex(jsPattern, captureOffsets ? 'd' : undefined) : null;
     // safeRegex returns null for invalid PCRE-isms AND for patterns the ReDoS
     // heuristic refuses. Either way the extraction is silently skipped, so surface it.
     if (jsPattern && !regex && diagnostics) {

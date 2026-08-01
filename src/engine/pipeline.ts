@@ -68,6 +68,9 @@ export function runPipeline(
   options?: PipelineOptions
 ): { result: ProcessingResult; diagnostics: ValidationDiagnostic[] } {
   const diagnostics: ValidationDiagnostic[] = [];
+  // Defaults to true: the browser reads these offsets to highlight extracted
+  // fields, so declining them has to be an explicit choice by a caller that does not.
+  const captureOffsets = options?.captureOffsets ?? true;
 
   if (!rawData.trim()) {
     return {
@@ -313,7 +316,7 @@ export function runPipeline(
       const evDirs = eventDirectives[i];
       let ev: SplunkEvent[] = [events[i]];
       // Splunk's search-time order is EXTRACT → REPORT → automatic KV (KV_MODE) → FIELDALIAS → EVAL.
-      ev = safeProcessor('EXTRACT', ev, () => extractFields(ev, evDirs, perEventDiagnostics), perEventDiagnostics);
+      ev = safeProcessor('EXTRACT', ev, () => extractFields(ev, evDirs, perEventDiagnostics, captureOffsets), perEventDiagnostics);
       ev = safeProcessor('REPORT', ev, () => applyTransforms(ev, evDirs, transformsConf, 'search-time', perEventDiagnostics), perEventDiagnostics, 'transforms.conf');
       ev = safeProcessor('KV_MODE', ev, () => applyKvMode(ev, evDirs, perEventDiagnostics), perEventDiagnostics);
       ev = safeProcessor('FIELDALIAS', ev, () => applyFieldAliases(ev, evDirs, perEventDiagnostics), perEventDiagnostics);
@@ -341,7 +344,7 @@ export function runPipeline(
     }
 
     // Step 8: EXTRACT (inline field extraction)
-    events = safeProcessor('EXTRACT', events, () => extractFields(events, directives, diagnostics), diagnostics);
+    events = safeProcessor('EXTRACT', events, () => extractFields(events, directives, diagnostics, captureOffsets), diagnostics);
 
     // Step 9: Search-time REPORT transforms (run BEFORE automatic KV — Splunk's
     // documented order is inline EXTRACT → REPORT field transforms → automatic KV).

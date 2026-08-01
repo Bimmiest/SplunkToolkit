@@ -49,11 +49,29 @@ export function matchStanzas(stanzas: ConfStanza[], metadata: EventMetadata): Co
   return matched.map((m) => m.stanza);
 }
 
+/**
+ * Case-insensitive matching lower-cases both sides rather than compiling with
+ * `'i'`, which is equivalent here and keeps the regex eligible for V8's
+ * linear-time fallback — that engine cannot compile a pattern carrying `d`, `i`
+ * or `u`, and stanza matching runs per event.
+ *
+ * Equivalent *here* specifically because `patternToRegex` can only emit `.*`,
+ * `[^/\\]*`, `[^/\\]` and `escapeRegex(char)`, and `escapeRegex` only ever
+ * backslashes a metacharacter — none of which are letters. So there is no
+ * case-bearing escape (`\w`, `\W`, `\s`, `\S`) for lower-casing to invert — a
+ * risk that would be real if this built patterns from arbitrary regex source.
+ *
+ * The residue is Unicode case folding: `toLowerCase()` and the `'i'` flag
+ * disagree on a handful of characters (Turkish dotless i, `ß`/`SS`). Splunk
+ * `source::`/`host::` specs are host names and file paths, so this is theory
+ * rather than practice — but it is the reason to keep it to this function.
+ */
 function matchPattern(value: string, pattern: string, caseInsensitive: boolean): boolean {
-  const regexStr = patternToRegex(pattern);
-  const regex = safeRegex(`^${regexStr}$`, caseInsensitive ? 'i' : undefined);
-  if (regex) return regex.test(value);
-  return caseInsensitive ? value.toLowerCase() === pattern.toLowerCase() : value === pattern;
+  const subject = caseInsensitive ? value.toLowerCase() : value;
+  const spec = caseInsensitive ? pattern.toLowerCase() : pattern;
+  const regex = safeRegex(`^${patternToRegex(spec)}$`);
+  if (regex) return regex.test(subject);
+  return subject === spec;
 }
 
 function patternToRegex(pattern: string): string {
