@@ -1,6 +1,6 @@
 import { useRef, type KeyboardEvent } from 'react';
 import { Icon } from '../ui/Icon';
-import { Chip, PhaseBadge } from './DictionaryBadges';
+import { Chip, FileBadge, PhaseBadge } from './DictionaryBadges';
 import { groupEntries, type DictionaryEntry, type DictionaryFilters } from './entries';
 
 /** Segmented single-choice control used by the phase and file filters. */
@@ -210,7 +210,7 @@ export function DictionaryList({
                 aria-selected={isSelected}
                 onClick={() => onSelect(entry.id)}
                 className={[
-                  'flex items-center gap-2 px-3 py-1.5 cursor-pointer transition-colors',
+                  'flex items-center gap-1.5 px-3 py-1.5 cursor-pointer transition-colors',
                   isSelected
                     ? 'bg-[var(--color-accent)]/15'
                     : 'hover:bg-[var(--color-bg-tertiary)]',
@@ -230,9 +230,15 @@ export function DictionaryList({
                   {entry.title}
                 </span>
                 {entry.kind === 'directive' ? (
-                  <PhaseBadge phase={entry.info.phase} />
+                  <>
+                    <FileBadge appliesTo={entry.info.appliesTo} short />
+                    <PhaseBadge phase={entry.info.phase} />
+                  </>
                 ) : (
-                  <Chip>stanza</Chip>
+                  <>
+                    <FileBadge appliesTo="props.conf" short />
+                    <Chip>stanza</Chip>
+                  </>
                 )}
               </div>
             );

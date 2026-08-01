@@ -46,8 +46,11 @@ export function buildEntries(): DictionaryEntry[] {
     return {
       kind: 'directive',
       id: ambiguous ? `${info.key}${FILE_ID_SEPARATOR}${info.appliesTo}` : info.key,
-      // Say which file up front rather than showing two identical rows.
-      title: ambiguous ? `${info.key} (${info.appliesTo})` : info.key,
+      // The title is always the bare key. Which conf file an entry belongs to is
+      // a property of every directive, so it is a badge on every row next to the
+      // phase — not a parenthetical on the two keys that happen to need
+      // disambiguating.
+      title: info.key,
       info,
     };
   });

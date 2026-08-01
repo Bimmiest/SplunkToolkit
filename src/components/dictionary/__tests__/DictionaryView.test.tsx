@@ -123,3 +123,37 @@ describe('DictionaryView', () => {
     expect(screen.getByText(/Highest/)).toBeInTheDocument();
   });
 });
+
+describe('DictionaryView list badges', () => {
+  beforeEach(() => {
+    useAppStore.setState(initial, true);
+  });
+
+  it('designates the conf file on every directive row, beside the phase', () => {
+    renderDictionary();
+    const listbox = screen.getByRole('listbox');
+    const row = within(listbox).getByText('TIME_PREFIX').closest('[role="option"]');
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText('props')).toBeInTheDocument();
+    expect(within(row as HTMLElement).getByText('Index-time')).toBeInTheDocument();
+  });
+
+  it('designates transforms-only directives as such', () => {
+    renderDictionary();
+    const listbox = screen.getByRole('listbox');
+    const row = within(listbox).getByText('SOURCE_KEY').closest('[role="option"]');
+    expect(within(row as HTMLElement).getByText('transforms')).toBeInTheDocument();
+  });
+
+  it('distinguishes the two MATCH_LIMIT rows by their conf file alone', () => {
+    renderDictionary();
+    const listbox = screen.getByRole('listbox');
+    const rows = within(listbox)
+      .getAllByText('MATCH_LIMIT')
+      .map((el) => el.closest('[role="option"]') as HTMLElement);
+    expect(rows).toHaveLength(2);
+    // The key is bare in both; only the badge tells them apart.
+    expect(rows.map((r) => within(r).getByText(/^(props|transforms)$/).textContent).sort())
+      .toEqual(['props', 'transforms']);
+  });
+});

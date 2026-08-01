@@ -225,6 +225,8 @@ Monaco's widgets (hover, suggest, folding, find, multi-cursor) are *contribution
 
 A reference view for every `props.conf` and `transforms.conf` setting the simulator knows about, plus the four stanza header kinds. Search by key or description, filter by phase (index-time / search-time) and conf file, hide deprecated keys, and read each entry's description, example, default, valid values and pipeline stage.
 
+Every row in the browse list carries two designations — which conf file it belongs in, and which phase it runs at — so both are answerable without opening the entry. That is also what distinguishes `MATCH_LIMIT` and `DEPTH_LIMIT`, the two keys the registry defines once per conf file with file-specific wording.
+
 There is no prose here that the editor does not also have: entries are built from `directiveRegistry.ts` and `stanzaRegistry.ts`, so the dictionary and the hover tooltips cannot drift apart. The pipeline reference drawer and the dictionary answer different questions — "what runs when" versus "what does this key do" — and cross-link both ways.
 
 Three routes in: the activity rail, `Ctrl/Cmd+K` → "Dictionary: KEY", and the "Open in dictionary" link at the bottom of any directive hover.

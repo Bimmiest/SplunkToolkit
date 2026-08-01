@@ -43,9 +43,11 @@ describe('dictionary entries', () => {
     const matchLimits = ENTRIES.filter((e) => e.kind === 'directive' && e.info.key === 'MATCH_LIMIT');
     expect(matchLimits).toHaveLength(2);
     expect(new Set(matchLimits.map((e) => e.id)).size).toBe(2);
-    for (const entry of matchLimits) {
-      expect(entry.title).toContain('MATCH_LIMIT');
-      if (entry.kind === 'directive') expect(entry.title).toContain(entry.info.appliesTo);
+  });
+
+  it('titles every directive with its bare key — the conf file is a badge', () => {
+    for (const entry of ENTRIES) {
+      if (entry.kind === 'directive') expect(entry.title).toBe(entry.info.key);
     }
   });
 });

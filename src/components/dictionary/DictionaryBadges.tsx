@@ -28,7 +28,7 @@ export function Chip({
   const color = TONE_COLORS[tone];
   return (
     <span
-      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight whitespace-nowrap ${mono ? 'font-mono' : ''}`}
+      className={`inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight whitespace-nowrap ${mono ? 'font-mono' : ''}`}
       style={{ backgroundColor: `${color}20`, color }}
     >
       {children}
@@ -52,8 +52,27 @@ export function PhaseBadge({ phase }: { phase: DirectiveInfo['phase'] }) {
   return <Chip tone={PHASE_TONE[phase]}>{PHASE_LABEL[phase]}</Chip>;
 }
 
-export function FileBadge({ appliesTo }: { appliesTo: DirectiveInfo['appliesTo'] }) {
-  return <Chip mono>{appliesTo === 'both' ? 'props + transforms' : appliesTo}</Chip>;
+const FILE_LABEL: Record<DirectiveInfo['appliesTo'], string> = {
+  'props.conf': 'props.conf',
+  'transforms.conf': 'transforms.conf',
+  both: 'props + transforms',
+};
+
+/** Compact forms for the browse list, where the column is narrow. */
+const FILE_LABEL_SHORT: Record<DirectiveInfo['appliesTo'], string> = {
+  'props.conf': 'props',
+  'transforms.conf': 'transforms',
+  both: 'both',
+};
+
+export function FileBadge({
+  appliesTo,
+  short = false,
+}: {
+  appliesTo: DirectiveInfo['appliesTo'];
+  short?: boolean;
+}) {
+  return <Chip mono>{(short ? FILE_LABEL_SHORT : FILE_LABEL)[appliesTo]}</Chip>;
 }
 
 /** The full badge row for a directive, in a fixed order so rows stay scannable. */
