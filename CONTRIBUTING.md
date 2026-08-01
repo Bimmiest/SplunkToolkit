@@ -39,7 +39,7 @@ A few things worth knowing:
 | Editor behaviour (hover, completion, lint markers) | `src/monaco/` |
 | UI | `src/components/` |
 
-`src/engine/**` has no runtime dependencies and must keep it that way — it is consumed directly as a library (see the README), not only by this app.
+`src/engine/**` has no runtime dependencies and must keep it that way — it is consumed directly as a library (see [docs/engine.md](docs/engine.md)), not only by this app.
 
 ## Adding or changing a simulated directive
 
@@ -55,6 +55,52 @@ Adding a corpus case needs a Splunk instance to capture against. If you do not h
 ## Changing behaviour a test already asserts
 
 If a captured fixture disagrees with an existing test, the fixture wins. Update the test, and leave a comment saying which capture corrected it and what the old reading was. Several tests carry exactly that note.
+
+## Recipes
+
+### Add a directive
+1. Add a `DirectiveInfo` entry to `DIRECTIVES` in `src/engine/directiveRegistry.ts`. Autocomplete, hover, linting and the dictionary pick it up.
+2. If it needs processing logic: create or edit a processor in `src/engine/processors/` and wire it into `src/engine/pipeline.ts` at the correct position, wrapped in `safeProcessor()`.
+3. Follow the classification and fixture rules above — the support-table tests enforce them.
+
+### Add an eval function
+Add a `case` to the `callFunction` switch in `src/engine/processors/evalProcessor.ts`.
+
+### Add a preview sub-tab
+1. Create the component in `src/components/preview/tabs/`.
+2. Add the ID to `PreviewSubTabId` in `src/engine/types.ts`.
+3. Add the entry to `PREVIEW_SUB_TABS` and render it in `PreviewPanel.tsx`.
+
+### Add or update a CIM model
+`CIM_MODELS` in `src/engine/cim/cimModelsData.ts` is generated, not hand-maintained.
+To refresh it, download the CIM add-on from
+[Splunkbase](https://splunkbase.splunk.com/app/1621), extract it, and run:
+
+```bash
+node scripts/generate-cim-models.js /path/to/Splunk_SA_CIM
+```
+
+The script reads `default/data/models/*.json` (the model definitions Splunk itself
+runs) and takes `CIM_VERSION` from the add-on's `app.conf`. Which datasets are
+presented, and their labels, live in the `INCLUDE` table at the top of the script;
+everything else — fields, the required/recommended split, constraint tags — is read
+out of the add-on, and a dataset that Splunk has renamed or removed fails the run
+rather than disappearing quietly. Nothing here runs at build or install time, and
+the add-on is not vendored.
+
+To add a dataset by hand instead, read the derivation rules in the generated file's
+header first — the fields must come from the model JSON, not from memory or docs prose:
+
+```typescript
+{
+  name: 'Your_Model',          // or 'Your_Model.Dataset' for a second root dataset
+  displayName: 'Your Model',
+  description: 'Description',
+  requiredFields: ['field1', 'field2'],
+  recommendedFields: ['field3'],
+  tags: ['your_tag'],          // ALL tags must be present for the dataset to populate
+}
+```
 
 ## Commits and PRs
 
