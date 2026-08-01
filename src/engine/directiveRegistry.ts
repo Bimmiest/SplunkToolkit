@@ -2,7 +2,13 @@
 // directiveRegistry.ts
 // Comprehensive registry of Splunk props.conf and transforms.conf directives.
 // Powers autocomplete, hover tooltips, linting, and validation features.
+//
+// Knowing a directive is not the same as simulating it. Every entry here also
+// carries a `support` level from `directiveSupport.ts`, which is the declared
+// boundary of what the preview actually honours (#153).
 // ---------------------------------------------------------------------------
+
+import { getDirectiveSupport, type DirectiveSupport } from './directiveSupport';
 
 export interface DirectiveInfo {
   key: string;
@@ -16,13 +22,26 @@ export interface DirectiveInfo {
   isClassBased: boolean;
   phase: 'index-time' | 'search-time' | 'both';
   deprecated?: boolean;
+  /**
+   * What the simulator does with this directive, as opposed to what it knows
+   * about it (#153). Attached from `directiveSupport.ts` rather than written on
+   * each entry, so the whole boundary can be read in one place.
+   */
+  support: DirectiveSupport;
+  /** Why it is not simulated, or the caveat on one that only partly is. */
+  supportNote?: string;
+  /** Tracking issue, for `ignored`. */
+  supportIssue?: number;
 }
+
+/** The literal entries below, before support classification is attached. */
+type DirectiveDefinition = Omit<DirectiveInfo, 'support' | 'supportNote' | 'supportIssue'>;
 
 // ---------------------------------------------------------------------------
 // Directive definitions
 // ---------------------------------------------------------------------------
 
-const DIRECTIVES: DirectiveInfo[] = [
+const DIRECTIVE_DEFINITIONS: DirectiveDefinition[] = [
   // =======================================================================
   // props.conf -- Time Configuration
   // =======================================================================
@@ -1157,6 +1176,22 @@ const DIRECTIVES: DirectiveInfo[] = [
     phase: 'search-time',
   },
 ];
+
+/**
+ * The registry as everything else reads it: each definition with its support
+ * classification attached. An unclassified key defaults to `simulated` and is
+ * caught by `directiveSupport.test.ts`, which is what stops the boundary from
+ * quietly widening as directives are added.
+ */
+const DIRECTIVES: DirectiveInfo[] = DIRECTIVE_DEFINITIONS.map((d) => {
+  const entry = getDirectiveSupport(d.key);
+  return {
+    ...d,
+    support: entry?.support ?? 'simulated',
+    supportNote: entry?.note,
+    supportIssue: entry?.issue,
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Build lookup maps for fast access

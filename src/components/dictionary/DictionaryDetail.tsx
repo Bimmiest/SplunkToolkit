@@ -238,6 +238,30 @@ export function DictionaryDetail({ entry }: { entry: DictionaryEntry }) {
               </Callout>
             )}
 
+            {/* Above the description, because it changes how the description
+                should be read: everything below is what Splunk does, and this
+                says whether the preview will do it too (#153). */}
+            {info.support === 'ignored' && (
+              <Callout tone="danger" icon="warning">
+                <strong>Not simulated.</strong> {info.supportNote} The preview ignores this
+                directive, so its output is what Splunk would produce without it
+                {info.supportIssue ? ` (tracked as #${info.supportIssue})` : ''}.
+              </Callout>
+            )}
+
+            {info.support === 'documented' && (
+              <Callout tone="info" icon="info">
+                <strong>Outside the simulation.</strong> {info.supportNote} It is documented here
+                because it is valid Splunk config, but nothing in the preview depends on it.
+              </Callout>
+            )}
+
+            {info.support === 'simulated' && info.supportNote && (
+              <Callout tone="info" icon="info">
+                <strong>Partly simulated.</strong> {info.supportNote}
+              </Callout>
+            )}
+
             <Lede>{info.description}</Lede>
 
             <CodeCard label={info.appliesTo === 'both' ? 'Example' : info.appliesTo} code={info.example} />

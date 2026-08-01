@@ -14,6 +14,7 @@ import { applyFieldAliases } from './processors/fieldAlias';
 import { applyEvalExpressions } from './processors/evalProcessor';
 import { attributeRawMutations } from './processors/rawMutationAttribution';
 import { SIMULATED_DEST_KEYS, VALID_UNSIMULATED_DEST_KEYS, normaliseDestKey } from './transforms/destKeys';
+import { getDirectiveSupport } from './directiveSupport';
 
 function safeProcessor(
   name: string,
@@ -115,6 +116,43 @@ export function runPipeline(
           level: 'warning',
           message: `LOOKUP-${dir.className ?? dir.key} is configured but lookup table execution is not simulated — fields will not be populated`,
           file: 'props.conf',
+          ...atDirective(dir),
+          directiveKey: dir.key,
+        });
+      }
+    }
+  }
+
+  // Say so when a directive the user has written is not honoured by the preview
+  // (#153). Without this the tool is confidently wrong: the key autocompletes,
+  // hovers with real documentation, passes validation, and then the output is
+  // rendered as though the line were not there. A stated limitation is worth
+  // more than a plausible wrong answer.
+  //
+  // LOOKUP is skipped because it already has a more specific warning above, and
+  // repeating it per attribute would bury the one that names the class.
+  for (const [file, conf] of [
+    ['props.conf', propsConf],
+    ['transforms.conf', transformsConf],
+  ] as const) {
+    for (const stanza of conf.stanzas) {
+      for (const dir of stanza.directives) {
+        if (dir.directiveType === 'LOOKUP') continue;
+        // A class-based key is written `EXTRACT-foo`; classification is by base.
+        const baseKey = dir.className ? dir.directiveType : dir.key;
+        const entry = getDirectiveSupport(baseKey);
+        if (!entry || entry.support === 'simulated') continue;
+
+        const tracking = entry.issue ? ` Tracked as #${entry.issue}.` : '';
+        diagnostics.push({
+          // `ignored` is a gap we intend to close, so it is a warning: the
+          // preview is wrong and will change. `documented` is a deliberate,
+          // permanent edge, so it is informational.
+          level: entry.support === 'ignored' ? 'warning' : 'info',
+          message:
+            `${dir.key} is recognised but not simulated — the preview ignores it. ` +
+            `${entry.note ?? ''}${tracking}`.trim(),
+          file,
           ...atDirective(dir),
           directiveKey: dir.key,
         });

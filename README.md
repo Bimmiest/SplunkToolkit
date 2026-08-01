@@ -274,6 +274,38 @@ One note if you extend it: the app runs the pipeline once on mount with an empty
 
 `ci.yml` runs lint → build (`tsc -b && vite build`) → tests → e2e smoke → `npm audit` on every PR and on pushes to main. The Azure SWA deploy workflow is separate and has no test job of its own: it triggers on push to main and runs its own build, so it is gated by CI only in the sense that both run on the same commit. Node is pinned once, in `.nvmrc`, which `ci.yml` and `package.json`'s `engines` both follow.
 
+## Simulation support
+
+A simulator's correctness oracle is "matches real Splunk", which is a closed-source, versioned, partly undocumented target — so fidelity can never be *proven* complete. It can be bounded. Every directive the registry knows about carries one of three support levels, declared in [`src/engine/directiveSupport.ts`](src/engine/directiveSupport.ts):
+
+| Level | Count | Meaning |
+|---|---|---|
+| **simulated** | 32 | The engine implements it and tests assert the behaviour. |
+| **documented** | 24 | Recognised on purpose, outside the simulation for a reason that is not going to change — it belongs to a layer a browser has no access to, or it has no observable effect on output. |
+| **ignored** | 20 | Should be simulated, is not yet, and names the issue tracking it. Every one of these is a known wrong answer. |
+
+Writing a directive that is not `simulated` produces a diagnostic under its editor — a warning for `ignored`, an informational note for `documented`. The dictionary and the editor hover say the same thing on the entry itself. The point is that the tool never silently renders output as though a line you wrote were absent.
+
+Four `simulated` entries carry a caveat rather than a clean bill of health: `TZ` (numeric offsets and abbreviations resolve, IANA zone names do not — #159), `INDEXED_EXTRACTIONS` (csv/tsv/psv/w3c, but not JSON — #164), `SEDCMD` (`s///` but not `y///` — #160), and `MV_ADD` (honoured for named capture groups, not for the FORMAT-pairs path — #174).
+
+### Not simulated yet (`ignored`)
+
+Each of these is a directive the preview accepts and then does not honour.
+
+| Directive | What is missing | Issue |
+|---|---|---|
+| `DATETIME_CONFIG`, `MAX_DAYS_AGO`, `MAX_DAYS_HENCE`, `MAX_DIFF_SECS_AGO`, `MAX_DIFF_SECS_HENCE` | The timestamp fallback chain and its sanity bounds | [#85](https://github.com/Bimmiest/SplunkToolkit/issues/85) |
+| `CLONE_SOURCETYPE` | The cloned event is never produced | [#87](https://github.com/Bimmiest/SplunkToolkit/issues/87) |
+| `TZ_ALIAS` | Zone-abbreviation aliasing; lands with the rest of the `TZ` work | [#159](https://github.com/Bimmiest/SplunkToolkit/issues/159) |
+| `DEFAULT_VALUE`, `LOOKAHEAD` | Read by nothing in the transforms path | [#183](https://github.com/Bimmiest/SplunkToolkit/issues/183) |
+| `FIELD_DELIMITER`, `FIELD_QUOTE`, `FIELD_NAMES`, `HEADER_FIELD_LINE_NUMBER`, `PREAMBLE_REGEX`, `TIMESTAMP_FIELDS` | Every override to delimited `INDEXED_EXTRACTIONS` | [#184](https://github.com/Bimmiest/SplunkToolkit/issues/184) |
+| `ANNOTATE_PUNCT` | The `punct` field is never generated | [#185](https://github.com/Bimmiest/SplunkToolkit/issues/185) |
+| `disabled`, `sourcetype`, `rename`, `priority` | Stanza-level directives that change which stanza applies | [#186](https://github.com/Bimmiest/SplunkToolkit/issues/186) |
+
+### Deliberately out of scope (`documented`)
+
+Lookups (`LOOKUP` and all thirteen `transforms.conf` lookup attributes) need a lookup table, and a browser tool with no backend has nowhere to get one. `EVENT_BREAKER`, `EVENT_BREAKER_ENABLE`, `CHARSET`, `NO_BINARY_CHECK` and `LEARN_SOURCETYPE` belong to the forwarder and input layers, upstream of everything simulated here. `SEGMENTATION` changes how the indexer segments terms for search rather than the event or its fields. `MATCH_LIMIT`, `DEPTH_LIMIT` and `CAN_OPTIMIZE` bound how hard a match tries, not what a successful match produces. `CHECK_FOR_HEADER` is deprecated by Splunk in favour of `INDEXED_EXTRACTIONS`, which is simulated.
+
 ## Known issues / inconsistencies vs Splunk
 
 Places where the simulator diverges from real Splunk. Verify anything suspicious against a real indexer before relying on the output.
