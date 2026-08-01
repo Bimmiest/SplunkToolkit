@@ -31,3 +31,4 @@ CLAUDE.md
 /test-results/
 /blob-report/
 /.playwright/
+coverage/

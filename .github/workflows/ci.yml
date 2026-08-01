@@ -62,7 +62,10 @@ jobs:
         run: npm run build
 
       - name: Test
-        run: npm test
+        # --coverage rather than a bare `vitest run`: the thresholds live in
+        # vitest.config.ts, so this is the same verdict `npm run test:coverage`
+        # gives locally, and the floor is a ratchet rather than a suggestion.
+        run: npm run test:coverage
 
       # Chromium only — the e2e suite covers browser-level wiring (CSP, worker
       # bundling, Monaco's chunk split), not cross-browser rendering, so the
