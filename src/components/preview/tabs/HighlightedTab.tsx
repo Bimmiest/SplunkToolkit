@@ -260,11 +260,20 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
     />
   );
 
+  // Category membership overlaps by design (see fieldColorMap above), so summing
+  // the three sizes double-counts a field that is, say, both manual and calc —
+  // and the sidebar a few pixels away shows the DISTINCT count. Union, so the
+  // two labels agree by construction rather than by coincidence.
+  const distinctFieldCount = useMemo(
+    () => new Set([...autoFields, ...manualFields, ...calcFields]).size,
+    [autoFields, manualFields, calcFields],
+  );
+
   const filterButtons: { id: FieldFilter; label: string; count: number }[] = [
     { id: 'auto', label: 'Auto', count: autoFields.size },
     { id: 'manual', label: 'Manual', count: manualFields.size },
     { id: 'calc', label: 'Calculated', count: calcFields.size },
-    { id: 'all', label: 'All', count: autoFields.size + manualFields.size + calcFields.size },
+    { id: 'all', label: 'All', count: distinctFieldCount },
   ];
 
   return (

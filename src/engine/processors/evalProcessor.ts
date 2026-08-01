@@ -725,11 +725,20 @@ function evalBuiltin(fn: string, args: EvalValue[], ctx: EvalCtx): EvalValue {
     case 'ln': { const n = numArg(args[0]); return n === null ? null : Math.log(n); }
     case 'exp': { const n = numArg(args[0]); return n === null ? null : Math.exp(n); }
     case 'pi': return Math.PI;
-    case 'exact': return numArg(args[0]);
     case 'min': return minMax(args, 'min');
     case 'max': return minMax(args, 'max');
     case 'random': return Math.floor(Math.random() * 2147483648); // 0 .. 2^31-1, like Splunk
-    case 'sigfig': return numArg(args[0]);
+
+    // Precision control — not simulated. Both return the value unrounded, which
+    // is the one stub shape that looks like a correct answer rather than an
+    // obvious placeholder: `sigfig(3.14159)` showing `3.14159` reads as a
+    // working computation. So they warn, like every other unsimulated function.
+    case 'exact':
+      ctx.onStubWarning?.('exact');
+      return numArg(args[0]);
+    case 'sigfig':
+      ctx.onStubWarning?.('sigfig');
+      return numArg(args[0]);
 
     // Multivalue
     case 'mvcount': {
