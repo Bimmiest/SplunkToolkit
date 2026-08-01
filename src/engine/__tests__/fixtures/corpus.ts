@@ -598,7 +598,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'kvmode-xml',
-    knownMismatch: '#171',
     directives: ['KV_MODE'],
     phase: 'search-time',
     props:
