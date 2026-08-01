@@ -32,6 +32,10 @@ const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
   bracketPairColorization: { enabled: false },
   acceptSuggestionOnEnter: 'off',
   tabCompletion: 'on',
+  // Monaco's 300ms default fires while the pointer is still crossing the file
+  // on its way somewhere else, and these hovers are large — a full directive
+  // reference, not a one-line tooltip. Long enough to require intent.
+  hover: { delay: 800 },
   suggestOnTriggerCharacters: true,
   quickSuggestions: true,
   fixedOverflowWidgets: true,

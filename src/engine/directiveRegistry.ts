@@ -573,7 +573,7 @@ const DIRECTIVES: DirectiveInfo[] = [
     appliesTo: 'transforms.conf',
     valueType: 'string',
     isClassBased: false,
-    phase: 'both',
+    phase: 'search-time',
   },
   {
     key: 'FIELDS',
@@ -586,7 +586,7 @@ const DIRECTIVES: DirectiveInfo[] = [
     appliesTo: 'transforms.conf',
     valueType: 'string',
     isClassBased: false,
-    phase: 'both',
+    phase: 'search-time',
   },
   {
     key: 'SOURCE_KEY',
@@ -821,21 +821,22 @@ const DIRECTIVES: DirectiveInfo[] = [
     appliesTo: 'transforms.conf',
     valueType: 'boolean',
     isClassBased: false,
-    phase: 'both',
+    phase: 'search-time',
   },
   {
     key: 'CLEAN_KEYS',
     description:
-      'When set to true (the default), Splunk replaces non-alphanumeric characters in extracted field names ' +
-      'with underscores. Field-name case is preserved. Set to false to keep the raw key text. ' +
-      'Helps normalize field names extracted from diverse data sources.',
+      'When set to true (the default), Splunk cleans the field names it extracts: every non-alphanumeric ' +
+      'character becomes an underscore, then any leading underscores and digits are stripped. Case is ' +
+      'preserved and interior underscores survive, so "2026-01-15T10:00:00Z a" becomes "T10_00_00Z_a". ' +
+      'Set to false (or 0) to keep the raw key text. Search-time field extractions only.',
     example: 'CLEAN_KEYS = true',
     defaultValue: 'true',
     category: 'Field Extraction',
     appliesTo: 'transforms.conf',
     valueType: 'boolean',
     isClassBased: false,
-    phase: 'both',
+    phase: 'search-time',
   },
   {
     key: 'KEEP_EMPTY_VALS',
@@ -848,7 +849,7 @@ const DIRECTIVES: DirectiveInfo[] = [
     appliesTo: 'transforms.conf',
     valueType: 'boolean',
     isClassBased: false,
-    phase: 'both',
+    phase: 'search-time',
   },
   {
     key: 'CAN_OPTIMIZE',

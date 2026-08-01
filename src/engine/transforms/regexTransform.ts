@@ -243,6 +243,43 @@ function splitOnAnyChar(value: string, delims: string): string[] {
 }
 
 /**
+ * CLEAN_KEYS "key cleaning": replace every non-alphanumeric character with an
+ * underscore, then strip leading underscores and digits.
+ *
+ * Both halves are pinned by a capture from Splunk 10.4.0
+ * (`report-delims-field-and-value`), where `DELIMS = ";", "="` over
+ * `2026-01-15T10:00:00Z a=1;…` yields the field `T10_00_00Z_a`:
+ * `2026-01-15T10:00:00Z a` → `2026_01_15T10_00_00Z_a` → `T10_00_00Z_a`.
+ *
+ * Interior underscores survive — only a LEADING run is stripped — which is why
+ * a FIELDS name like `col_a` comes back unchanged.
+ */
+export function cleanFieldKey(raw: string): string {
+  return raw.replace(/[^A-Za-z0-9]/g, '_').replace(/^[_0-9]+/, '');
+}
+
+/**
+ * Resolve the field-name transformation a transform applies to keys it extracts.
+ *
+ * CLEAN_KEYS is search-time only, and defaults to on. At index time the only
+ * name rewriting is the leading-underscore strip that WRITE_META performs.
+ */
+function keyCleaner(
+  stanza: ConfStanza,
+  writeMeta: boolean,
+  phase: 'index-time' | 'search-time',
+): (raw: string) => string {
+  if (phase === 'index-time') {
+    return (raw) => (writeMeta ? stripLeadingUnderscoreForField(raw.trim()) : raw.trim());
+  }
+  // Splunk reads this as a boolean, so `0`/`false` turn cleaning off and
+  // anything else (including an absent directive) leaves it on.
+  const declared = lastDirective(stanza, 'CLEAN_KEYS')?.value.trim().toLowerCase();
+  const cleanKeys = !(declared === 'false' || declared === '0');
+  return (raw) => (cleanKeys ? cleanFieldKey(raw.trim()) : raw.trim());
+}
+
+/**
  * DELIMS/FIELDS delimiter-based extraction (the alternative to REGEX).
  *  - Two DELIMS sets → field/value pairs: first set splits pairs, second splits
  *    key from value (on the first key-delimiter occurrence).
@@ -254,7 +291,7 @@ function applyDelimsExtraction(
   stanza: ConfStanza,
   delimsDir: ConfDirective,
   sourceKeyDir: ConfDirective | undefined,
-  writeMeta: boolean,
+  cleanName: (raw: string) => string,
 ): TransformResult {
   const result: TransformResult = { fields: {}, matched: false };
   const sourceValue = resolveSourceValue(event, sourceKeyDir);
@@ -262,8 +299,6 @@ function applyDelimsExtraction(
 
   const delimSets = parseDelimList(delimsDir.value);
   if (delimSets.length === 0) return result;
-
-  const cleanName = (raw: string) => (writeMeta ? stripLeadingUnderscoreForField(raw.trim()) : raw.trim());
 
   if (delimSets.length >= 2) {
     const [pairDelims = '', kvDelims = ''] = delimSets;
@@ -320,15 +355,26 @@ export function applyRegexTransform(
   // REPEAT_MATCH: re-run the regex to find every match (default: first match only).
   // MV_ADD: when a field is extracted more than once, accumulate into a multivalue
   // field rather than discarding the later value (default: keep the first).
+  //
+  // MV_ADD, like DELIMS/FIELDS/CLEAN_KEYS/KEEP_EMPTY_VALS below, is documented
+  // as valid only for search-time field extractions, so an index-time
+  // TRANSFORMS- pass ignores it rather than quietly honouring a setting real
+  // Splunk drops. transformsProcessor warns when a stanza is used that way.
   const repeatMatch = lastDirective(transformStanza, 'REPEAT_MATCH')?.value.trim().toLowerCase() === 'true';
-  const mvAdd = lastDirective(transformStanza, 'MV_ADD')?.value.trim().toLowerCase() === 'true';
+  const mvAdd =
+    phase === 'search-time' &&
+    lastDirective(transformStanza, 'MV_ADD')?.value.trim().toLowerCase() === 'true';
 
   const result: TransformResult = { fields: {}, matched: false };
+  const cleanName = keyCleaner(transformStanza, writeMeta, phase);
 
-  // DELIMS-based (delimiter) extraction is used in place of REGEX.
-  const delimsDir = lastDirective(transformStanza, 'DELIMS');
+  // DELIMS-based (delimiter) extraction is used in place of REGEX — and is
+  // search-time only, so an index-time reference to a DELIMS stanza extracts
+  // nothing at all. Falling through to the REGEX branch is correct: a DELIMS
+  // stanza has no REGEX, so the transform does nothing.
+  const delimsDir = phase === 'search-time' ? lastDirective(transformStanza, 'DELIMS') : undefined;
   if (delimsDir) {
-    return applyDelimsExtraction(event, transformStanza, delimsDir, sourceKeyDir, writeMeta);
+    return applyDelimsExtraction(event, transformStanza, delimsDir, sourceKeyDir, cleanName);
   }
 
   if (!regexDir) return result;
@@ -419,8 +465,9 @@ export function applyRegexTransform(
       let m: RegExpExecArray | null;
       while ((m = global.exec(sourceValue)) !== null) {
         for (const pair of pairs) {
-          const expandedKey = expandFormat(pair.key, m);
-          const field = writeMeta ? stripLeadingUnderscoreForField(expandedKey) : expandedKey;
+          // Cleaned because FORMAT can name a field from the DATA (`$1::$2`), so
+          // the key is only as well-formed as whatever the capture group caught.
+          const field = cleanName(expandFormat(pair.key, m));
           if (field) addMultiValue(result.fields, field, expandFormat(pair.value, m));
         }
         // Guard against zero-length outer matches looping forever.

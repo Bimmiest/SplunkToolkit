@@ -3,8 +3,15 @@ import type React from 'react';
 import { Command } from 'cmdk';
 import { useAppStore } from '../../store/useAppStore';
 import { SAMPLE_CONFIGS } from '../../engine/sampleData';
+import { getAllDirectives } from '../../engine/directiveRegistry';
 import { Icon } from './Icon';
 import { useOverlay } from '../../hooks/useOverlay';
+
+// Static registry, so the lookup list is built once rather than per keystroke.
+// Deduplicated because a few keys (MATCH_LIMIT, DEPTH_LIMIT) are registered once
+// per conf file: one palette entry per key is what a lookup wants, and repeated
+// keys would collide as React list keys.
+const DIRECTIVE_KEYS = [...new Set(getAllDirectives().map((d) => d.key))];
 
 type OutputTabId = 'preview' | 'cim' | 'fields' | 'transforms' | 'architecture';
 
@@ -27,6 +34,8 @@ export function CommandPalette() {
   const setMetadata = useAppStore((s) => s.setMetadata);
   const toggleHelp = useAppStore((s) => s.toggleHelp);
   const toggleScaffold = useAppStore((s) => s.toggleScaffold);
+  const setActiveView = useAppStore((s) => s.setActiveView);
+  const openDictionaryAt = useAppStore((s) => s.openDictionaryAt);
 
   const close = useCallback(() => {
     if (open) toggleCommandPalette();
@@ -130,12 +139,41 @@ export function CommandPalette() {
           </CommandGroup>
 
           <CommandGroup heading="Navigate">
+            <CommandItem
+              label="Go to: Simulator"
+              icon="sliders"
+              onSelect={() => run(() => setActiveView('simulator'))}
+            />
+            <CommandItem
+              label="Go to: Dictionary"
+              hint="Browse every directive"
+              icon="book"
+              onSelect={() => run(() => setActiveView('dictionary'))}
+            />
             {OUTPUT_TABS.map((tab) => (
               <CommandItem
                 key={tab.id}
                 label={`Go to: ${tab.label}`}
                 icon="arrow-right"
-                onSelect={() => run(() => setActiveOutputTab(tab.id))}
+                // The output tabs live in the simulator, so switch back to it —
+                // otherwise this silently changes a tab the user cannot see.
+                onSelect={() =>
+                  run(() => {
+                    setActiveView('simulator');
+                    setActiveOutputTab(tab.id);
+                  })
+                }
+              />
+            ))}
+          </CommandGroup>
+
+          <CommandGroup heading="Look up">
+            {DIRECTIVE_KEYS.map((key) => (
+              <CommandItem
+                key={key}
+                label={`Dictionary: ${key}`}
+                icon="book"
+                onSelect={() => run(() => openDictionaryAt(key))}
               />
             ))}
           </CommandGroup>

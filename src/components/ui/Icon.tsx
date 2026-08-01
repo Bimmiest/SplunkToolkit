@@ -24,7 +24,9 @@ export type IconName =
   | 'shield'
   | 'clipboard'
   | 'sparkles'
-  | 'play';
+  | 'play'
+  | 'book'
+  | 'sliders';
 
 const PATHS: Record<IconName, React.ReactNode> = {
   'chevron-down': <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />,
@@ -83,6 +85,25 @@ const PATHS: Record<IconName, React.ReactNode> = {
   ),
   'play': <polygon points="5 3 19 12 5 21 5 3" />,
   'sparkles': <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m6-15l2.4 6.6L21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4L12 2z" />,
+  'book': (
+    <>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 19.5A2.5 2.5 0 016.5 17H20" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
+    </>
+  ),
+  'sliders': (
+    <>
+      <line x1="4" y1="21" x2="4" y2="14" />
+      <line x1="4" y1="10" x2="4" y2="3" />
+      <line x1="12" y1="21" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12" y2="3" />
+      <line x1="20" y1="21" x2="20" y2="16" />
+      <line x1="20" y1="12" x2="20" y2="3" />
+      <line x1="1" y1="14" x2="7" y2="14" />
+      <line x1="9" y1="8" x2="15" y2="8" />
+      <line x1="17" y1="16" x2="23" y2="16" />
+    </>
+  ),
 };
 
 interface IconProps {

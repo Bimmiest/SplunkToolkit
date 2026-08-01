@@ -54,6 +54,7 @@ export function applyTransforms(
   // Warn once per stanza whose DEST_KEY is reached through a search-time REPORT-,
   // where Splunk ignores it.
   const warnedSearchTimeDestKey = new Set<string>();
+  const warnedSearchOnlyAttrs = new Set<string>();
 
   return events.map((event) => {
     let currentEvent: SplunkEvent = event;
@@ -89,6 +90,13 @@ export function applyTransforms(
             ...positionOfKeyOrStanza(transformStanza, 'REGEX'),
           });
         }, phase);
+
+        // Fires whether or not the transform matched: a DELIMS stanza reached
+        // through TRANSFORMS- extracts nothing at all, so `matched` is false and
+        // a warning gated on it would never reach the one config that needs it.
+        if (phase === 'index-time' && diagnostics) {
+          warnIndexTimeSearchOnlyAttrs(stanzaName, transformStanza, diagnostics, warnedSearchOnlyAttrs);
+        }
 
         if (result.matched) {
           if (phase === 'index-time' && diagnostics) {
@@ -184,6 +192,46 @@ function warnIndexTimeNoWriteMeta(
  * `_TCP_ROUTING` / `_SYSLOG_ROUTING` are valid keys this tool just doesn't model;
  * they get an informational note rather than a warning. Fires once per stanza.
  */
+/**
+ * Attributes transforms.conf documents as valid only for search-time field
+ * extractions. Reached through an index-time `TRANSFORMS-`, Splunk ignores them.
+ *
+ * DELIMS and FIELDS are the consequential pair: they are the *alternative* to
+ * REGEX, so a DELIMS stanza used index-time has no extraction mechanism left and
+ * does nothing whatsoever — the config looks reasonable and produces no fields.
+ */
+const SEARCH_TIME_ONLY_ATTRS = ['DELIMS', 'FIELDS', 'MV_ADD', 'CLEAN_KEYS', 'KEEP_EMPTY_VALS'];
+
+function warnIndexTimeSearchOnlyAttrs(
+  stanzaName: string,
+  transformStanza: ParsedConf['stanzas'][number],
+  diagnostics: ValidationDiagnostic[],
+  warned: Set<string>,
+): void {
+  if (warned.has(stanzaName)) return;
+  const present = SEARCH_TIME_ONLY_ATTRS.filter((key) =>
+    transformStanza.directives.some((d) => d.key === key),
+  );
+  if (present.length === 0) return;
+  warned.add(stanzaName);
+
+  const hasDelims = present.includes('DELIMS');
+  diagnostics.push({
+    level: 'warning',
+    message:
+      `Transform "${stanzaName}" sets ${present.join(', ')}, but it is referenced by an index-time TRANSFORMS-. ` +
+      `${present.length === 1 ? 'That attribute is' : 'Those attributes are'} valid only for search-time field ` +
+      'extractions, so Splunk ignores ' +
+      `${present.length === 1 ? 'it' : 'them'} here. ` +
+      (hasDelims
+        ? 'DELIMS is the alternative to REGEX, so this stanza extracts nothing at all. '
+        : '') +
+      'Reference the stanza with REPORT-<class> instead.',
+    file: 'transforms.conf',
+    ...positionOfKeyOrStanza(transformStanza, present[0] ?? 'DELIMS'),
+  });
+}
+
 /**
  * A stanza referenced by `REPORT-` runs at search time, where transforms.conf
  * defines DEST_KEY as having no meaning. Splunk performs the field extraction

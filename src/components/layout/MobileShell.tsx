@@ -3,27 +3,50 @@ import { RawPanel } from '../raw/RawPanel';
 import { PropsConfEditor } from '../editor/PropsConfEditor';
 import { TransformsConfEditor } from '../editor/TransformsConfEditor';
 import { PreviewPanel } from '../preview/PreviewPanel';
+import { DictionaryView } from '../dictionary/DictionaryView';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { Icon } from '../ui/Icon';
 import type { IconName } from '../ui/Icon';
+import { useAppStore } from '../../store/useAppStore';
 
-type MobileView = 'raw' | 'props' | 'transforms' | 'output';
+type MobileView = 'raw' | 'props' | 'transforms' | 'output' | 'dictionary';
 
 const VIEWS: { id: MobileView; label: string; icon: IconName }[] = [
   { id: 'raw', label: 'Raw', icon: 'document' },
   { id: 'props', label: 'props', icon: 'settings' },
   { id: 'transforms', label: 'transforms', icon: 'refresh' },
   { id: 'output', label: 'Output', icon: 'eye' },
+  { id: 'dictionary', label: 'Docs', icon: 'book' },
 ];
 
 /**
  * Single-panel-at-a-time layout for narrow viewports. The desktop resizable
  * split collapses every column to an unusable width on a phone, so on mobile we
  * show one full-width panel and switch between them with a segmented control.
+ *
+ * The desktop activity rail has no equivalent here — it is icon-only, and touch
+ * has no hover to reveal the labels — so the dictionary joins the strip as a
+ * fifth labelled tab instead.
  */
 export function MobileShell() {
-  const [view, setView] = useState<MobileView>('raw');
+  const activeView = useAppStore((s) => s.activeView);
+  const setActiveView = useAppStore((s) => s.setActiveView);
+  const [simulatorView, setSimulatorView] = useState<Exclude<MobileView, 'dictionary'>>('raw');
   const tablistRef = useRef<HTMLDivElement>(null);
+
+  // The dictionary tab is backed by the shared `activeView` so that deep links
+  // (openDictionaryAt, from the editor hover or the command palette) land here
+  // too; the other four are a local concern with no desktop counterpart.
+  const view: MobileView = activeView === 'dictionary' ? 'dictionary' : simulatorView;
+
+  const setView = (next: MobileView) => {
+    if (next === 'dictionary') {
+      setActiveView('dictionary');
+      return;
+    }
+    setActiveView('simulator');
+    setSimulatorView(next);
+  };
 
   // Roving-tabindex keyboard navigation, matching the shared Tabs component:
   // only the active tab is in the tab order; arrows/Home/End move between tabs.
@@ -102,6 +125,11 @@ export function MobileShell() {
         {view === 'output' && (
           <ErrorBoundary panelName="Output">
             <PreviewPanel />
+          </ErrorBoundary>
+        )}
+        {view === 'dictionary' && (
+          <ErrorBoundary panelName="Dictionary">
+            <DictionaryView />
           </ErrorBoundary>
         )}
       </div>

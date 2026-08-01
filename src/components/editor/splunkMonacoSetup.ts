@@ -3,6 +3,8 @@ import type { languages } from 'monaco-editor';
 import { createCompletionProvider } from '../../monaco/splunkConfCompletion';
 import { createHoverProvider } from '../../monaco/splunkConfHover';
 import { createFoldingRangeProvider } from '../../monaco/splunkConfFolding';
+import { OPEN_DICTIONARY_COMMAND_ID } from '../../monaco/dictionaryCommand';
+import { useAppStore } from '../../store/useAppStore';
 
 /**
  * The two conf files share one syntax (and one Monarch grammar) but expose
@@ -32,6 +34,17 @@ export function ensureSplunkMonaco() {
 function registerSplunkConfLanguage() {
   monaco.languages.register({ id: PROPS_LANGUAGE_ID });
   monaco.languages.register({ id: TRANSFORMS_LANGUAGE_ID });
+
+  // Backs the "Open in dictionary" link in directive hovers. Reached through
+  // the store's vanilla API because Monaco commands run outside React — and
+  // guarded on the argument type because the id is addressable from any
+  // `command:` URI Monaco decides to trust.
+  monaco.editor.registerCommand(OPEN_DICTIONARY_COMMAND_ID, (_accessor, ...args: unknown[]) => {
+    const key = args[0];
+    if (typeof key === 'string' && key.length > 0) {
+      useAppStore.getState().openDictionaryAt(key);
+    }
+  });
 
   const monarchTokens: languages.IMonarchLanguage = {
     defaultToken: '',

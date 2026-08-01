@@ -139,13 +139,89 @@ test.describe('accessibility affordances', () => {
     const palette = page.getByRole('dialog');
     await expect(palette).toBeVisible();
 
-    // useOverlay marks the modal's siblings inert while it is open.
-    await expect(page.locator('#main-content')).toHaveAttribute('aria-hidden', 'true');
+    // useOverlay marks the modal's siblings inert while it is open. Asserted on
+    // the enclosing subtree rather than on `#main-content` itself: the overlay
+    // hides its own siblings, and `main` sits one level down inside the wrapper
+    // that holds the activity rail beside it. What matters is that the workspace
+    // is unreachable, not which element carries the attribute.
+    const hiddenWorkspace = page.locator('[aria-hidden="true"]:has(#main-content)');
+    await expect(hiddenWorkspace).toHaveCount(1);
 
     await page.keyboard.press('Escape');
     await expect(palette).toBeHidden();
-    await expect(page.locator('#main-content')).not.toHaveAttribute('aria-hidden', 'true');
+    await expect(hiddenWorkspace).toHaveCount(0);
 
     expect(complaints.all, 'browser errors during overlay interaction').toEqual([]);
+  });
+});
+
+test.describe('dictionary', () => {
+  test('switches views from the rail and keeps the simulator alive behind it', async ({ page, complaints }) => {
+    await openApp(page);
+    await loadExample(page, APACHE);
+
+    const editors = page.locator('.monaco-editor');
+    await expect(editors).toHaveCount(3);
+
+    await page.getByRole('tab', { name: 'Dictionary' }).click();
+    await expect(page.getByRole('listbox', { name: 'Splunk directives' })).toBeVisible();
+
+    // The whole point of switching with `hidden` instead of unmounting: the
+    // editors are still there, so nothing was torn down and rebuilt.
+    await expect(editors).toHaveCount(3);
+
+    await page.getByRole('tab', { name: 'Simulator' }).click();
+    await expect(page.getByRole('listbox', { name: 'Splunk directives' })).toBeHidden();
+    await expect(editors.nth(2)).toBeVisible();
+
+    expect(complaints.all, 'browser errors while switching views').toEqual([]);
+  });
+
+  test('filters the directive list and documents the selection', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('tab', { name: 'Dictionary' }).click();
+
+    await page.getByLabel('Search directives').fill('KV_MODE');
+    const listbox = page.getByRole('listbox', { name: 'Splunk directives' });
+    await listbox.getByText('KV_MODE', { exact: true }).click();
+
+    // The detail pane renders from directiveRegistry: description, the enum
+    // values, and the pipeline stage the key belongs to.
+    await expect(page.getByRole('heading', { level: 2, name: 'KV_MODE' })).toBeVisible();
+    await expect(page.getByText('auto_escaped', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /KV Mode/ })).toBeVisible();
+  });
+
+  test('a directive hover in props.conf opens that key in the dictionary', async ({ page }) => {
+    await openApp(page);
+
+    // Monaco's hover widget is a contribution, not part of the editor API — it
+    // only exists if editor.all made it into the bundle, which is exactly the
+    // kind of bundling question a production-build test is here to answer.
+    const props = page.locator('.monaco-editor').nth(1);
+    await props.click();
+    await page.keyboard.type('[web]\nTIME_PREFIX = ^\n');
+    // Dismiss the suggest widget, which opens on the new line and covers the
+    // very token this test needs to hover.
+    await page.keyboard.press('Escape');
+
+    const token = props.getByText('TIME_PREFIX', { exact: true }).first();
+    await expect(token).toBeVisible();
+    const box = await token.boundingBox();
+    if (!box) throw new Error('TIME_PREFIX token not rendered');
+
+    // Monaco opens the hover on mouse DWELL, and it needs movement to start the
+    // timer — a single jump to the token can arrive before the editor is
+    // listening and then never repeat. Nudge repeatedly until the widget shows.
+    const link = page.getByText('Open in dictionary');
+    await expect(async () => {
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.move(box.x + box.width / 2 + 1, box.y + box.height / 2);
+      await expect(link).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 20_000 });
+
+    await link.click();
+
+    await expect(page.getByRole('heading', { level: 2, name: 'TIME_PREFIX' })).toBeVisible();
   });
 });

@@ -2,115 +2,21 @@ import { useState } from 'react';
 import { useOverlay } from '../../hooks/useOverlay';
 import { useAppStore } from '../../store/useAppStore';
 import { Icon } from '../ui/Icon';
-
-interface PipelineStage {
-  step: number;
-  name: string;
-  phase: 'index-time' | 'search-time';
-  description: string;
-  directives: string[];
-}
-
-const PIPELINE_STAGES: PipelineStage[] = [
-  {
-    step: 1,
-    name: 'Line Breaking',
-    phase: 'index-time',
-    description:
-      'Splits the raw data stream into individual events. Splunk looks for the LINE_BREAKER regex to find event boundaries. By default it breaks on newlines, but multiline events (e.g. stack traces) need SHOULD_LINEMERGE or BREAK_ONLY_BEFORE.',
-    directives: ['LINE_BREAKER', 'SHOULD_LINEMERGE', 'BREAK_ONLY_BEFORE', 'BREAK_ONLY_BEFORE_DATE', 'MUST_BREAK_AFTER', 'MAX_EVENTS'],
-  },
-  {
-    step: 2,
-    name: 'Truncation',
-    phase: 'index-time',
-    description:
-      'Truncates events that exceed the maximum allowed length. Prevents runaway events from consuming excessive index space. Events are cut at the TRUNCATE byte boundary.',
-    directives: ['TRUNCATE'],
-  },
-  {
-    step: 3,
-    name: 'Timestamp Extraction',
-    phase: 'index-time',
-    description:
-      'Locates and parses the event timestamp. TIME_PREFIX anchors the search position; TIME_FORMAT parses the found value using strftime tokens. If extraction fails, Splunk falls back to the current time.',
-    directives: ['TIME_PREFIX', 'TIME_FORMAT', 'MAX_TIMESTAMP_LOOKAHEAD', 'TZ', 'MAX_DAYS_AGO', 'MAX_DAYS_HENCE'],
-  },
-  {
-    step: 4,
-    name: 'Indexed Extractions',
-    phase: 'index-time',
-    description:
-      'Parses structured formats (JSON, CSV, TSV, PSV, W3C) at index time so field values are stored and searchable without search-time extraction overhead. Note: leading underscores are stripped from field names.',
-    directives: ['INDEXED_EXTRACTIONS'],
-  },
-  {
-    step: 5,
-    name: 'SEDCMD',
-    phase: 'index-time',
-    description:
-      'Applies sed-style s/pattern/replacement/ substitutions to the raw event text before indexing. Commonly used to mask or remove PII (credit cards, SSNs) before the data is persisted.',
-    directives: ['SEDCMD'],
-  },
-  {
-    step: 6,
-    name: 'Index-Time Transforms',
-    phase: 'index-time',
-    description:
-      'Applies transforms.conf stanzas referenced by TRANSFORMS directives. Can route events to different indexes, modify metadata fields, or drop events entirely before they are written to disk.',
-    directives: ['TRANSFORMS', 'INGEST_EVAL'],
-  },
-  {
-    step: 7,
-    name: 'Field Extraction',
-    phase: 'search-time',
-    description:
-      'Applies EXTRACT-<name> regex patterns to _raw, using named capture groups to produce fields. All matches are collected — if a regex matches multiple times, the field becomes a multivalue array.',
-    directives: ['EXTRACT'],
-  },
-  {
-    step: 8,
-    name: 'Search-Time Transforms',
-    phase: 'search-time',
-    description:
-      'Applies transforms.conf stanzas referenced by REPORT directives. Uses REGEX + FORMAT to extract fields at search time, with full support for SOURCE_KEY, DEST_KEY, and multivalue output. Runs before automatic KV extraction, matching Splunk’s documented order.',
-    directives: ['REPORT'],
-  },
-  {
-    step: 9,
-    name: 'KV Mode',
-    phase: 'search-time',
-    description:
-      'Automatically extracts fields from structured content in _raw. "auto" handles key=value and key="value" pairs; "json" parses embedded JSON objects; "xml" parses XML; "none" disables auto-extraction.',
-    directives: ['KV_MODE', 'AUTO_KV_JSON'],
-  },
-  {
-    step: 10,
-    name: 'Field Aliases',
-    phase: 'search-time',
-    description:
-      'Creates alternative names for existing fields without copying data. Essential for CIM normalisation — map vendor-specific field names (e.g. src_ip) to CIM names (e.g. src) so CIM-based searches work across sourcetypes.',
-    directives: ['FIELDALIAS'],
-  },
-  {
-    step: 11,
-    name: 'Eval Expressions',
-    phase: 'search-time',
-    description:
-      'Computes new field values using SPL eval expressions at search time. Supports the full eval function library: if(), case(), coalesce(), lower(), tonumber(), strftime(), cidrmatch(), and more.',
-    directives: ['EVAL'],
-  },
-];
-
-const PHASE_LABELS: Record<PipelineStage['phase'], string> = {
-  'index-time': 'Index-Time',
-  'search-time': 'Search-Time',
-};
+import { PIPELINE_STAGES, PHASE_LABELS, type PipelineStage } from '../../engine/pipelineStages';
 
 export function HelpPanel() {
   const helpOpen = useAppStore((s) => s.helpOpen);
   const toggleHelp = useAppStore((s) => s.toggleHelp);
+  const openDictionaryAt = useAppStore((s) => s.openDictionaryAt);
   const [expandedStep, setExpandedStep] = useState<number | null>(null);
+
+  // This drawer answers "what runs when"; the dictionary answers "what does
+  // this directive do". Selecting a directive chip hands over to the other and
+  // closes this one, so the two never fight for the same screen.
+  const openDirective = (key: string) => {
+    openDictionaryAt(key);
+    toggleHelp();
+  };
 
   // Escape closes only the topmost overlay; the hook also traps Tab and hides
   // sibling content while the panel is open.
@@ -184,6 +90,7 @@ export function HelpPanel() {
             phaseColor="var(--color-warning)"
             expandedStep={expandedStep}
             onToggle={setExpandedStep}
+            onOpenDirective={openDirective}
           />
           <StageGroup
             title="Search-Time Processing"
@@ -191,6 +98,7 @@ export function HelpPanel() {
             phaseColor="var(--color-accent)"
             expandedStep={expandedStep}
             onToggle={setExpandedStep}
+            onOpenDirective={openDirective}
           />
         </div>
 
@@ -199,7 +107,7 @@ export function HelpPanel() {
           className="px-5 py-3 shrink-0 border-t text-xs text-[var(--color-text-muted)]"
           style={{ borderColor: 'var(--color-border-subtle)', backgroundColor: 'var(--color-bg-secondary)' }}
         >
-          Hover any directive key in the editor for full docs and examples.
+          Select a directive to look it up in the dictionary, or hover any key in the editor.
         </div>
       </div>
     </>
@@ -212,12 +120,14 @@ function StageGroup({
   phaseColor,
   expandedStep,
   onToggle,
+  onOpenDirective,
 }: {
   title: string;
   stages: PipelineStage[];
   phaseColor: string;
   expandedStep: number | null;
   onToggle: (step: number | null) => void;
+  onOpenDirective: (key: string) => void;
 }) {
   return (
     <div>
@@ -235,6 +145,7 @@ function StageGroup({
             phaseColor={phaseColor}
             isExpanded={expandedStep === stage.step}
             onToggle={() => onToggle(expandedStep === stage.step ? null : stage.step)}
+            onOpenDirective={onOpenDirective}
           />
         ))}
       </div>
@@ -247,11 +158,13 @@ function StageCard({
   phaseColor,
   isExpanded,
   onToggle,
+  onOpenDirective,
 }: {
   stage: PipelineStage;
   phaseColor: string;
   isExpanded: boolean;
   onToggle: () => void;
+  onOpenDirective: (key: string) => void;
 }) {
   return (
     <div
@@ -297,9 +210,13 @@ function StageCard({
           </p>
           <div className="flex flex-wrap gap-1.5">
             {stage.directives.map((d) => (
-              <span
+              <button
                 key={d}
-                className="px-2 py-0.5 text-[11px] font-mono rounded-md font-medium"
+                type="button"
+                onClick={() => onOpenDirective(d)}
+                title={`Open ${d} in the dictionary`}
+                className="px-2 py-0.5 text-[11px] font-mono rounded-md font-medium cursor-pointer
+                  outline-none focus-visible:ring-2 transition-colors hover:bg-[var(--color-bg-tertiary)]"
                 style={{
                   backgroundColor: 'var(--color-bg-secondary)',
                   color: 'var(--color-accent)',
@@ -307,7 +224,7 @@ function StageCard({
                 }}
               >
                 {d}
-              </span>
+              </button>
             ))}
           </div>
         </div>
