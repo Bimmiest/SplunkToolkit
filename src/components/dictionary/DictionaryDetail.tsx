@@ -182,7 +182,11 @@ export function DictionaryDetail({ entry }: { entry: DictionaryEntry }) {
           main={
             <>
               <Lede>{stanza.description}</Lede>
-              <CodeCard label="Example" code={stanza.example} />
+              {/* `[default]` takes no pattern, so its example is the heading
+                  again. A code card that restates the title is ceremony. */}
+              {stanza.example !== stanza.label && (
+                <CodeCard label="Example" code={stanza.example} />
+              )}
               {stanza.patternSyntax.length > 0 && (
                 <Card label="Pattern syntax">
                   <ul className="flex flex-col gap-1.5">

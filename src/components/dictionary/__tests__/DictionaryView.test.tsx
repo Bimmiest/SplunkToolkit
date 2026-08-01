@@ -202,3 +202,38 @@ describe('DictionaryDetail layout', () => {
     expect(screen.getByText('auto_escaped', { exact: true })).toBeInTheDocument();
   });
 });
+
+describe('DictionaryDetail adapts to how much an entry has to say', () => {
+  beforeEach(() => {
+    useAppStore.setState(initial, true);
+  });
+
+  it('drops a stanza example that only restates the heading', () => {
+    // `[default]` takes no pattern, so its registry example IS "[default]".
+    useAppStore.setState({ dictionarySelection: 'stanza:default' });
+    renderDictionary();
+    expect(screen.queryByText('Example')).not.toBeInTheDocument();
+  });
+
+  it('keeps a stanza example that shows something new', () => {
+    useAppStore.setState({ dictionarySelection: 'stanza:source' });
+    renderDictionary();
+    expect(screen.getByText('Example')).toBeInTheDocument();
+  });
+
+  it('still renders the single reference card when the layout collapses', () => {
+    // One aside card does not earn a column, but it must not vanish either.
+    useAppStore.setState({ dictionarySelection: 'stanza:default' });
+    renderDictionary();
+    expect(screen.getByText('Precedence')).toBeInTheDocument();
+    expect(screen.getByText(/Lowest/)).toBeInTheDocument();
+  });
+
+  it('renders every reference card for a directive that has three', () => {
+    useAppStore.setState({ dictionarySelection: 'KV_MODE' });
+    renderDictionary();
+    expect(screen.getByText('Specification')).toBeInTheDocument();
+    expect(screen.getByText('Valid values')).toBeInTheDocument();
+    expect(screen.getByText('Runs at')).toBeInTheDocument();
+  });
+});
