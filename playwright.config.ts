@@ -41,11 +41,19 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: `npm run build && npm run preview -- --port ${PORT} --strictPort`,
+    // `--host 127.0.0.1` is not redundant with the port. `vite preview` binds
+    // `localhost` by default, which on a GitHub Actions runner resolves to `::1`
+    // first — so the server comes up on IPv6 only and `BASE_URL`'s 127.0.0.1 is
+    // never reachable. The symptom is a webServer timeout with a completely
+    // healthy build in the log directly above it.
+    command: `npm run build && npm run preview -- --port ${PORT} --strictPort --host 127.0.0.1`,
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
-    stdout: 'ignore',
+    // Piped, not ignored: the server's own startup line ("Local: http://…") is
+    // what distinguishes "never bound" from "bound somewhere else", and
+    // discarding it is what made the failure above take a log-read to diagnose.
+    stdout: 'pipe',
     stderr: 'pipe',
   },
 });
