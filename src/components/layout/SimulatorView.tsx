@@ -41,14 +41,19 @@ export function SimulatorView() {
   const layoutKey = `${propsCollapsed ? 'pc' : 'pe'}-${transformsCollapsed ? 'tc' : 'te'}`;
 
   return (
+    // Sizes are STRINGS: react-resizable-panels v4 reads a number as pixels and
+    // a string as a percentage. These were numbers, which happened to look right
+    // because the library turns them into flex-grow ratios — but it also meant
+    // every minSize was a handful of pixels, so a drag could crush any panel to
+    // nothing.
     <Group orientation="horizontal" id="main-horizontal">
       {/* Left side: Raw, Props, Transforms */}
-      <Panel defaultSize={38} minSize={20} id="left-inputs">
+      <Panel defaultSize="38" minSize="20" id="left-inputs">
         <div className="h-full flex flex-col">
           {/* Resizable area for expanded panels */}
           <div className="flex-1 min-h-0">
             <Group orientation="vertical" id={`left-vertical-${layoutKey}`} key={layoutKey}>
-              <Panel defaultSize={propsCollapsed && transformsCollapsed ? 100 : propsCollapsed || transformsCollapsed ? 50 : 30} minSize={10} id="raw-panel">
+              <Panel defaultSize={propsCollapsed && transformsCollapsed ? '100' : propsCollapsed || transformsCollapsed ? '50' : '30'} minSize="10" id="raw-panel">
                 <ErrorBoundary panelName="Raw Data">
                   <RawPanel />
                 </ErrorBoundary>
@@ -56,7 +61,7 @@ export function SimulatorView() {
               {!propsCollapsed && (
                 <>
                   <ResizeHandle direction="vertical" />
-                  <Panel defaultSize={38} minSize={10} id="props-editor">
+                  <Panel defaultSize="38" minSize="10" id="props-editor">
                     <ErrorBoundary panelName="props.conf Editor">
                       <PropsConfEditor />
                     </ErrorBoundary>
@@ -66,7 +71,7 @@ export function SimulatorView() {
               {!transformsCollapsed && (
                 <>
                   <ResizeHandle direction="vertical" />
-                  <Panel defaultSize={32} minSize={10} id="transforms-editor">
+                  <Panel defaultSize="32" minSize="10" id="transforms-editor">
                     <ErrorBoundary panelName="transforms.conf Editor">
                       <TransformsConfEditor />
                     </ErrorBoundary>
@@ -92,7 +97,7 @@ export function SimulatorView() {
       <ResizeHandle direction="horizontal" />
 
       {/* Right side: Output (Preview + CIM + Fields + Transforms + Validation + Architecture) */}
-      <Panel defaultSize={62} minSize={30} id="output-panel">
+      <Panel defaultSize="62" minSize="30" id="output-panel">
         <ErrorBoundary panelName="Output">
           <PreviewPanel />
         </ErrorBoundary>

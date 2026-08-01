@@ -103,8 +103,11 @@ export function DictionaryView() {
   }
 
   return (
+    // Panel sizes are STRINGS on purpose: react-resizable-panels v4 reads a
+    // number as pixels and a string as a percentage. As numbers, maxSize={45}
+    // pinned this list to 45px wide.
     <Group orientation="horizontal" id="dictionary-horizontal">
-      <Panel defaultSize={26} minSize={16} maxSize={45} id="dictionary-list">
+      <Panel defaultSize="26" minSize="16" maxSize="45" id="dictionary-list">
         {list}
       </Panel>
       <Separator
@@ -113,7 +116,7 @@ export function DictionaryView() {
       >
         <div className="w-0.5 h-8 rounded-full bg-[var(--color-text-muted)] group-hover:bg-white transition-colors" />
       </Separator>
-      <Panel defaultSize={74} minSize={30} id="dictionary-detail">
+      <Panel defaultSize="74" minSize="30" id="dictionary-detail">
         {detail}
       </Panel>
     </Group>
