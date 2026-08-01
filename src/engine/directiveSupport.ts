@@ -73,6 +73,22 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   BREAK_ONLY_BEFORE: { support: 'simulated' },
   BREAK_ONLY_BEFORE_DATE: { support: 'simulated' },
   MUST_BREAK_AFTER: { support: 'simulated' },
+  MUST_NOT_BREAK_BEFORE: {
+    support: 'ignored',
+    issue: 190,
+    note: 'A line this matches can still be broken before, so events split where Splunk would merge.',
+  },
+  MUST_NOT_BREAK_AFTER: {
+    support: 'ignored',
+    issue: 190,
+    note: 'A line this matches can still end an event, so events split where Splunk would merge.',
+  },
+  LINE_BREAKER_LOOKBEHIND: {
+    support: 'documented',
+    note:
+      'Governs how far Splunk looks back across an internal chunk boundary. The simulator holds the ' +
+      'whole input in memory and has no chunk boundaries, so there is nothing for it to change.',
+  },
   MAX_EVENTS: { support: 'simulated' },
   LINE_BREAKER: { support: 'simulated' },
   TRUNCATE: { support: 'simulated' },

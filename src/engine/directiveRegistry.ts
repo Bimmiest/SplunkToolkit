@@ -227,6 +227,50 @@ const DIRECTIVE_DEFINITIONS: DirectiveDefinition[] = [
     phase: 'index-time',
   },
   {
+    key: 'MUST_NOT_BREAK_BEFORE',
+    description:
+      'A regex that identifies a line which must NOT begin a new event, so the line is merged into ' +
+      'the event before it even when another rule would have broken there. Requires ' +
+      'SHOULD_LINEMERGE = true. Use it to protect continuation lines that happen to look like the ' +
+      'start of an event — a stack-trace frame that begins with a date, for example.',
+    example: 'MUST_NOT_BREAK_BEFORE = ^\\s+at ',
+    defaultValue: '',
+    category: 'Event Breaking',
+    appliesTo: 'props.conf',
+    valueType: 'regex',
+    isClassBased: false,
+    phase: 'index-time',
+  },
+  {
+    key: 'MUST_NOT_BREAK_AFTER',
+    description:
+      'A regex that identifies a line after which an event must NOT end, so the following line is ' +
+      'merged in regardless of what other rules say. Requires SHOULD_LINEMERGE = true. The ' +
+      'counterpart to MUST_BREAK_AFTER: use it for a line that is always continued, such as one ' +
+      'ending in a continuation marker.',
+    example: 'MUST_NOT_BREAK_AFTER = \\\\$',
+    defaultValue: '',
+    category: 'Event Breaking',
+    appliesTo: 'props.conf',
+    valueType: 'regex',
+    isClassBased: false,
+    phase: 'index-time',
+  },
+  {
+    key: 'LINE_BREAKER_LOOKBEHIND',
+    description:
+      'How many characters before the end of the previous chunk Splunk looks back when applying ' +
+      'LINE_BREAKER across a chunk boundary. Raise it when events are large enough that a break ' +
+      'pattern can straddle the boundary and be missed.',
+    example: 'LINE_BREAKER_LOOKBEHIND = 100',
+    defaultValue: '100',
+    category: 'Event Breaking',
+    appliesTo: 'props.conf',
+    valueType: 'number',
+    isClassBased: false,
+    phase: 'index-time',
+  },
+  {
     key: 'MAX_EVENTS',
     description:
       'The maximum number of input lines to add to any single event when SHOULD_LINEMERGE = true. ' +

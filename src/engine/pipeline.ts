@@ -15,6 +15,7 @@ import { applyEvalExpressions } from './processors/evalProcessor';
 import { attributeRawMutations } from './processors/rawMutationAttribution';
 import { SIMULATED_DEST_KEYS, VALID_UNSIMULATED_DEST_KEYS, normaliseDestKey } from './transforms/destKeys';
 import { getDirectiveSupport } from './directiveSupport';
+import { lintInertTransformSettings, lintDirectiveValues } from './directiveLint';
 
 function safeProcessor(
   name: string,
@@ -214,12 +215,19 @@ export function runPipeline(
   // Cross-reference validation: check TRANSFORMS/REPORT references exist, and collect
   // referenced stanza names in one pass (avoids iterating props stanzas twice).
   const referencedTransforms = new Set<string>();
+  // How props.conf reaches each transforms stanza decides that stanza's phase,
+  // which is what makes the inert-setting lint below possible. A stanza named by
+  // both TRANSFORMS- and REPORT- is 'both', and is left alone.
+  const transformPhase = new Map<string, 'index-time' | 'search-time' | 'both'>();
   for (const stanza of propsConf.stanzas) {
     for (const dir of stanza.directives) {
       if (dir.directiveType === 'TRANSFORMS' || dir.directiveType === 'REPORT') {
+        const phase = dir.directiveType === 'TRANSFORMS' ? 'index-time' : 'search-time';
         const stanzaNames = dir.value.split(',').map((s) => s.trim()).filter(Boolean);
         for (const name of stanzaNames) {
           referencedTransforms.add(name);
+          const seen = transformPhase.get(name);
+          transformPhase.set(name, seen === undefined || seen === phase ? phase : 'both');
           if (!transformsConf.stanzas.find((s) => s.name === name)) {
             diagnostics.push({
               level: 'error',
@@ -243,6 +251,14 @@ export function runPipeline(
       });
     }
   }
+
+  // Two classes of mistake Splunk itself is silent about: a transforms setting
+  // that is inert in the phase its stanza is used in (#177), and a value that is
+  // not the type the directive documents (#179). Both load clean and then do
+  // nothing, so this tool is the only place a user could find out.
+  lintInertTransformSettings(transformsConf.stanzas, transformPhase, diagnostics);
+  lintDirectiveValues(propsConf.stanzas, 'props.conf', diagnostics);
+  lintDirectiveValues(transformsConf.stanzas, 'transforms.conf', diagnostics);
 
   // 2. Match stanzas to metadata (by precedence) and merge directives (deduped by key, first wins).
   const matchedStanzas = matchStanzas(propsConf.stanzas, metadata);
