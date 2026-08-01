@@ -3,9 +3,15 @@ import { useEffect, useRef } from 'react';
 // which eagerly bundles ~80 basic-languages and the TypeScript/JSON/CSS/HTML
 // language services (their main-thread modes *and* web workers, the ts.worker
 // alone being ~7 MB). This app registers its own conf languages, so it needs
-// none of them; editor.api keeps every editor contribution we do use (find,
-// folding, suggest, hover). vite.config.ts chunks on this exact specifier.
+// none of them. vite.config.ts chunks on this exact specifier.
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
+// The editor CONTRIBUTIONS, which editor.api does not pull in — it re-exports
+// the API surface and nothing else. Without this the providers registered in
+// splunkMonacoSetup are inert: no hover widget, no suggest widget, no folding
+// controls, and no find, multi-cursor, word/line operations or clipboard
+// commands either. Everything below is editor-side only; the language services
+// that made the barrel expensive live in editor.main and stay out.
+import 'monaco-editor/esm/vs/editor/editor.all.js';
 import type { editor } from 'monaco-editor';
 
 export interface MonacoEditorProps {
