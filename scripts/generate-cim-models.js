@@ -11,7 +11,9 @@
 //
 // This is a manual, occasional step (CIM ships roughly annually), not part of
 // the build: nothing here runs at build or install time and the add-on is not
-// vendored. The point is that the field lists are transcribed by a script with
+// vendored. You are running it against a copy of the add-on you obtained and
+// licensed yourself; the output carries identifiers that stay Splunk Inc.'s,
+// which the NOTICE file at the repository root spells out. The point is that the field lists are transcribed by a script with
 // stated rules rather than by hand — #37 existed because a hand-maintained list
 // had drifted into claiming fields that several models never defined.
 //

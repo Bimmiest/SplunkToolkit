@@ -76,9 +76,9 @@ const DIRECTIVE_DEFINITIONS: DirectiveDefinition[] = [
   {
     key: 'MAX_TIMESTAMP_LOOKAHEAD',
     description:
-      'The maximum number of characters into an event that Splunk looks for a timestamp. ' +
-      'After finding TIME_PREFIX, Splunk will look this many characters ahead for the timestamp. ' +
-      'Setting this too low may cause timestamps to be missed; setting it too high may cause false matches.',
+      'How far past the TIME_PREFIX match the timestamp scan is allowed to reach, counted in characters. ' +
+      'A window that ends before the timestamp does means no timestamp is found at all; an over-wide one ' +
+      'invites a false match on digits elsewhere in the line.',
     example: 'MAX_TIMESTAMP_LOOKAHEAD = 128',
     defaultValue: '128',
     category: 'Time Configuration',
@@ -273,9 +273,9 @@ const DIRECTIVE_DEFINITIONS: DirectiveDefinition[] = [
   {
     key: 'MAX_EVENTS',
     description:
-      'The maximum number of input lines to add to any single event when SHOULD_LINEMERGE = true. ' +
-      'Splunk breaks an event after this many lines even if no break pattern has matched, preventing ' +
-      'runaway line merging (e.g. a log with no date-like lines).',
+      'A ceiling on how many lines one merged event may contain, applied when SHOULD_LINEMERGE is on. ' +
+      'Once that many have accumulated the event ends, whether or not a break rule fired — which is what ' +
+      'stops a log with no date-like lines from merging into one enormous event.',
     example: 'MAX_EVENTS = 256',
     defaultValue: '256',
     category: 'Event Breaking',

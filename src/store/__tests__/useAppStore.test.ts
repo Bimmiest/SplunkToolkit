@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useAppStore } from '../useAppStore';
 
-const SETTINGS_KEY = 'splunk-toolkit:settings';
+const SETTINGS_KEY = 'propslab:settings';
 const initial = useAppStore.getState();
 
 describe('settings — per-event mode implies manual apply (#27)', () => {

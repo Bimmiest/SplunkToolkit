@@ -82,15 +82,28 @@ interface AppState {
   toggleScaffold: () => void;
 }
 
-const THEME_KEY = 'splunk-toolkit:theme';
-const SETTINGS_KEY = 'splunk-toolkit:settings';
+const THEME_KEY = 'propslab:theme';
+const SETTINGS_KEY = 'propslab:settings';
+
+/**
+ * Read a preference, falling back to the key it used before the app was renamed
+ * from Splunk Toolkit. Writes only ever go to the new key, so a returning user
+ * keeps their theme and settings and then quietly migrates on the next change.
+ * Once no one is plausibly carrying a pre-rename `localStorage`, the legacy
+ * argument and this comment can go.
+ */
+function readPreference(key: string, legacyKey: string): string | null {
+  try {
+    return localStorage.getItem(key) ?? localStorage.getItem(legacyKey);
+  } catch {
+    return null;
+  }
+}
 
 /** Restore the persisted theme, defaulting to dark when unset or unreadable. */
 function loadTheme(): 'light' | 'dark' {
-  try {
-    const saved = localStorage.getItem(THEME_KEY);
-    if (saved === 'light' || saved === 'dark') return saved;
-  } catch { /* ignore */ }
+  const saved = readPreference(THEME_KEY, 'splunk-toolkit:theme');
+  if (saved === 'light' || saved === 'dark') return saved;
   return 'dark';
 }
 
@@ -103,7 +116,7 @@ function loadTheme(): 'light' | 'dark' {
 function loadSettings(): { perEventPipeline: boolean; manualApply: boolean } {
   const fallback = { perEventPipeline: false, manualApply: false };
   try {
-    const saved = localStorage.getItem(SETTINGS_KEY);
+    const saved = readPreference(SETTINGS_KEY, 'splunk-toolkit:settings');
     if (!saved) return fallback;
     const parsed = JSON.parse(saved) as unknown;
     if (!parsed || typeof parsed !== 'object') return fallback;

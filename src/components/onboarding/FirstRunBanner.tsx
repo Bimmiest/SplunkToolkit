@@ -1,11 +1,17 @@
 import { useState } from 'react';
 import { Icon } from '../ui/Icon';
 
-const STORAGE_KEY = 'splunk-toolkit:seen-intro';
+const STORAGE_KEY = 'propslab:seen-intro';
+// The key this used before the app was renamed from Splunk Toolkit. Read, never
+// written: without it every existing user gets the intro banner a second time.
+const LEGACY_STORAGE_KEY = 'splunk-toolkit:seen-intro';
 
 function hasSeenIntro(): boolean {
   try {
-    return localStorage.getItem(STORAGE_KEY) === 'true';
+    return (
+      localStorage.getItem(STORAGE_KEY) === 'true' ||
+      localStorage.getItem(LEGACY_STORAGE_KEY) === 'true'
+    );
   } catch {
     return true; // If storage is unavailable, don't show the banner
   }

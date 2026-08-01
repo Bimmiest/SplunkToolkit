@@ -2,6 +2,12 @@
 // add-on (Splunk_SA_CIM) v8.5.0 as shipped on Splunkbase — specifically
 // `default/data/models/*.json`, which is what Splunk itself runs.
 //
+// LICENCE: the add-on is Splunk Inc.'s and is distributed under Splunk's terms,
+// not an open-source licence. The dataset, field, and tag identifiers below are
+// derived from it for interoperability and are NOT covered by this project's
+// MIT licence — see the NOTICE file at the repository root. The add-on itself
+// is not vendored here and is not needed to build, test, or run the app.
+//
 // Regenerate with `node scripts/generate-cim-models.js <path-to-Splunk_SA_CIM>`
 // rather than editing by hand. How each entry is derived (see #37 — hand-written
 // lists had drifted and listed fields several models don't define):

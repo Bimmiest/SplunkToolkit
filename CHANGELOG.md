@@ -1,10 +1,19 @@
 # Changelog
 
-All notable changes to Splunk Toolkit are documented here, newest first.
+All notable changes to Propslab are documented here, newest first.
 
 ---
 
 ## Unreleased
+
+### Changed
+
+- **The project is now called Propslab.** It was "Splunk Toolkit", a name that led with someone else's product rather than with its own. The descriptive line is unchanged and stays accurate — this simulates Splunk's `props.conf` and `transforms.conf` pipeline, and the README says exactly that. What changed is the name, the page title, the header, the GitHub repository, and the `localStorage` key prefix (`propslab:`) — the old keys are still *read*, never written, so an existing user keeps their theme and settings and does not get the intro banner a second time. ([src/store/useAppStore.ts](src/store/useAppStore.ts), [src/components/onboarding/FirstRunBanner.tsx](src/components/onboarding/FirstRunBanner.tsx))
+- **The project's independence is now stated where someone would look for it** — the README, and the footer of the in-app pipeline reference drawer. Neither says anything the project was hiding; the point is that "independent, not endorsed by Splunk" should not require reading the source to establish.
+
+### Added
+
+- **A `NOTICE` file** attributing the upstream material this project derives data from. Two things qualify: the CIM dataset and field identifiers in [src/engine/cim/cimModelsData.ts](src/engine/cim/cimModelsData.ts), derived from Splunk's CIM add-on, and the fidelity fixtures, which record functional output from a Splunk instance. The MIT licence covers this project's own code. Nothing about how either is produced changes — the add-on is still not vendored, capture is still manual — but the file now says where they came from, and [scripts/capture-fixtures.md](scripts/capture-fixtures.md) notes that the instance used for a capture is the operator's own.
 
 ### Fixed
 
@@ -278,7 +287,7 @@ Re-capturing against a different Splunk version is a documented, manual step —
 ### Fixed
 
 - **Extractions-tab highlight collision for underscore-stripped JSON fields** — `flattenJson` records `strippedName → originalKey` in a `sourceKeys` output map; `findFieldValuePositions` tries the original key first so sibling fields with the same value no longer steal each other's highlight position. Single-character field values now highlight when context matching succeeds (the `v.length < 2` guard moved into the fallback `indexOf` path only).
-- **Index-time leading-underscore stripping** ([indexedExtractions.ts](src/engine/processors/indexedExtractions.ts)) — JSON, CSV/TSV/PSV/W3C headers, `INGEST_EVAL` LHS assignments, and `WRITE_META` destination keys now strip leading underscores to match real Splunk behaviour. (Closes [issue #1](https://github.com/Bimmiest/SplunkToolkit/issues/1), commit [0a87733](https://github.com/Bimmiest/SplunkToolkit/commit/0a87733ac322f7564d3dbaf29bf82d3f005d3b01).)
+- **Index-time leading-underscore stripping** ([indexedExtractions.ts](src/engine/processors/indexedExtractions.ts)) — JSON, CSV/TSV/PSV/W3C headers, `INGEST_EVAL` LHS assignments, and `WRITE_META` destination keys now strip leading underscores to match real Splunk behaviour. (Closes [issue #1](https://github.com/Bimmiest/propslab/issues/1), commit [0a87733](https://github.com/Bimmiest/propslab/commit/0a87733ac322f7564d3dbaf29bf82d3f005d3b01).)
 - **Diff tab false-positive "Modified"** — `hasChanges` normalises both sides with `.replace(/\r\n/g,'\n').replace(/\s+$/,'')` before comparison.
 - **Calc field classification: EVAL beats EXTRACT** — `fieldColorMap` precedence changed to `calc > manual > auto`; `case()` expressions that matched no branch (empty string) and fields that evaluated to `null` are suppressed from the calc strip.
 - **Stuck-pin escape hatch** — "Clear" link added next to `N/M events match` counter in `HighlightedTab`.

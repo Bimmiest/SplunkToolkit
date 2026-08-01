@@ -11,10 +11,27 @@ version you want to pin. **CI never runs this script and never contacts
 Splunk**; it asserts against the committed JSON, which is what makes the test
 suite hermetic and fast.
 
+## Before you run it
+
+The instance is yours, and so are its licence terms — this repository ships no
+Splunk software and cannot grant you any right to it. Two things worth being
+deliberate about, because the capture writes conf stanzas and restarts splunkd
+on whatever you point it at:
+
+- **Use an instance you are entitled to use this way.** Splunk Enterprise Free
+  or the `splunk/splunk` container is the intended target. Don't point it at a
+  production deployment, and don't point it at an employer's instance without
+  their say-so.
+- **What is captured is functional behaviour only** — how a given props.conf
+  turns a given input line into events and fields. The fixtures hold no timing,
+  throughput, or resource figures, and this project publishes no benchmark or
+  comparative evaluation of Splunk software. Keep it that way if you extend the
+  corpus: Splunk's terms restrict publishing performance results.
+
 ## What you need
 
-A Splunk Enterprise instance you can restart. Splunk Enterprise Free or the
-`splunk/splunk` container is sufficient — nothing here needs a licence.
+A Splunk Enterprise instance you can restart. The volumes involved are tiny, so
+no paid licence tier is needed for the capture itself.
 
 1. **A service account with a token.** Enable token authentication
    (Settings → Tokens) and issue a token for a dedicated capture user. The
