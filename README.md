@@ -11,6 +11,7 @@ npm run build        # tsc -b && vite build → dist/
 npm run preview      # Serve production build
 npm run lint         # ESLint
 npm test             # vitest (one-shot)
+npm run test:coverage # …with the coverage floor enforced, as CI runs it
 npm run test:watch   # vitest watch mode
 npm run test:e2e     # Playwright smoke tests (builds, then serves dist/)
 npm run test:e2e:ui  # …in Playwright's interactive runner
