@@ -190,7 +190,7 @@ Places where the simulator diverges from real Splunk. Verify anything suspicious
 - **Lookups.** `LOOKUP-*` directives are parsed and a warning is emitted, but lookup tables are not evaluated; fields sourced from lookups will not appear.
 - **Crypto functions.** `md5()`, `sha1()`, `sha256()`, `sha512()` return a placeholder string (e.g. `[md5() not simulated]`) and emit a warning.
 - **Partial stubs.** `cidrmatch()`, `searchmatch()`, `relative_time()`, and `strptime()` have simplified implementations; results may not match Splunk on edge cases.
-- **`SEDCMD` transliteration.** Only the `s/` substitute form is supported; the `y/abc/ABC/` transliteration form is silently ignored.
+- **`SEDCMD` transliteration.** Only the `s/` substitute form is simulated. The `y/abc/ABC/` transliteration form, the numeric occurrence flag (`s/…/…/2`), a value that is not a sed expression at all, and a pattern that will not compile each emit a warning rather than being dropped in silence.
 
 ### Simplified
 
