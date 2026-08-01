@@ -21,8 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     name: Build and Deploy Job
+    # No `id-token: write`. This deploys with the Static Web App's deployment
+    # token, not with a GitHub federated identity — see the Build And Deploy step.
     permissions:
-      id-token: write
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -46,19 +47,6 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Get Id Token
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
-        id: idtoken
-        with:
-          # `core` is injected by github-script. The generated template ran
-          # `npm install @actions/core @actions/http-client` at the repo root
-          # first — solely to make `require('@actions/core')` resolve from the
-          # workspace — which rewrote package.json and package-lock.json, so
-          # every deploy built from a manifest carrying two dependencies that
-          # CI had never seen and the lockfile no longer matched the commit.
-          script: return await core.getIDToken()
-          result-encoding: string
-
       - name: Build And Deploy
         id: builddeploy
         # Third-party and holding the deployment token, on a ref the upstream
@@ -68,10 +56,17 @@ jobs:
         # are years apart. The tag is frozen at 2021-03-03; the branch is where
         # the action is actually maintained. Resolving `v1` to a SHA picks up the
         # tag, so this was pinned to a 2021 build of a service that has moved on
-        # — `skip_api_build` and `github_id_token` were rejected as unknown
-        # inputs, which meant the OIDC token fetched above was fetched and then
-        # thrown away. Pinned to the branch head instead.
+        # — `skip_api_build` was rejected as an unknown input. Pinned to the
+        # branch head instead.
         uses: Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1 # v1 branch, 2024-09-11
+        # DO NOT pass `github_id_token` here. Offering one makes this action take
+        # the GitHub-federated-identity path, and the Static Web App authorises by
+        # deployment token (`deploymentAuthPolicy: DeploymentToken`,
+        # `federatedIdentityClientId: null`) — so the exchange cannot succeed. It
+        # fails as "No matching Static Web App was found or the api key was
+        # invalid", which reads as a bad token and sends you hunting the
+        # credential rather than the credential *type*. Both halves have to agree:
+        # pass an id token only if the app is configured for federated identity.
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_THANKFUL_HILL_0778AB003 }}
           action: "upload"
@@ -82,4 +77,3 @@ jobs:
           output_location: ""
           skip_app_build: true
           skip_api_build: true
-          github_id_token: ${{ steps.idtoken.outputs.result }}
