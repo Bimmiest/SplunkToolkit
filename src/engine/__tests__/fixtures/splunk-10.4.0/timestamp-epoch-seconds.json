@@ -1,0 +1,35 @@
+{
+  "id": "timestamp-epoch-seconds",
+  "splunk": {
+    "version": "10.4.0",
+    "build": "f798d4d49089"
+  },
+  "capturedAt": "2026-08-01T16:01:42.137Z",
+  "directives": [
+    "TIME_FORMAT",
+    "TIME_PREFIX"
+  ],
+  "phase": "index-time",
+  "props": "SHOULD_LINEMERGE = false\nTIME_PREFIX = at=\nTIME_FORMAT = %s\nTZ = UTC\n",
+  "ingestHost": "fixture-capture",
+  "ingestSource": "fixture-capture",
+  "input": "at=1768471200 msg=first\nat=1768471260 msg=second\n",
+  "events": [
+    {
+      "_raw": "at=1768471200 msg=first",
+      "_time": 1768471200000,
+      "fields": {
+        "at": "1768471200",
+        "msg": "first"
+      }
+    },
+    {
+      "_raw": "at=1768471260 msg=second",
+      "_time": 1768471260000,
+      "fields": {
+        "at": "1768471260",
+        "msg": "second"
+      }
+    }
+  ]
+}
