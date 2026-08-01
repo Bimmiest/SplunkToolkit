@@ -74,7 +74,8 @@ function lineAtOffset(newlines: number[], offset: number): number {
   let hi = newlines.length;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (newlines[mid] < offset) lo = mid + 1;
+    const boundary = newlines[mid];
+    if (boundary !== undefined && boundary < offset) lo = mid + 1;
     else hi = mid;
   }
   return lo + 1;
@@ -211,7 +212,7 @@ export function breakLines(
         if (advanceTo === 0) {
           if (remaining.length > 0) {
             // Push one character and continue
-            segments.push(remaining[0]);
+            segments.push(remaining.charAt(0));
             segmentOffsets.push(offset);
             remaining = remaining.substring(1);
             offset += 1;
@@ -225,14 +226,14 @@ export function breakLines(
 
   // Filter out empty segments
   const filteredSegments: { text: string; offset: number }[] = [];
-  for (let i = 0; i < segments.length; i++) {
-    const text = segments[i];
+  for (const [i, text] of segments.entries()) {
     if (text.length > 0) {
       filteredSegments.push({ text, offset: segmentOffsets[i] ?? 0 });
     }
   }
 
-  if (filteredSegments.length === 0) {
+  const [firstSegment, ...restSegments] = filteredSegments;
+  if (firstSegment === undefined) {
     return [];
   }
 
@@ -281,17 +282,16 @@ export function breakLines(
     const parsedMaxEvents = maxEventsStr !== undefined ? parseInt(maxEventsStr.trim(), 10) : 256;
     const maxEvents = Number.isFinite(parsedMaxEvents) && parsedMaxEvents > 0 ? parsedMaxEvents : 256;
 
-    mergedSegments = [filteredSegments[0]];
-    let currentLineCount = countLines(filteredSegments[0].text);
+    mergedSegments = [firstSegment];
+    let currentLineCount = countLines(firstSegment.text);
     let forceBreakNext = false;
 
     // Check if the very first segment triggers MUST_BREAK_AFTER
-    if (mustBreakAfterRegex && mustBreakAfterRegex.test(filteredSegments[0].text)) {
+    if (mustBreakAfterRegex && mustBreakAfterRegex.test(firstSegment.text)) {
       forceBreakNext = true;
     }
 
-    for (let i = 1; i < filteredSegments.length; i++) {
-      const seg = filteredSegments[i];
+    for (const seg of restSegments) {
       const segLines = countLines(seg.text);
       let startNewEvent = false;
 
@@ -330,8 +330,8 @@ export function breakLines(
         currentLineCount = segLines;
       } else {
         // Merge into previous
-        const prev = mergedSegments[mergedSegments.length - 1];
-        prev.text += '\n' + seg.text;
+        const prev = mergedSegments.at(-1);
+        if (prev !== undefined) prev.text += '\n' + seg.text;
         currentLineCount += segLines;
       }
 

@@ -75,8 +75,8 @@ export function applyKvMode(
     };
   });
 
-  if (parseFailures.length > 0 && diagnostics) {
-    const first = parseFailures[0];
+  const first = parseFailures[0];
+  if (first !== undefined && diagnostics) {
     const n = parseFailures.length;
     // This is a problem with the raw event data, not the config — surface it under
     // the Raw Log panel and point `line` at the offending input line so the user
@@ -238,8 +238,7 @@ function walkXmlElement(
   const tagName = el.localName;
 
   // Extract attributes.
-  for (let i = 0; i < el.attributes.length; i++) {
-    const attr = el.attributes[i];
+  for (const attr of Array.from(el.attributes)) {
     // "Name" attribute on an element uses TagName_Name as field name (Windows EventLog convention).
     const fieldName = attr.name === 'Name' ? `${tagName}_Name` : attr.name;
     // Accumulate like the leaf-text path below: within one mode, repeated data
@@ -354,15 +353,15 @@ function extractMultiKv(raw: string, fields: Record<string, string | string[]>, 
   const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
   if (lines.length < 2) return;
 
-  const header = lines[0];
+  const [header, ...rows] = lines;
+  if (header === undefined) return;
   const cols: Array<{ name: string; start: number }> = [];
   for (const m of header.matchAll(/\S+/g)) {
     cols.push({ name: m[0], start: m.index ?? 0 });
   }
   if (cols.length < 2) return;
 
-  for (let r = 1; r < lines.length; r++) {
-    const line = lines[r];
+  for (const line of rows) {
     if (isSeparator(line)) continue;
 
     // Prefer plain whitespace tokenization: most multikv input (ps/top/netstat
@@ -371,9 +370,9 @@ function extractMultiKv(raw: string, fields: Record<string, string | string[]>, 
     // token per column, that split is unambiguous — use it directly.
     const tokens = [...line.matchAll(/\S+/g)];
     if (tokens.length === cols.length) {
-      for (let c = 0; c < cols.length; c++) {
-        const value = tokens[c][0];
-        if (value) addMvField(fields, added, cols[c].name, value);
+      for (const [c, col] of cols.entries()) {
+        const value = tokens[c]?.[0];
+        if (value) addMvField(fields, added, col.name, value);
       }
       continue;
     }
@@ -382,11 +381,10 @@ function extractMultiKv(raw: string, fields: Record<string, string | string[]>, 
     // only produces sensible values when the row's columns are genuinely
     // aligned under the headers (or a value legitimately spans several tokens);
     // a mismatched token count means we cannot know the boundaries for certain.
-    for (let c = 0; c < cols.length; c++) {
-      const start = cols[c].start;
-      const end = c + 1 < cols.length ? cols[c + 1].start : line.length;
-      const value = line.slice(start, end).trim();
-      if (value) addMvField(fields, added, cols[c].name, value);
+    for (const [c, col] of cols.entries()) {
+      const end = cols[c + 1]?.start ?? line.length;
+      const value = line.slice(col.start, end).trim();
+      if (value) addMvField(fields, added, col.name, value);
     }
   }
 }

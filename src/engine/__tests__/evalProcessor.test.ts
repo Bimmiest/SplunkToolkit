@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { applyEvalExpressions } from '../processors/evalProcessor';
-import type { SplunkEvent, ConfDirective } from '../types';
+import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 
 function event(fields: Record<string, string> = {}, raw = 'raw'): SplunkEvent {
   return {
@@ -545,5 +545,35 @@ describe('applyEvalExpressions — strftime %z / %Z (#75.4)', () => {
     const [result] = applyEvalExpressions([event()], [evalDir('t', 'strftime(1705312800, "%Z")')]);
     expect(result.fields['t']).not.toBe('%Z');
     expect(String(result.fields['t']).length).toBeGreaterThan(0);
+  });
+});
+
+describe('applyEvalExpressions — strftime with an out-of-range epoch', () => {
+  // An epoch past the Date range gives an Invalid Date, whose accessors all
+  // return NaN — including the ones indexing the month/day name tables. The
+  // engine already refused this input, but only incidentally: %Z's
+  // Intl.formatToParts call threw "Invalid time value" while the token table was
+  // being built. It is now rejected up front, so the field is still dropped and
+  // the diagnostic names strftime rather than reading like an internal fault.
+  //
+  // Spelled out in full rather than as 1e20: the tokenizer has no exponent form,
+  // so `1e20` lexes as `1` then the identifier `e20` and never reaches strftime.
+  const HUGE = '99999999999999999999';
+
+  it.each(['%b', '%B', '%a', '%A', '%F'])('reports an error and drops the field for %s', (token) => {
+    const diagnostics: ValidationDiagnostic[] = [];
+    const [result] = applyEvalExpressions([event()], [evalDir('t', `strftime(${HUGE}, "${token}")`)], diagnostics);
+    expect(result.fields['t']).toBeUndefined();
+    expect(diagnostics.map((d) => d.message)).toEqual(['EVAL-t: strftime(): timestamp is out of range']);
+  });
+
+  it('never renders NaN or an echoed specifier into the field', () => {
+    const [result] = applyEvalExpressions([event()], [evalDir('t', `strftime(${HUGE}, "%F %b")`)]);
+    expect(result.fields['t'] ?? '').not.toMatch(/NaN|%[bF]/);
+  });
+
+  it('still formats a normal epoch', () => {
+    const [result] = applyEvalExpressions([event()], [evalDir('t', 'strftime(1705312800, "%b")')]);
+    expect(result.fields['t']).toBe('Jan');
   });
 });

@@ -7,6 +7,14 @@ import { atDirective } from '../parser/provenance';
 
 type EvalValue = string | number | boolean | null | string[];
 
+/**
+ * An argument slot that may not have been supplied. Splunk treats a missing eval
+ * argument as NULL, which is exactly what every coercion helper below already
+ * does with `undefined` — so builtins can index `args[n]` freely and let the
+ * coercion decide, instead of asserting the argument was passed.
+ */
+type EvalArg = EvalValue | undefined;
+
 export function applyEvalExpressions(
   events: SplunkEvent[],
   directives: ConfDirective[],
@@ -148,13 +156,22 @@ interface Token {
   value: string;
 }
 
+/**
+ * Lex an eval expression.
+ *
+ * Character access goes through `charAt` rather than `expr[i]`: every read here
+ * is already inside an `i < expr.length` loop, and charAt returns a plain string
+ * for an in-bounds index instead of `string | undefined`. The two lookaheads at
+ * `i + 1` are the only reads that can run off the end, and both compare the
+ * result against a literal — where charAt's `''` is the answer we want anyway.
+ */
 function tokenize(expr: string): Token[] {
   const tokens: Token[] = [];
   let i = 0;
 
   while (i < expr.length) {
     // Skip whitespace
-    if (/\s/.test(expr[i])) { i++; continue; }
+    if (/\s/.test(expr.charAt(i))) { i++; continue; }
 
     // Double-quoted string literals. Splunk eval gives only `\"` and `\\` a
     // special meaning inside a literal and passes every other escape through
@@ -162,15 +179,15 @@ function tokenize(expr: string): Token[] {
     // so collapsing `\d` to `d` would silently rewrite the user's pattern. (The
     // official replace() docs example is `"^(\d{1,2})/(\d{1,2})/"`, with single
     // backslashes.)
-    if (expr[i] === '"') {
+    if (expr.charAt(i) === '"') {
       let str = '';
       i++;
-      while (i < expr.length && expr[i] !== '"') {
-        if (expr[i] === '\\' && i + 1 < expr.length && (expr[i + 1] === '"' || expr[i + 1] === '\\')) {
-          str += expr[i + 1];
+      while (i < expr.length && expr.charAt(i) !== '"') {
+        if (expr.charAt(i) === '\\' && i + 1 < expr.length && (expr.charAt(i + 1) === '"' || expr.charAt(i + 1) === '\\')) {
+          str += expr.charAt(i + 1);
           i += 2;
         } else {
-          str += expr[i];
+          str += expr.charAt(i);
           i++;
         }
       }
@@ -180,11 +197,11 @@ function tokenize(expr: string): Token[] {
     }
 
     // Single-quoted field references (Splunk uses '' for field names with special chars)
-    if (expr[i] === "'") {
+    if (expr.charAt(i) === "'") {
       let name = '';
       i++;
-      while (i < expr.length && expr[i] !== "'") {
-        name += expr[i];
+      while (i < expr.length && expr.charAt(i) !== "'") {
+        name += expr.charAt(i);
         i++;
       }
       i++; // skip closing quote
@@ -198,30 +215,30 @@ function tokenize(expr: string): Token[] {
     // `len(x) - 1` must not lex `-1` as a negative literal.
     const prevTok = tokens[tokens.length - 1];
     const unaryMinus =
-      expr[i] === '-' &&
+      expr.charAt(i) === '-' &&
       i + 1 < expr.length &&
-      /\d/.test(expr[i + 1]) &&
+      /\d/.test(expr.charAt(i + 1)) &&
       (!prevTok ||
         prevTok.type === 'op' ||
         prevTok.type === 'comma' ||
         (prevTok.type === 'paren' && prevTok.value === '('));
-    if (/\d/.test(expr[i]) || unaryMinus) {
+    if (/\d/.test(expr.charAt(i)) || unaryMinus) {
       let num = '';
-      if (expr[i] === '-') { num += '-'; i++; }
+      if (expr.charAt(i) === '-') { num += '-'; i++; }
       let seenDot = false;
-      while (i < expr.length && /[\d.]/.test(expr[i])) {
-        if (expr[i] === '.') {
+      while (i < expr.length && /[\d.]/.test(expr.charAt(i))) {
+        if (expr.charAt(i) === '.') {
           if (seenDot) break; // at most one decimal point: 1.2.3 → 1.2 then .3
           seenDot = true;
         }
-        num += expr[i]; i++;
+        num += expr.charAt(i); i++;
       }
       tokens.push({ type: 'number', value: num });
       continue;
     }
 
     // Operators
-    if (expr[i] === '.' && (i + 1 >= expr.length || !/\d/.test(expr[i + 1]))) {
+    if (expr.charAt(i) === '.' && (i + 1 >= expr.length || !/\d/.test(expr.charAt(i + 1)))) {
       tokens.push({ type: 'dot', value: '.' }); i++; continue;
     }
 
@@ -230,21 +247,21 @@ function tokenize(expr: string): Token[] {
       tokens.push({ type: 'op', value: twoChar }); i += 2; continue;
     }
 
-    if (['+', '-', '*', '/', '%', '<', '>', '!'].includes(expr[i])) {
-      tokens.push({ type: 'op', value: expr[i] }); i++; continue;
+    if (['+', '-', '*', '/', '%', '<', '>', '!'].includes(expr.charAt(i))) {
+      tokens.push({ type: 'op', value: expr.charAt(i) }); i++; continue;
     }
 
-    if (expr[i] === '=') {
+    if (expr.charAt(i) === '=') {
       tokens.push({ type: 'op', value: '=' }); i++; continue;
     }
 
     // Parens
-    if (expr[i] === '(' || expr[i] === ')') {
-      tokens.push({ type: 'paren', value: expr[i] }); i++; continue;
+    if (expr.charAt(i) === '(' || expr.charAt(i) === ')') {
+      tokens.push({ type: 'paren', value: expr.charAt(i) }); i++; continue;
     }
 
     // Comma
-    if (expr[i] === ',') {
+    if (expr.charAt(i) === ',') {
       tokens.push({ type: 'comma', value: ',' }); i++; continue;
     }
 
@@ -253,10 +270,10 @@ function tokenize(expr: string): Token[] {
     // (concat the fields `event` and `field`), NOT a reference to a field literally
     // named `event.field`. Field names containing a period must be single-quoted
     // ('event.field'), which the field_ref branch above handles.
-    if (/[a-zA-Z_]/.test(expr[i])) {
+    if (/[a-zA-Z_]/.test(expr.charAt(i))) {
       let ident = '';
-      while (i < expr.length && /\w/.test(expr[i])) {
-        ident += expr[i]; i++;
+      while (i < expr.length && /\w/.test(expr.charAt(i))) {
+        ident += expr.charAt(i); i++;
       }
       const upper = ident.toUpperCase();
       if (upper === 'AND' || upper === 'OR' || upper === 'NOT' || upper === 'IN') {
@@ -309,13 +326,22 @@ class Parser {
     return this.tokens[this.pos];
   }
 
+  /**
+   * Take the next token. Running off the end is a syntax error in the input, not
+   * a condition callers handle — every caller reached this point because `peek()`
+   * showed them a token, or because the grammar requires one here. Previously the
+   * out-of-range read was typed as `Token` and surfaced as a raw
+   * "cannot read property 'value' of undefined" further downstream.
+   */
   private consume(): Token {
-    return this.tokens[this.pos++];
+    const tok = this.tokens[this.pos++];
+    if (!tok) throw new Error('Unexpected end of expression');
+    return tok;
   }
 
   private expect(type: TokenType, value?: string): Token {
     const tok = this.consume();
-    if (!tok || tok.type !== type || (value !== undefined && tok.value !== value)) {
+    if (tok.type !== type || (value !== undefined && tok.value !== value)) {
       throw new Error(`Expected ${type} ${value ?? ''}`);
     }
     return tok;
@@ -562,6 +588,19 @@ function evalNode(node: Node, ctx: EvalCtx): EvalValue {
 }
 
 /**
+ * Walk `nodes` two at a time, yielding only whole pairs. case() and validate()
+ * both take (test, result) couples, and both ignore a dangling final argument.
+ */
+function* pairs(nodes: Node[]): Generator<[Node, Node]> {
+  for (let i = 0; i + 1 < nodes.length; i += 2) {
+    const test = nodes[i];
+    const result = nodes[i + 1];
+    if (test === undefined || result === undefined) return;
+    yield [test, result];
+  }
+}
+
+/**
  * Dispatch a function call. Branching functions evaluate their argument *nodes*
  * lazily (only the taken branch), matching Splunk; everything else evaluates all
  * arguments first and hands the values to {@link evalBuiltin}.
@@ -569,19 +608,24 @@ function evalNode(node: Node, ctx: EvalCtx): EvalValue {
 function evalCall(name: string, argNodes: Node[], ctx: EvalCtx): EvalValue {
   const fn = name.toLowerCase();
   switch (fn) {
-    case 'if':
-      if (toBool(evalNode(argNodes[0], ctx))) {
-        return argNodes[1] !== undefined ? evalNode(argNodes[1], ctx) : null;
-      }
-      return argNodes[2] !== undefined ? evalNode(argNodes[2], ctx) : null;
+    case 'if': {
+      // `if()` with no condition at all has nothing to branch on; treat it the
+      // way the missing then/else branches below are already treated.
+      const cond = argNodes[0];
+      if (cond === undefined) return null;
+      const taken = toBool(evalNode(cond, ctx)) ? argNodes[1] : argNodes[2];
+      return taken !== undefined ? evalNode(taken, ctx) : null;
+    }
     case 'case':
-      for (let i = 0; i + 1 < argNodes.length; i += 2) {
-        if (toBool(evalNode(argNodes[i], ctx))) return evalNode(argNodes[i + 1], ctx);
+      for (const [test, result] of pairs(argNodes)) {
+        if (toBool(evalNode(test, ctx))) return evalNode(result, ctx);
       }
       return null;
     case 'validate':
-      for (let i = 0; i + 1 < argNodes.length; i += 2) {
-        if (!toBool(evalNode(argNodes[i], ctx))) return evalNode(argNodes[i + 1], ctx);
+      // validate() is case() inverted: it returns the result of the first test
+      // that FAILS.
+      for (const [test, result] of pairs(argNodes)) {
+        if (!toBool(evalNode(test, ctx))) return evalNode(result, ctx);
       }
       return null;
     case 'coalesce':
@@ -598,7 +642,7 @@ function evalCall(name: string, argNodes: Node[], ctx: EvalCtx): EvalValue {
 /** Non-branching functions: all arguments are already evaluated. */
 function evalBuiltin(fn: string, args: EvalValue[], ctx: EvalCtx): EvalValue {
   switch (fn) {
-    case 'nullif': return toStr(args[0]) === toStr(args[1]) ? null : args[0];
+    case 'nullif': return toStr(args[0]) === toStr(args[1]) ? null : args[0] ?? null;
 
     // String
     case 'lower': return toStr(args[0]).toLowerCase();
@@ -622,14 +666,14 @@ function evalBuiltin(fn: string, args: EvalValue[], ctx: EvalCtx): EvalValue {
       const s = toStr(args[0]);
       const chars = args[1] !== undefined ? toStr(args[1]) : ' \t\n\r';
       let i = 0;
-      while (i < s.length && chars.includes(s[i])) i++;
+      while (i < s.length && chars.includes(s.charAt(i))) i++;
       return s.substring(i);
     }
     case 'rtrim': {
       const s = toStr(args[0]);
       const chars = args[1] !== undefined ? toStr(args[1]) : ' \t\n\r';
       let i = s.length - 1;
-      while (i >= 0 && chars.includes(s[i])) i--;
+      while (i >= 0 && chars.includes(s.charAt(i))) i--;
       return s.substring(0, i + 1);
     }
     case 'urldecode': {
@@ -761,7 +805,7 @@ function evalBuiltin(fn: string, args: EvalValue[], ctx: EvalCtx): EvalValue {
       const end = args[2] !== undefined ? norm(toNum(args[2])) : start;
       // Out-of-range or inverted ranges yield NULL.
       if (start < 0 || start >= n || end < 0 || end >= n || end < start) return null;
-      return start === end ? mv[start] : mv.slice(start, end + 1);
+      return start === end ? mv[start] ?? null : mv.slice(start, end + 1);
     }
     case 'mvfilter':
       ctx.onStubWarning?.('mvfilter');
@@ -847,7 +891,7 @@ function evalBuiltin(fn: string, args: EvalValue[], ctx: EvalCtx): EvalValue {
 
 // ── Helpers ─────────────────────────────────────────────
 
-function toBool(v: EvalValue): boolean {
+function toBool(v: EvalArg): boolean {
   if (v === null || v === undefined) return false;
   if (typeof v === 'boolean') return v;
   if (typeof v === 'number') return v !== 0;
@@ -856,7 +900,7 @@ function toBool(v: EvalValue): boolean {
   return true;
 }
 
-function toNum(v: EvalValue): number {
+function toNum(v: EvalArg): number {
   if (v === null || v === undefined) return 0;
   if (typeof v === 'number') return v;
   if (typeof v === 'boolean') return v ? 1 : 0;
@@ -879,17 +923,17 @@ function toNum(v: EvalValue): number {
 function splunkReplacementToJs(replacement: string): string {
   let out = '';
   for (let i = 0; i < replacement.length; i++) {
-    const c = replacement[i];
+    const c = replacement.charAt(i);
     if (c === '$') {
       out += '$$'; // a literal dollar, not a JS substitution
       continue;
     }
     if (c === '\\' && i + 1 < replacement.length) {
-      const next = replacement[i + 1];
+      const next = replacement.charAt(i + 1);
       if (next >= '0' && next <= '9') {
         let digits = '';
-        while (i + 1 < replacement.length && replacement[i + 1] >= '0' && replacement[i + 1] <= '9') {
-          digits += replacement[i + 1];
+        while (i + 1 < replacement.length && replacement.charAt(i + 1) >= '0' && replacement.charAt(i + 1) <= '9') {
+          digits += replacement.charAt(i + 1);
           i++;
         }
         // PCRE `\0` is the whole match; JS spells that `$&`.
@@ -910,7 +954,7 @@ function splunkReplacementToJs(replacement: string): string {
   return out;
 }
 
-function toStr(v: EvalValue): string {
+function toStr(v: EvalArg): string {
   if (v === null || v === undefined) return '';
   if (Array.isArray(v)) return v.join(' ');
   return String(v);
@@ -922,7 +966,7 @@ function toStr(v: EvalValue): string {
  * (`"a" + "b"` → "ab"). `.` is the dedicated concat operator, but `+` falls back
  * to concatenation rather than coercing strings to 0.
  */
-function addOrConcat(l: EvalValue, r: EvalValue): EvalValue {
+function addOrConcat(l: EvalArg, r: EvalArg): EvalValue {
   if (l === null || l === undefined || r === null || r === undefined) return null;
   if (isNumericValue(l) && isNumericValue(r)) return toNum(l) + toNum(r);
   return toStr(l) + toStr(r);
@@ -934,7 +978,7 @@ function addOrConcat(l: EvalValue, r: EvalValue): EvalValue {
  * propagate NULL the way Splunk does (`"abc" * 2` and `abs("foo")` are null, not
  * 0). Booleans still coerce (true→1, false→0), matching Splunk.
  */
-function numArg(v: EvalValue): number | null {
+function numArg(v: EvalArg): number | null {
   if (v === null || v === undefined) return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   if (typeof v === 'boolean') return v ? 1 : 0;
@@ -943,7 +987,7 @@ function numArg(v: EvalValue): number | null {
 }
 
 /** `-`, `*`, `/`, `%` with NULL propagation (null or non-numeric operand → null). */
-function arith(l: EvalValue, r: EvalValue, op: '-' | '*' | '/' | '%'): EvalValue {
+function arith(l: EvalArg, r: EvalArg, op: '-' | '*' | '/' | '%'): EvalValue {
   const a = numArg(l);
   const b = numArg(r);
   if (a === null || b === null) return null;
@@ -955,13 +999,13 @@ function arith(l: EvalValue, r: EvalValue, op: '-' | '*' | '/' | '%'): EvalValue
   }
 }
 
-function toMv(v: EvalValue): string[] {
+function toMv(v: EvalArg): string[] {
   if (Array.isArray(v)) return v.map(String);
   if (v === null || v === undefined) return [];
   return [String(v)];
 }
 
-function isNumericString(v: EvalValue): boolean {
+function isNumericString(v: EvalArg): boolean {
   if (typeof v !== 'string' || v === '') return false;
   return !isNaN(Number(v));
 }
@@ -971,7 +1015,7 @@ function isNumericString(v: EvalValue): boolean {
  * cleanly as one. Used by isnum()/isint(); unlike toNum() it does not coerce
  * non-numeric input to 0 (which made isnum("abc") wrongly return true).
  */
-function isNumericValue(v: EvalValue): boolean {
+function isNumericValue(v: EvalArg): boolean {
   if (typeof v === 'number') return Number.isFinite(v);
   return isNumericString(v);
 }
@@ -981,7 +1025,7 @@ function isNumericValue(v: EvalValue): boolean {
  * compare lexicographically, and any number is considered less than any string.
  * Returns <0 if a<b, >0 if a>b, 0 if equal.
  */
-function compareEvalValues(a: EvalValue, b: EvalValue): number {
+function compareEvalValues(a: EvalArg, b: EvalArg): number {
   const aNum = isNumericValue(a);
   const bNum = isNumericValue(b);
   if (aNum && bNum) return Number(a) - Number(b);
@@ -994,19 +1038,18 @@ function compareEvalValues(a: EvalValue, b: EvalValue): number {
 
 /** min()/max() over scalars and multivalue args, using Splunk's mixed-type ordering. */
 function minMax(args: EvalValue[], which: 'min' | 'max'): EvalValue {
-  const vals = args
-    .flatMap((a) => (Array.isArray(a) ? a : [a]))
-    .filter((v) => v !== null && v !== undefined);
-  if (vals.length === 0) return null;
-  let best = vals[0];
-  for (let i = 1; i < vals.length; i++) {
-    const cmp = compareEvalValues(vals[i], best);
-    if (which === 'min' ? cmp < 0 : cmp > 0) best = vals[i];
+  let best: EvalValue | undefined;
+  for (const v of args.flatMap((a) => (Array.isArray(a) ? a : [a]))) {
+    // NULLs are not candidates: min(null, 3) is 3, and min(null) is NULL.
+    if (v === null || v === undefined) continue;
+    if (best === undefined) { best = v; continue; }
+    const cmp = compareEvalValues(v, best);
+    if (which === 'min' ? cmp < 0 : cmp > 0) best = v;
   }
-  return best;
+  return best ?? null;
 }
 
-function compare(left: EvalValue, right: EvalValue, op: string): boolean {
+function compare(left: EvalArg, right: EvalArg, op: string): boolean {
   // Splunk eval: compare numerically only when BOTH sides are numeric (a number
   // or a string that parses cleanly as one). Otherwise compare as strings. This
   // avoids coercing a non-numeric operand to 0 — `"abc" == 0` must be false, not
@@ -1038,11 +1081,25 @@ const STRFTIME_DAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursda
  * TZ). Covers the common token set rather than the full strptime grammar.
  */
 function simpleStrftime(date: Date, format: string): string {
+  // An epoch outside the Date range yields an Invalid Date, whose accessors all
+  // return NaN — %F would render "NaN-NaN-NaN", and the %b/%B/%a/%A name lookups
+  // below would index their table with NaN and fall back to echoing the literal
+  // specifier. Neither reaches the caller today only because building the token
+  // table throws first: %Z calls Intl.formatToParts, which rejects an invalid
+  // date with a bare "Invalid time value". Reject it deliberately instead, so the
+  // error names the function that caused it — and so every accessor past this
+  // point is known to be in its documented range.
+  if (Number.isNaN(date.getTime())) {
+    throw new Error('strftime(): timestamp is out of range');
+  }
+
   const pad = (n: number, w = 2) => String(n).padStart(w, '0');
   const h24 = date.getHours();
   const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
   const startOfYear = new Date(date.getFullYear(), 0, 0);
   const dayOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / 86_400_000);
+  // The four name-table lookups below are asserted: getMonth() is 0-11 and
+  // getDay() is 0-6 for any valid Date, and the invalid case returned above.
   const tokens: Record<string, string> = {
     '%Y': String(date.getFullYear()),
     '%y': pad(date.getFullYear() % 100),
@@ -1054,10 +1111,10 @@ function simpleStrftime(date: Date, format: string): string {
     '%M': pad(date.getMinutes()),
     '%S': pad(date.getSeconds()),
     '%p': h24 < 12 ? 'AM' : 'PM',
-    '%b': STRFTIME_MONTHS_ABBR[date.getMonth()],
-    '%B': STRFTIME_MONTHS_FULL[date.getMonth()],
-    '%a': STRFTIME_DAYS_ABBR[date.getDay()],
-    '%A': STRFTIME_DAYS_FULL[date.getDay()],
+    '%b': STRFTIME_MONTHS_ABBR[date.getMonth()]!,
+    '%B': STRFTIME_MONTHS_FULL[date.getMonth()]!,
+    '%a': STRFTIME_DAYS_ABBR[date.getDay()]!,
+    '%A': STRFTIME_DAYS_FULL[date.getDay()]!,
     '%j': pad(dayOfYear, 3),
     '%s': String(Math.floor(date.getTime() / 1000)),
     '%3N': pad(date.getMilliseconds(), 3),
