@@ -83,6 +83,21 @@ function formatDirectiveHover(info: import('../engine/directiveRegistry').Direct
   parts.push(info.description);
   parts.push('');
 
+  // Said before the specification table rather than after it: whether the
+  // preview honours the directive changes how everything below should be read.
+  if (info.support !== 'simulated') {
+    const tracking = info.supportIssue ? ` Tracked as #${info.supportIssue}.` : '';
+    parts.push(
+      info.support === 'ignored'
+        ? `> ⚠️ **Not simulated.** ${info.supportNote ?? ''}${tracking}`.trim()
+        : `> ℹ️ **Outside the simulation.** ${info.supportNote ?? ''}`.trim(),
+    );
+    parts.push('');
+  } else if (info.supportNote) {
+    parts.push(`> **Partly simulated.** ${info.supportNote}`);
+    parts.push('');
+  }
+
   parts.push('| Property | Value |');
   parts.push('|----------|-------|');
   parts.push(`| **Category** | ${info.category} |`);

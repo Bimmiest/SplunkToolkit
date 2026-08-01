@@ -79,6 +79,20 @@ export function FileBadge({
   return <Chip mono>{(short ? FILE_LABEL_SHORT : FILE_LABEL)[appliesTo]}</Chip>;
 }
 
+/**
+ * Whether the preview honours the directive (#153). Only shown when it does
+ * not: a badge on all 76 entries would be noise, and "simulated" is what a
+ * reader of a simulator's reference already assumes.
+ */
+export function SupportBadge({ support }: { support: DirectiveInfo['support'] }) {
+  if (support === 'simulated') return null;
+  return support === 'ignored' ? (
+    <Chip tone="danger">not simulated</Chip>
+  ) : (
+    <Chip>out of scope</Chip>
+  );
+}
+
 /** The full badge row for a directive, in a fixed order so rows stay scannable. */
 export function DirectiveBadges({ info }: { info: DirectiveInfo }) {
   return (
@@ -87,6 +101,7 @@ export function DirectiveBadges({ info }: { info: DirectiveInfo }) {
       <FileBadge appliesTo={info.appliesTo} />
       {info.isClassBased && <Chip>class-based</Chip>}
       {info.deprecated && <Chip tone="danger">deprecated</Chip>}
+      <SupportBadge support={info.support} />
     </>
   );
 }

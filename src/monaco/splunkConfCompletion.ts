@@ -134,14 +134,28 @@ function directiveToCompletionItem(
     ? `${dir.key}-\${1:classname} = \${2:value}`
     : `${dir.key} = \${1:${dir.defaultValue || 'value'}}`;
 
+  // A key the preview does not honour still belongs in the list -- it is valid
+  // Splunk config and refusing to complete it would be its own wrong answer --
+  // but the list is where the user decides, so it says so there (#153).
+  const unsimulated = dir.support !== 'simulated';
+  const supportSuffix = dir.support === 'ignored' ? ' — not simulated' : dir.support === 'documented' ? ' — out of scope' : '';
+
   return {
-    label: dir.key,
+    label: unsimulated ? { label: dir.key, description: supportSuffix.slice(3) } : dir.key,
     kind: dir.isClassBased ? CIK.Snippet : CIK.Property,
-    detail: `${category} (${dir.phase})`,
+    detail: `${category} (${dir.phase})${supportSuffix}`,
     documentation: {
       value: [
         `**${dir.key}**`,
         '',
+        ...(unsimulated
+          ? [
+              dir.support === 'ignored'
+                ? `> ⚠️ **Not simulated.** ${dir.supportNote ?? ''}${dir.supportIssue ? ` Tracked as #${dir.supportIssue}.` : ''}`
+                : `> ℹ️ **Outside the simulation.** ${dir.supportNote ?? ''}`,
+              '',
+            ]
+          : []),
         dir.description,
         '',
         `**Default:** \`${dir.defaultValue || '(none)'}\` &nbsp; **Phase:** ${dir.phase} &nbsp; **Type:** ${dir.valueType}`,
