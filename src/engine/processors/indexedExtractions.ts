@@ -66,9 +66,10 @@ function extractDelimited(events: SplunkEvent[], delimiter: string, mode: string
   // assuming `events[0]` is the header made every field name garbage whenever
   // the file opened with one.
   const headerIndex = events.findIndex((e) => isContentLine(e._raw));
-  if (headerIndex === -1) return events;
+  const headerEvent = events[headerIndex];
+  if (headerEvent === undefined) return events;
 
-  const headers = parseDelimitedLine(events[headerIndex]._raw, delimiter).map(sanitizeHeaderName);
+  const headers = parseDelimitedLine(headerEvent._raw, delimiter).map(sanitizeHeaderName);
 
   if (headers.length === 0) return events;
 
@@ -80,10 +81,11 @@ function extractDelimited(events: SplunkEvent[], delimiter: string, mode: string
     const fields = { ...event.fields };
     const added: string[] = [];
 
-    for (let i = 0; i < headers.length && i < values.length; i++) {
-      if (headers[i] && values[i]) {
-        setField(fields, headers[i], values[i]);
-        added.push(headers[i]);
+    for (const [i, header] of headers.entries()) {
+      const value = values[i];
+      if (header && value) {
+        setField(fields, header, value);
+        added.push(header);
       }
     }
 
@@ -110,7 +112,7 @@ function extractW3c(events: SplunkEvent[]): SplunkEvent[] {
   for (const event of events) {
     const fieldsMatch = event._raw.match(/^#Fields:\s*(.+)$/m);
     if (fieldsMatch) {
-      headers = fieldsMatch[1].trim().split(/\s+/).map(sanitizeHeaderName);
+      headers = (fieldsMatch[1] ?? '').trim().split(/\s+/).map(sanitizeHeaderName);
       break;
     }
   }
@@ -127,10 +129,11 @@ function extractW3c(events: SplunkEvent[]): SplunkEvent[] {
     const fields = { ...event.fields };
     const added: string[] = [];
 
-    for (let i = 0; i < headers.length && i < values.length; i++) {
-      if (headers[i] && values[i] && values[i] !== '-') {
-        setField(fields, headers[i], values[i]);
-        added.push(headers[i]);
+    for (const [i, header] of headers.entries()) {
+      const value = values[i];
+      if (header && value && value !== '-') {
+        setField(fields, header, value);
+        added.push(header);
       }
     }
 
@@ -184,7 +187,7 @@ function parseW3cLine(line: string): string[] {
   const re = /"([^"]*)"|(\S+)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(line)) !== null) {
-    tokens.push(m[1] !== undefined ? m[1] : m[2]);
+    tokens.push(m[1] ?? m[2] ?? '');
   }
   return tokens;
 }

@@ -323,7 +323,7 @@ export function FieldsTab() {
                 <ResizableHeader
                   key={col.key}
                   col={col}
-                  width={columnWidths[col.key]}
+                  width={columnWidths[col.key] ?? 0}
                   sortKey={sortKey}
                   sortDir={sortDir}
                   onSort={handleSort}

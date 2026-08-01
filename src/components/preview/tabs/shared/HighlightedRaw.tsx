@@ -101,7 +101,7 @@ export function HighlightedRaw({
     for (let i = 0; i < cuts.length - 1; i++) {
       const s = cuts[i];
       const e = cuts[i + 1];
-      if (s >= e) continue;
+      if (s === undefined || e === undefined || s >= e) continue;
       let owner: Highlight | null = null;
       for (const h of highlights) {
         if (h.start <= s && h.end >= e && (owner === null || h.end - h.start < owner.end - owner.start)) {

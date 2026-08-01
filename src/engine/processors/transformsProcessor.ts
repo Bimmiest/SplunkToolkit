@@ -74,7 +74,7 @@ export function applyTransforms(
         const ingestEvalDirs = transformStanza.directives.filter((d) => d.key === 'INGEST_EVAL');
         if (ingestEvalDirs.length > 0) {
           if (phase === 'index-time') {
-            currentEvent = applyIngestEval([currentEvent], ingestEvalDirs, diagnostics)[0];
+            currentEvent = applyIngestEval([currentEvent], ingestEvalDirs, diagnostics)[0] ?? currentEvent;
           }
           continue;
         }

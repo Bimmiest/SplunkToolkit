@@ -101,7 +101,7 @@ function detectDelimiter(lines: string[]): { format: string; confidence: Confide
 
   for (const [ch, format] of candidates) {
     const counts = sample.map((l) => countChar(l, ch));
-    const headerCount = counts[0];
+    const headerCount = counts[0] ?? 0;
     if (headerCount < 1) continue;
     const consistent = counts.filter((c) => c === headerCount).length;
     const ratio = consistent / counts.length;

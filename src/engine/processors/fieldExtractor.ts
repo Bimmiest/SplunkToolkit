@@ -154,7 +154,7 @@ function parseExtractValue(value: string): { pattern: string; sourceField?: stri
   // as one token (Splunk requires quoting for such names); strip the quotes here.
   const inMatch = trimmed.match(/^([\s\S]+)\s+in\s+('[^']*'|"[^"]*"|[\w.]+)\s*$/);
   if (inMatch) {
-    return { pattern: inMatch[1], sourceField: unquoteFieldName(inMatch[2]) };
+    return { pattern: inMatch[1] ?? '', sourceField: unquoteFieldName(inMatch[2] ?? '') };
   }
   return { pattern: trimmed };
 }

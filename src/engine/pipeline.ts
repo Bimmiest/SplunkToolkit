@@ -296,7 +296,7 @@ export function runPipeline(
           {
             processor: 'StanzaRematch',
             phase: 'search-time' as const,
-            description: `Metadata rewritten at index-time (sourcetype → "${event.metadata.sourcetype}"); stanzas re-matched for search-time using ${eventDirectives[i].length} directives`,
+            description: `Metadata rewritten at index-time (sourcetype → "${event.metadata.sourcetype}"); stanzas re-matched for search-time using ${eventDirectives[i]?.length ?? 0} directives`,
           },
         ],
       };
@@ -312,9 +312,9 @@ export function runPipeline(
     // number, so they differ and all survive.
     const perEventDiagnostics: ValidationDiagnostic[] = [];
     const processed: SplunkEvent[] = [];
-    for (let i = 0; i < events.length; i++) {
-      const evDirs = eventDirectives[i];
-      let ev: SplunkEvent[] = [events[i]];
+    for (const [i, event] of events.entries()) {
+      const evDirs = eventDirectives[i] ?? [];
+      let ev: SplunkEvent[] = [event];
       // Splunk's search-time order is EXTRACT → REPORT → automatic KV (KV_MODE) → FIELDALIAS → EVAL.
       ev = safeProcessor('EXTRACT', ev, () => extractFields(ev, evDirs, perEventDiagnostics, captureOffsets), perEventDiagnostics);
       ev = safeProcessor('REPORT', ev, () => applyTransforms(ev, evDirs, transformsConf, 'search-time', perEventDiagnostics), perEventDiagnostics, 'transforms.conf');

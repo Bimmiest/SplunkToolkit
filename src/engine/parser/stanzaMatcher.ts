@@ -88,7 +88,7 @@ function patternToRegex(pattern: string): string {
       result += '[^/\\\\]';
       i++;
     } else {
-      result += escapeRegex(pattern[i]);
+      result += escapeRegex(pattern.charAt(i));
       i++;
     }
   }

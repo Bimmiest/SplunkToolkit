@@ -147,7 +147,7 @@ function findClassEnd(source: string, start: number): number {
 function findGroupEnd(source: string, start: number): number {
   let depth = 0;
   for (let i = start; i < source.length; i++) {
-    const c = source[i];
+    const c = source.charAt(i);
     if (c === '\\') { i++; continue; }
     if (c === '[') {
       const end = findClassEnd(source, i);
@@ -172,7 +172,7 @@ function splitTopLevelAlternatives(source: string): string[] {
   const parts: string[] = [];
   let start = 0;
   for (let i = 0; i < source.length; i++) {
-    const c = source[i];
+    const c = source.charAt(i);
     if (c === '\\') { i++; continue; }
     if (c === '[') {
       const end = findClassEnd(source, i);
@@ -204,14 +204,14 @@ function scanAtoms(source: string): RegexAtom[] | null {
   const atoms: RegexAtom[] = [];
   let i = 0;
   while (i < source.length) {
-    const c = source[i];
+    const c = source.charAt(i);
     let atomSource: string;
     let isGroup = false;
     let isZeroWidth = false;
 
     if (c === '\\') {
       if (i + 1 >= source.length) return null;
-      const next = source[i + 1];
+      const next = source.charAt(i + 1);
       if (next >= '1' && next <= '9') return null; // backreference — unknown language
       if (next === 'b' || next === 'B') isZeroWidth = true;
       atomSource = source.slice(i, i + 2);
@@ -241,7 +241,7 @@ function scanAtoms(source: string): RegexAtom[] | null {
 
     let quantifier = '';
     if (i < source.length) {
-      const q = source[i];
+      const q = source.charAt(i);
       if (q === '*' || q === '+' || q === '?') {
         quantifier = q;
         i += 1;
@@ -324,7 +324,7 @@ function findBoundary(
   for (let j = from; j < to; j++) {
     const next = atoms[j];
     // Zero-width assertions consume nothing and so cannot bound the repetition.
-    if (next.isZeroWidth) continue;
+    if (next === undefined || next.isZeroWidth) continue;
     // An opaque group — no overlap analysis available, so assume the worst.
     if (next.isGroup) return 'ambiguous';
     // The repeated atom can also match what follows: the split is ambiguous.
@@ -341,8 +341,7 @@ function findBoundary(
  * iterations in many ways.
  */
 function branchIsAmbiguous(atoms: RegexAtom[]): boolean {
-  for (let i = 0; i < atoms.length; i++) {
-    const atom = atoms[i];
+  for (const [i, atom] of atoms.entries()) {
     if (!isUnbounded(atom.quantifier)) continue;
     // A repeated group inside a repeated group is the classic `(a+)+` shape;
     // its language is opaque here, so assume the worst.

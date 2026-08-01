@@ -166,9 +166,9 @@ function parseAliases(value: string): AliasMapping[] {
 
   while ((match = regex.exec(value)) !== null) {
     aliases.push({
-      source: match[1],
-      target: match[3],
-      mode: match[2].toUpperCase() as 'AS' | 'ASNEW',
+      source: match[1] ?? '',
+      target: match[3] ?? '',
+      mode: (match[2] ?? 'AS').toUpperCase() as 'AS' | 'ASNEW',
     });
   }
 

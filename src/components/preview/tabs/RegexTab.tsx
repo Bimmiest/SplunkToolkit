@@ -4,7 +4,7 @@ import { copyToClipboard } from '../../../utils/clipboard';
 import { useRegexMatch } from '../../../hooks/useRegexMatch';
 import type { RegexMatchInfo } from '../../../engine/regexMatch';
 import type { EnrichedEvent } from '../PreviewPanel';
-import { FIELD_COLORS } from './shared/fieldColors';
+import { fieldColorAt } from './shared/fieldColors';
 
 // ─── Regex Reference Data ────────────────────────────────────────────────────
 
@@ -101,7 +101,8 @@ function extractNamedGroups(pattern: string): string[] {
   const regex = /\(\?P?<(\w+)>/g;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(pattern)) !== null) {
-    groups.push(match[1]);
+    const name = match[1];
+    if (name !== undefined) groups.push(name);
   }
   return groups;
 }
@@ -110,7 +111,7 @@ function extractNamedGroups(pattern: string): string[] {
 function buildGroupColorMap(groups: string[]): Map<string, string> {
   const map = new Map<string, string>();
   groups.forEach((name, idx) => {
-    map.set(name, FIELD_COLORS[idx % FIELD_COLORS.length]);
+    map.set(name, fieldColorAt(idx));
   });
   return map;
 }

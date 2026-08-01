@@ -44,9 +44,9 @@ export function applyIngestEval(
   // A stanza may repeat INGEST_EVAL; Splunk's last-definition-wins rule means
   // only the final directive applies (each may still hold several comma-separated
   // assignments, all of which run).
-  const allIngestEval = directives.filter((d) => d.key === 'INGEST_EVAL');
-  if (allIngestEval.length === 0) return events;
-  const ingestEvalDirs = [allIngestEval[allIngestEval.length - 1]];
+  const lastIngestEval = directives.filter((d) => d.key === 'INGEST_EVAL').at(-1);
+  if (lastIngestEval === undefined) return events;
+  const ingestEvalDirs = [lastIngestEval];
 
   const reportedErrors = new Set<string>();
   const reportedStubs = new Set<string>();
