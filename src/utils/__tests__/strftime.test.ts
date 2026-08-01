@@ -107,3 +107,65 @@ describe('#69.5 — %%T must not corrupt into %H handling', () => {
     expect(strftimeToRegex('%T').source).toBe('(\\d{1,2}):(\\d{1,2}):(\\d{1,2})');
   });
 });
+
+describe('#159 — IANA zone names resolve against real zone data', () => {
+  const FMT = '%Y-%m-%d %H:%M:%S';
+
+  it('applies a named zone rather than assuming UTC', () => {
+    // The fidelity capture: 10:00 in New York in January is 15:00Z.
+    expect(iso('2026-01-15 10:00:00', FMT, 'America/New_York')).toBe('2026-01-15T15:00:00.000Z');
+  });
+
+  it('uses the offset in force on the event date, not a fixed one', () => {
+    // Same zone, same wall clock, six months apart: EST is -05:00 and EDT is
+    // -04:00. A fixed-offset table cannot produce both, which is the whole
+    // reason zone names need real data.
+    expect(iso('2026-01-15 12:00:00', FMT, 'America/New_York')).toBe('2026-01-15T17:00:00.000Z');
+    expect(iso('2026-07-15 12:00:00', FMT, 'America/New_York')).toBe('2026-07-15T16:00:00.000Z');
+  });
+
+  it('handles zones on a non-hour offset', () => {
+    expect(iso('2026-01-15 12:00:00', FMT, 'Asia/Kolkata')).toBe('2026-01-15T06:30:00.000Z');
+    expect(iso('2026-01-15 12:00:00', FMT, 'Australia/Adelaide')).toBe('2026-01-15T01:30:00.000Z');
+  });
+
+  it('handles a southern-hemisphere zone, where the DST sense is inverted', () => {
+    // Sydney is +11:00 in January and +10:00 in July -- the opposite way round
+    // from New York, so a hemisphere-blind fix would get one of them wrong.
+    expect(iso('2026-01-15 12:00:00', FMT, 'Australia/Sydney')).toBe('2026-01-15T01:00:00.000Z');
+    expect(iso('2026-07-15 12:00:00', FMT, 'Australia/Sydney')).toBe('2026-07-15T02:00:00.000Z');
+  });
+
+  it('resolves a wall clock an hour either side of a spring-forward transition', () => {
+    // US DST begins 2026-03-08 02:00 local. 01:30 is still EST (-05:00) and
+    // 03:30 is already EDT (-04:00) -- the pair that a single-pass offset guess
+    // gets wrong, because the guess is taken at the wrong instant.
+    expect(iso('2026-03-08 01:30:00', FMT, 'America/New_York')).toBe('2026-03-08T06:30:00.000Z');
+    expect(iso('2026-03-08 03:30:00', FMT, 'America/New_York')).toBe('2026-03-08T07:30:00.000Z');
+  });
+
+  it('resolves an ambiguous fall-back wall clock to its first occurrence', () => {
+    // US DST ends 2026-11-01 02:00 local, so 01:30 happens twice. The first is
+    // EDT (-04:00) at 05:30Z; the second is EST (-05:00) at 06:30Z.
+    expect(iso('2026-11-01 01:30:00', FMT, 'America/New_York')).toBe('2026-11-01T05:30:00.000Z');
+  });
+
+  it('still prefers an explicit offset in the event over the stanza zone', () => {
+    expect(iso('2026-01-15 10:00:00 +0900', `${FMT} %z`, 'America/New_York')).toBe(
+      '2026-01-15T01:00:00.000Z',
+    );
+  });
+
+  it('treats an unresolvable zone as UTC and reports it', () => {
+    const seen: string[] = [];
+    const d = parseTimestamp('2026-01-15 10:00:00', FMT, 'Mars/Olympus_Mons', (v) => seen.push(v));
+    expect(d?.toISOString()).toBe('2026-01-15T10:00:00.000Z');
+    expect(seen).toEqual(['Mars/Olympus_Mons']);
+  });
+
+  it('does not report a zone it could resolve', () => {
+    const seen: string[] = [];
+    parseTimestamp('2026-01-15 10:00:00', FMT, 'Europe/London', (v) => seen.push(v));
+    expect(seen).toEqual([]);
+  });
+});

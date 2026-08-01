@@ -115,7 +115,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'truncate-hard-cap',
-    knownMismatch: '#167',
     directives: ['TRUNCATE', 'SHOULD_LINEMERGE'],
     phase: 'index-time',
     props: 'SHOULD_LINEMERGE = false\nTRUNCATE = 40\nTZ = UTC\n',
@@ -199,7 +198,6 @@ export const CORPUS: FixtureCase[] = [
   // -------------------------------------------------------------------------
   {
     id: 'linebreak-max-events',
-    knownMismatch: '#162, #163',
     directives: ['MAX_EVENTS', 'SHOULD_LINEMERGE'],
     phase: 'index-time',
     props: 'SHOULD_LINEMERGE = true\nBREAK_ONLY_BEFORE_DATE = true\nMAX_EVENTS = 3\nTZ = UTC\n',
@@ -220,7 +218,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'linebreak-must-break-after',
-    knownMismatch: '#161',
     directives: ['MUST_BREAK_AFTER', 'SHOULD_LINEMERGE'],
     phase: 'index-time',
     props: 'SHOULD_LINEMERGE = true\nBREAK_ONLY_BEFORE_DATE = false\nMUST_BREAK_AFTER = END\nTZ = UTC\n',
@@ -243,7 +240,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'truncate-multibyte-boundary',
-    knownMismatch: '#167',
     directives: ['TRUNCATE', 'SHOULD_LINEMERGE'],
     phase: 'index-time',
     props: 'SHOULD_LINEMERGE = false\nTRUNCATE = 30\nTZ = UTC\n',
@@ -304,7 +300,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'timestamp-named-timezone',
-    knownMismatch: '#159',
     directives: ['TZ', 'TIME_FORMAT', 'TIME_PREFIX'],
     phase: 'index-time',
     props:
@@ -321,7 +316,6 @@ export const CORPUS: FixtureCase[] = [
   // -------------------------------------------------------------------------
   {
     id: 'sedcmd-backreference',
-    knownMismatch: '#166',
     directives: ['SEDCMD'],
     phase: 'index-time',
     props:
@@ -332,7 +326,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'sedcmd-transliterate',
-    knownMismatch: '#160',
     directives: ['SEDCMD'],
     phase: 'index-time',
     props: 'SHOULD_LINEMERGE = false\nTZ = UTC\nSEDCMD-upper = y/abc/ABC/\n',
@@ -382,7 +375,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'indexed-extractions-json',
-    knownMismatch: '#164',
     directives: ['INDEXED_EXTRACTIONS'],
     phase: 'index-time',
     props:
@@ -472,7 +464,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'eval-functions',
-    knownMismatch: '#165',
     directives: ['EVAL-'],
     phase: 'search-time',
     props:
@@ -557,7 +548,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'kvmode-auto-repeated-key',
-    knownMismatch: '#169',
     directives: ['KV_MODE', 'MV_ADD'],
     phase: 'search-time',
     props: 'SHOULD_LINEMERGE = false\nTZ = UTC\nKV_MODE = auto\n',
@@ -583,7 +573,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'report-mv-add-false',
-    knownMismatch: '#174',
     directives: ['REPORT-', 'MV_ADD', 'REPEAT_MATCH'],
     phase: 'search-time',
     props: 'SHOULD_LINEMERGE = false\nTZ = UTC\nKV_MODE = none\nREPORT-nomv = fx_report_nomv\n',
@@ -633,7 +622,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'linebreak-no-capture-group',
-    knownMismatch: '#172',
     directives: ['LINE_BREAKER', 'SHOULD_LINEMERGE'],
     phase: 'index-time',
     props: 'SHOULD_LINEMERGE = false\nLINE_BREAKER = -----\nTZ = UTC\n',
@@ -663,7 +651,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'truncate-shorter-than-timestamp',
-    knownMismatch: '#167',
     directives: ['TRUNCATE', 'TIME_FORMAT'],
     phase: 'index-time',
     props: 'SHOULD_LINEMERGE = false\nTRUNCATE = 10\nTIME_FORMAT = %Y-%m-%d\nTZ = UTC\n',
@@ -706,7 +693,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'eval-null-propagation',
-    knownMismatch: '#168',
     directives: ['EVAL-', 'KV_MODE'],
     phase: 'search-time',
     props:
@@ -721,7 +707,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'kvmode-value-containing-equals',
-    knownMismatch: '#170',
     directives: ['KV_MODE'],
     phase: 'search-time',
     props: 'SHOULD_LINEMERGE = false\nTZ = UTC\nKV_MODE = auto\n',
@@ -859,7 +844,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'precedence-merged-not-replaced',
-    knownMismatch: '#167',
     directives: ['SEDCMD', 'TRUNCATE'],
     phase: 'index-time',
     ingestSource: 'fx_prec_merge',
@@ -935,7 +919,6 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'transforms-format-dollar-zero',
-    knownMismatch: '#175',
     directives: ['REPORT-', 'REGEX', 'FORMAT'],
     phase: 'search-time',
     props: 'SHOULD_LINEMERGE = false\nTZ = UTC\nKV_MODE = none\nREPORT-dz = fx_report_dollar_zero\n',

@@ -553,8 +553,18 @@ function evalNode(node: Node, ctx: EvalCtx): EvalValue {
       return node.value;
     case 'field':
       return getField(ctx.event, node.name);
-    case 'concat':
-      return toStr(evalNode(node.left, ctx)) + toStr(evalNode(node.right, ctx));
+    case 'concat': {
+      // Splunk propagates null through the dot operator: concatenating against a
+      // field that does not exist yields no value at all, so the EVAL writes no
+      // field. Coercing the missing side to "" instead produced a present-but-
+      // empty field, which inverts the standard `if(isnull(x), …)` guard --
+      // exactly the case a config author wrote the guard for.
+      const left = evalNode(node.left, ctx);
+      if (left === null || left === undefined) return null;
+      const right = evalNode(node.right, ctx);
+      if (right === null || right === undefined) return null;
+      return toStr(left) + toStr(right);
+    }
     case 'arith': {
       const l = evalNode(node.left, ctx);
       const r = evalNode(node.right, ctx);
@@ -859,6 +869,13 @@ function evalBuiltin(fn: string, args: EvalValue[], ctx: EvalCtx): EvalValue {
 
     // Other
     case 'null': return null;
+    // `true()`/`false()` parse as calls, not as the bare boolean literals the
+    // parser already handles — and `true()` is the idiomatic way to write the
+    // trailing default branch of a case(). Without these it evaluated to null,
+    // the branch never fired, and case() fell off the end returning nothing for
+    // precisely the inputs the author wrote a fallback for (#165).
+    case 'true': return true;
+    case 'false': return false;
     case 'like': {
       const value = toStr(args[0]);
       // Escape regex metacharacters first, then translate SQL-style wildcards

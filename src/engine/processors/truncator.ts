@@ -87,6 +87,10 @@ export function truncateEvents(
     return {
       ...event,
       _raw: newLines.join('\n'),
+      // Splunk marks a truncated event with `meta = truncated`, which is the
+      // only thing downstream has to tell a cut event from a naturally short
+      // one -- the text itself carries no evidence of what was removed.
+      fields: { ...event.fields, meta: 'truncated' },
       processingTrace: [
         ...event.processingTrace,
         {

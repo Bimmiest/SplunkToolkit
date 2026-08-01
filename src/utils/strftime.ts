@@ -253,15 +253,89 @@ const TZ_OFFSETS: Record<string, number> = {
 };
 
 /**
+ * Formatters for IANA zone names, cached because constructing one is expensive
+ * and a batch of events shares a single `TZ`. A name the runtime rejects caches
+ * as `null` so it is not retried per event.
+ */
+const ianaFormatters = new Map<string, Intl.DateTimeFormat | null>();
+
+function ianaFormatter(tz: string): Intl.DateTimeFormat | null {
+  const cached = ianaFormatters.get(tz);
+  if (cached !== undefined) return cached;
+
+  let formatter: Intl.DateTimeFormat | null = null;
+  try {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour12: false,
+      era: 'short',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  } catch {
+    // RangeError for a name this runtime does not know.
+    formatter = null;
+  }
+  ianaFormatters.set(tz, formatter);
+  return formatter;
+}
+
+/**
+ * The offset, in minutes east of UTC, that a zone was actually at a given
+ * instant — which is the whole reason a zone name cannot be reduced to a fixed
+ * number. Read by formatting the instant *into* the zone and asking how far the
+ * resulting wall clock is from the UTC one.
+ */
+function ianaOffsetAt(formatter: Intl.DateTimeFormat, atMs: number): number {
+  const parts = formatter.formatToParts(new Date(atMs));
+  const num = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+
+  let year = num('year');
+  // `era` is requested so a BC year is not silently read as AD — Splunk data
+  // will never contain one, but a wrong answer is worse than a rejected one.
+  if (parts.find((p) => p.type === 'era')?.value?.startsWith('B')) year = 1 - year;
+
+  // Some ICU versions render midnight as hour 24 under hour12: false.
+  const hour = num('hour') === 24 ? 0 : num('hour');
+
+  const asUtc = Date.UTC(year, num('month') - 1, num('day'), hour, num('minute'), num('second'));
+  return (asUtc - atMs) / 60_000;
+}
+
+/**
+ * Turn a wall-clock reading in a named zone into an epoch instant.
+ *
+ * `wallAsUtcMs` is the timestamp's components assembled as though they were
+ * UTC. Two passes: the offset that applied at that numeric instant is a good
+ * first guess, and re-reading the offset at the candidate instant corrects it
+ * when the guess landed on the wrong side of a DST transition.
+ *
+ * A wall clock inside a spring-forward gap does not exist, and one inside a
+ * fall-back overlap happens twice; this resolves the former forward and the
+ * latter to the first occurrence, which is what most strptime implementations
+ * do and what a user comparing against a real indexer will usually see.
+ */
+function ianaWallClockToEpoch(formatter: Intl.DateTimeFormat, wallAsUtcMs: number): number {
+  const firstGuess = ianaOffsetAt(formatter, wallAsUtcMs);
+  const candidate = wallAsUtcMs - firstGuess * 60_000;
+  const refined = ianaOffsetAt(formatter, candidate);
+  return refined === firstGuess ? candidate : wallAsUtcMs - refined * 60_000;
+}
+
+/**
  * Resolve a timezone specification to an offset in minutes from UTC.
  *
  * Accepts:
  *  - Named abbreviations recognised by the internal table (e.g. "PST").
  *  - Numeric offsets in the form "+HHMM" or "-HHMM" (with optional colon).
  *
- * Returns `null` when the value cannot be resolved (e.g. an IANA name like
- * "Europe/London", or an abbreviation not in the table). Callers decide how to
- * surface that rather than silently treating an unknown zone as UTC.
+ * Returns `null` when the value cannot be resolved. An IANA name such as
+ * "Europe/London" resolves through `ianaWallClockToEpoch` instead, because its
+ * offset depends on the instant and so cannot be answered here.
  */
 function resolveTzOffsetMinutes(tz: string): number | null {
   const upper = tz.toUpperCase();
@@ -452,38 +526,34 @@ export function parseTimestamp(
   // -----------------------------------------------------------------------
   // Resolve timezone offset
   // -----------------------------------------------------------------------
-  let offsetMinutes: number | null = null;
+  // The components read as though they were UTC. Every branch below is a
+  // question about how far the real instant is from this one.
+  const wallAsUtcMs = Date.UTC(year, month, day, hour, minute, second, milliseconds);
+
+  // A zone written in the event (%Z) beats the stanza's TZ, and an explicit
+  // numeric offset (%z) beats both — it needs no resolution at all.
+  const zoneName = bag.tzName ?? tz;
 
   if (bag.tzOffset) {
     // %z only ever matches Z or a numeric offset, so this always resolves.
-    offsetMinutes = resolveTzOffsetMinutes(bag.tzOffset) ?? 0;
-  } else if (bag.tzName) {
-    const resolved = resolveTzOffsetMinutes(bag.tzName);
-    if (resolved === null) {
-      onUnresolvedTz?.(bag.tzName);
-      offsetMinutes = 0; // unresolved abbreviation -- treat as UTC, but signal it
-    } else {
-      offsetMinutes = resolved;
-    }
-  } else if (tz) {
-    const resolved = resolveTzOffsetMinutes(tz);
-    if (resolved === null) {
-      onUnresolvedTz?.(tz);
-      offsetMinutes = 0;
-    } else {
-      offsetMinutes = resolved;
-    }
+    const offsetMinutes = resolveTzOffsetMinutes(bag.tzOffset) ?? 0;
+    return new Date(wallAsUtcMs - offsetMinutes * 60_000);
   }
 
-  // -----------------------------------------------------------------------
-  // Build the Date
-  // -----------------------------------------------------------------------
-  if (offsetMinutes !== null) {
-    // Construct as UTC then adjust by the offset.
-    const utcMs = Date.UTC(year, month, day, hour, minute, second, milliseconds);
-    return new Date(utcMs - offsetMinutes * 60_000);
+  if (zoneName) {
+    // A fixed offset or a known abbreviation is a constant, so answer directly.
+    const fixed = resolveTzOffsetMinutes(zoneName);
+    if (fixed !== null) return new Date(wallAsUtcMs - fixed * 60_000);
+
+    // Otherwise it may be an IANA name, whose offset depends on the date --
+    // which is exactly why the abbreviation table cannot answer it.
+    const formatter = ianaFormatter(zoneName);
+    if (formatter) return new Date(ianaWallClockToEpoch(formatter, wallAsUtcMs));
+
+    // Genuinely unresolvable: a typo, or a zone this runtime has no data for.
+    onUnresolvedTz?.(zoneName);
   }
 
   // No timezone info at all -- assume UTC.
-  return new Date(Date.UTC(year, month, day, hour, minute, second, milliseconds));
+  return new Date(wallAsUtcMs);
 }

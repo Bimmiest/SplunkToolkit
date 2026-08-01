@@ -91,7 +91,7 @@ const DIRECTIVE_DEFINITIONS: DirectiveDefinition[] = [
     key: 'TZ',
     description:
       'The timezone to apply to timestamps that do not include timezone information. ' +
-      'Real Splunk accepts IANA/Olson identifiers (e.g. "America/New_York") and UTC offsets. This simulator resolves only numeric offsets (+0530, -05:00) and a small table of abbreviations (UTC, GMT, EST/EDT, CST/CDT, MST/MDT, PST/PDT, IST, CET/CEST, JST, AEST/AEDT, NZST/NZDT); anything else — including every IANA name — is treated as UTC and warned about, because a browser cannot resolve a zone name to the offset that applied on a historical date. ' +
+      'Accepts IANA/Olson identifiers (e.g. "America/New_York"), numeric offsets (+0530, -05:00) and a small table of abbreviations (UTC, GMT, EST/EDT, CST/CDT, MST/MDT, PST/PDT, IST, CET/CEST, JST, AEST/AEDT, NZST/NZDT). An IANA name is resolved through the browser\'s own time-zone data, so the offset applied is the one that was in force on the event\'s date, DST included. A name the runtime does not recognise is treated as UTC and warned about. ' +
       'If not set, Splunk uses the timezone of the server where the data was indexed.',
     example: 'TZ = America/Los_Angeles',
     defaultValue: '',

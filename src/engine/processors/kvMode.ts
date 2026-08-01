@@ -302,7 +302,11 @@ function extractKeyValue(
   const quoted = escaped
     ? /(?:^|[\s,;])([\w.\-:]+)=(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')/g
     : /(?:^|[\s,;])([\w.\-:]+)=(?:"([^"]*)"|'([^']*)')/g;
-  const bare = /(?:^|[\s,;])([\w.\-:]+)=([\w.:\-/\\@#+]+)/g;
+  // `=` is in the VALUE class: Splunk splits a bare pair on the first `=` and
+  // takes the rest of the token, so `query=x=y=z` is one field worth `x=y=z`.
+  // Excluding it truncated at the second `=` instead, which silently corrupts
+  // query strings, base64 and filter expressions -- all routine in log data.
+  const bare = /(?:^|[\s,;])([\w.\-:]+)=([\w.:\-/\\@#+=]+)/g;
 
   // Working copy for the bare pass. Quoted key=value spans are blanked out here
   // so that a `key=value` substring *inside* a quoted value (e.g.
@@ -310,25 +314,34 @@ function extractKeyValue(
   // same-length spaces preserves the [\s,;] boundaries the bare pattern anchors on.
   let bareScan = raw;
 
-  // Splunk's automatic KV extraction accumulates a repeated key into a
-  // multivalue field — `user=alice user=bob` is `user = {alice, bob}`, which is
-  // ordinary in postfix/Cisco-style logs. Keeping only the first value silently
-  // discarded the rest.
+  // Splunk's automatic KV extraction keeps the FIRST occurrence of a repeated
+  // key and discards the rest -- `label=a label=b` is `label = "a"`, not a
+  // multivalue field. Worth stating plainly because the opposite is the more
+  // common intuition, and it is what this code did until the Splunk 10.4.0
+  // capture (`kvmode-auto-repeated-key`) settled it.
   //
   // The "already extracted" guard still has to distinguish a key this pass has
-  // seen from one an EARLIER processor wrote: automatic KV must not append to a
+  // seen from one an EARLIER processor wrote: automatic KV must not overwrite a
   // field that INDEXED_EXTRACTIONS or a REPORT already produced.
   const seenHere = new Set<string>();
   const record = (key: string, value: string): void => {
-    if (seenHere.has(key)) {
-      addFieldValue(fields, key, value);
-      return;
-    }
+    // Splunk discards a purely numeric field name from auto-KV. Reachable from
+    // ordinary data via a SEDCMD that rewrites pairs, and the engine extracting
+    // `1 = "a"` where Splunk extracts nothing is a field that can never exist
+    // in the user's real deployment.
+    if (/^\d+$/.test(key)) return;
+    if (seenHere.has(key)) return; // first occurrence wins
     if (hasField(fields, key)) return; // produced by an earlier processor — leave it alone
     setField(fields, key, value);
     seenHere.add(key);
     added.push(key);
   };
+
+  // Both passes collect before either records, so "first wins" means first in
+  // the EVENT rather than first in whichever pass happened to run. The quoted
+  // sweep has to go first to blank its spans out of `bareScan`, so recording as
+  // it goes would let a quoted pair beat a bare one that precedes it.
+  const candidates: { at: number; key: string; value: string }[] = [];
 
   for (const match of raw.matchAll(quoted)) {
     const start = match.index ?? 0;
@@ -341,15 +354,18 @@ function extractKeyValue(
     let value = match[2] ?? match[3];
     if (key && value !== undefined) {
       if (escaped) value = value.replace(/\\(["'\\])/g, '$1');
-      record(key, value);
+      candidates.push({ at: start, key, value });
     }
   }
 
   for (const match of bareScan.matchAll(bare)) {
     const key = match[1];
     const value = match[2];
-    if (key && value !== undefined) record(key, value);
+    if (key && value !== undefined) candidates.push({ at: match.index ?? 0, key, value });
   }
+
+  candidates.sort((a, b) => a.at - b.at);
+  for (const c of candidates) record(c.key, c.value);
 }
 
 /**

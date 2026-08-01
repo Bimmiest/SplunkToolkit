@@ -9,6 +9,12 @@ interface SedCommand {
   pattern: RegExp;
   replacement: string;
   global: boolean;
+  /**
+   * Character map for the `y///` transliterate form. When present the command
+   * substitutes per character through this table rather than expanding
+   * `replacement`, which has no meaning for a transliteration.
+   */
+  translate?: Map<string, string>;
 }
 
 /**
@@ -71,6 +77,75 @@ function sedWarning(
   };
 }
 
+/**
+ * Resolve the escapes sed recognises inside a `y///` set. The expression parser
+ * keeps backslashes verbatim so `s///` can hand them to the regex engine, but a
+ * transliteration set is a literal list of characters, so they resolve here.
+ */
+function unescapeTranslateSet(set: string, delimiter: string): string {
+  let out = '';
+  for (let i = 0; i < set.length; i++) {
+    if (set[i] !== '\\' || i === set.length - 1) {
+      out += set[i];
+      continue;
+    }
+    const next = set[++i];
+    out +=
+      next === 'n' ? '\n' : next === 't' ? '\t' : next === 'r' ? '\r' : next === delimiter ? delimiter : next;
+  }
+  return out;
+}
+
+/**
+ * Build the `y/<from>/<to>/` transliterate form: replace every occurrence of
+ * each character in `from` with the character at the same position in `to`.
+ *
+ * Unlike `s///` this is unconditionally global and has no flags — `y/abc/ABC/`
+ * rewrites the `abc` inside `abcdef` as well as a standalone one, and leaves
+ * `def` alone.
+ */
+function parseTransliterate(
+  fromRaw: string,
+  toRaw: string,
+  delimiter: string,
+  dir?: ConfDirective,
+  diagnostics?: ValidationDiagnostic[],
+): SedCommand | null {
+  const from = [...unescapeTranslateSet(fromRaw, delimiter)];
+  const to = [...unescapeTranslateSet(toRaw, delimiter)];
+
+  if (from.length === 0) return null;
+  if (from.length !== to.length) {
+    // sed itself rejects this outright, so producing a partial transliteration
+    // would be inventing behaviour no implementation has.
+    diagnostics?.push(
+      sedWarning(
+        dir,
+        `y/// needs both character sets to be the same length (got ${from.length} and ${to.length}), ` +
+          'so the directive was ignored.',
+      ),
+    );
+    return null;
+  }
+
+  const translate = new Map<string, string>();
+  // A character repeated in the source set takes its FIRST mapping, which is
+  // what sed does — later duplicates are dead entries rather than overrides.
+  from.forEach((ch, i) => {
+    if (!translate.has(ch)) translate.set(ch, to[i] ?? ch);
+  });
+
+  // Escaped for a character class, where `-` and `^` are the meaningful ones.
+  const escaped = [...translate.keys()].map((c) => c.replace(/[\\\]^-]/g, '\\$&')).join('');
+  return {
+    className: '',
+    pattern: new RegExp(`[${escaped}]`, 'g'),
+    replacement: '',
+    global: true,
+    translate,
+  };
+}
+
 function parseSedExpression(
   value: string,
   dir?: ConfDirective,
@@ -92,15 +167,6 @@ function parseSedExpression(
   }
 
   const [, verb, delimiter] = command;
-
-  // y/// transliteration is documented but not simulated — surface it rather than
-  // silently doing nothing (matching how crypto/eval stubs warn).
-  if (verb === 'y') {
-    diagnostics?.push(
-      sedWarning(dir, 'y/// transliteration is not simulated — this directive has no effect in the preview.'),
-    );
-    return null;
-  }
 
   const parts: string[] = [];
   let current = '';
@@ -135,6 +201,10 @@ function parseSedExpression(
       ),
     );
     return null;
+  }
+
+  if (verb === 'y') {
+    return parseTransliterate(parts[0] ?? '', parts[1] ?? '', delimiter ?? '/', dir, diagnostics);
   }
 
   const patternStr = parts[0] ?? '';
@@ -207,7 +277,10 @@ export function applySedCommands(
 
     for (const cmd of commands) {
       const before = raw;
-      raw = raw.replace(cmd.pattern, cmd.replacement);
+      const table = cmd.translate;
+      raw = table
+        ? raw.replace(cmd.pattern, (ch) => table.get(ch) ?? ch)
+        : raw.replace(cmd.pattern, cmd.replacement);
 
       if (raw !== before) {
         // Each command is attributed separately: two SEDCMDs masking two

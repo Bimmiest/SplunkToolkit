@@ -286,7 +286,7 @@ A simulator's correctness oracle is "matches real Splunk", which is a closed-sou
 
 Writing a directive that is not `simulated` produces a diagnostic under its editor — a warning for `ignored`, an informational note for `documented`. The dictionary and the editor hover say the same thing on the entry itself. The point is that the tool never silently renders output as though a line you wrote were absent.
 
-Four `simulated` entries carry a caveat rather than a clean bill of health: `TZ` (numeric offsets and abbreviations resolve, IANA zone names do not — #159), `INDEXED_EXTRACTIONS` (csv/tsv/psv/w3c, but not JSON — #164), `SEDCMD` (`s///` but not `y///` — #160), and `MV_ADD` (honoured for named capture groups, not for the FORMAT-pairs path — #174).
+One `simulated` entry carries a caveat rather than a clean bill of health: `INDEXED_EXTRACTIONS` simulates every format it names — csv, tsv, psv, w3c and json — but the attributes that customise the delimited ones are `ignored` ([#184](https://github.com/Bimmiest/SplunkToolkit/issues/184)).
 
 ### Not simulated yet (`ignored`)
 
@@ -315,12 +315,11 @@ Places where the simulator diverges from real Splunk. Verify anything suspicious
 - **Lookups.** `LOOKUP-*` directives are parsed and a warning is emitted, but lookup tables are not evaluated; fields sourced from lookups will not appear.
 - **Crypto functions.** `md5()`, `sha1()`, `sha256()`, `sha512()` return a placeholder string (e.g. `[md5() not simulated]`) and emit a warning.
 - **Partial stubs.** `cidrmatch()`, `searchmatch()`, `relative_time()`, `strptime()`, `mvfilter()` (returns its input unfiltered), and `sigfig()` / `exact()` (return the value unrounded) have simplified implementations; results may not match Splunk on edge cases. Every one of them emits a warning when evaluated, so a stubbed result is never mistaken for a computed one.
-- **`SEDCMD` transliteration.** Only the `s/` substitute form is simulated. The `y/abc/ABC/` transliteration form, the numeric occurrence flag (`s/…/…/2`), a value that is not a sed expression at all, and a pattern that will not compile each emit a warning rather than being dropped in silence.
+- **`SEDCMD` occurrence flag.** The `s/` substitute and `y/` transliterate forms are both simulated. The numeric occurrence flag (`s/…/…/2`), a value that is not a sed expression at all, a `y///` whose two character sets differ in length, and a pattern that will not compile each emit a warning rather than being dropped in silence.
 
 ### Simplified
 
 - **Delimited `INDEXED_EXTRACTIONS` overrides not honoured.** For `csv`/`tsv`/`psv`/`w3c`, the header is taken from line 1 and the delimiter is fixed per format. `FIELD_NAMES`, `FIELD_HEADER_REGEX`, `FIELD_QUOTE`, `KEEP_EMPTY_VALS`, and `CLEAN_KEYS` are parsed but ignored. This is the `INDEXED_EXTRACTIONS` context only — transforms.conf's own `CLEAN_KEYS` **is** simulated, pinned to a Splunk 10.4.0 capture.
-- **`MV_ADD` is not honoured in the `FORMAT`-pairs extraction path.** A `FORMAT = $1::$2` transform accumulates every match into a multivalue field regardless of `MV_ADD`; real Splunk keeps the first and discards the rest when `MV_ADD = false` (the default). The named-capture-group path does honour it. Tracked as a `knownMismatch` against the `report-mv-add-false` fixture.
 - **Stanza specificity is a heuristic.** Ranked by literal character count. Splunk's real tie-breaking for equal-score `source::` patterns is alphabetical; ordering can diverge for tied patterns.
 - **`KV_MODE = xml`.** Uses `DOMParser` inside the Web Worker — works in Chromium, historically not in Firefox workers. A try/catch falls back silently, so XML extraction may produce no fields on unsupported browsers. Element fields are named by their dotted path from the document root, including the root itself (`<event><user>…` gives `event.user`), which the Splunk 10.4.0 capture pins. Attribute naming is *not* pinned by any capture: attributes keep their bare names, except that a `Name` attribute follows the Windows event-log convention and names the field itself.
 - **`PAIR_RE` in transform `FORMAT` does not handle escaped quotes in quoted values.** `"([^"]*)"` stops at the first inner `"`, so `field::"say \"hi\""` parses as `field=say \`. Real Splunk behaviour here is under-documented; treat as an edge case.

@@ -223,15 +223,27 @@ describe('applyKvMode — multi (multikv)', () => {
   });
 });
 
-describe('applyKvMode — repeated keys accumulate (#64)', () => {
-  it('multivalues a repeated bare key', () => {
+// Filed as #64 on the reading that auto-KV accumulates, which is the more
+// common intuition and what postfix/Cisco-style logs suggest. The Splunk 10.4.0
+// capture `kvmode-auto-repeated-key` says otherwise: the first occurrence wins
+// and the rest are discarded (#169). Ground truth beats the reading.
+describe('applyKvMode — a repeated key keeps its first value (#169, was #64)', () => {
+  it('keeps the first of a repeated bare key', () => {
     const out = applyKvMode([event('user=alice user=bob')], [dir('auto')])[0]!;
-    expect(out.fields.user).toEqual(['alice', 'bob']);
+    expect(out.fields.user).toBe('alice');
   });
 
-  it('multivalues a repeated quoted key', () => {
+  it('keeps the first of a repeated quoted key', () => {
     const out = applyKvMode([event('msg="first one" msg="second one"')], [dir('auto')])[0]!;
-    expect(out.fields.msg).toEqual(['first one', 'second one']);
+    expect(out.fields.msg).toBe('first one');
+  });
+
+  it('reads "first" positionally, not by which quoting style is scanned first', () => {
+    // The quoted sweep runs before the bare one so it can blank its spans out
+    // of the bare scan; without ordering by position the later quoted pair
+    // would beat the earlier bare one.
+    const out = applyKvMode([event('user=alice user="bob smith"')], [dir('auto')])[0]!;
+    expect(out.fields.user).toBe('alice');
   });
 
   it('keeps a single occurrence scalar', () => {
@@ -243,6 +255,41 @@ describe('applyKvMode — repeated keys accumulate (#64)', () => {
     const ev = { ...event('user=bob'), fields: { user: 'from-indexed-extraction' } };
     const out = applyKvMode([ev], [dir('auto')])[0]!;
     expect(out.fields.user).toBe('from-indexed-extraction');
+  });
+});
+
+describe('applyKvMode — a value may contain = (#170)', () => {
+  it('splits on the first = and keeps the rest of the token', () => {
+    const out = applyKvMode([event('filter=a=b query=x=y=z plain=ok')], [dir('auto')])[0]!;
+    expect(out.fields.filter).toBe('a=b');
+    expect(out.fields.query).toBe('x=y=z');
+    expect(out.fields.plain).toBe('ok');
+  });
+
+  it('does not invent a field from the text after an inner =', () => {
+    const out = applyKvMode([event('filter=a=b')], [dir('auto')])[0]!;
+    expect(Object.keys(out.fields)).toEqual(['filter']);
+  });
+
+  it('still handles base64, which routinely ends in padding', () => {
+    const out = applyKvMode([event('token=aGVsbG8= next=1')], [dir('auto')])[0]!;
+    expect(out.fields.token).toBe('aGVsbG8=');
+    expect(out.fields.next).toBe('1');
+  });
+});
+
+describe('applyKvMode — purely numeric field names are rejected (#166)', () => {
+  it('extracts nothing from numeric keys', () => {
+    // Reached in real data through a SEDCMD backreference that swaps each pair.
+    const out = applyKvMode([event('2026-01-15T10:00:00Z 1=a 2=b')], [dir('auto')])[0]!;
+    expect(out.fields['1']).toBeUndefined();
+    expect(out.fields['2']).toBeUndefined();
+  });
+
+  it('keeps a name that merely starts with a digit', () => {
+    const out = applyKvMode([event('1st=first 2nd=second')], [dir('auto')])[0]!;
+    expect(out.fields['1st']).toBe('first');
+    expect(out.fields['2nd']).toBe('second');
   });
 });
 

@@ -577,3 +577,53 @@ describe('applyEvalExpressions — strftime with an out-of-range epoch', () => {
     expect(result.fields['t']).toBe('Jan');
   });
 });
+
+/** Evaluate one expression against a field bag; undefined when no field is written. */
+function evalWith(expr: string, fields: Record<string, string>): string | string[] | undefined {
+  return applyEvalExpressions([event(fields)], [evalDir('out', expr)])[0]!.fields['out'];
+}
+
+describe('#165 — true() as a case() fallback', () => {
+  it('takes the trailing true() branch when no earlier test matches', () => {
+    const out = evalWith('case(status < 300, "ok", status < 500, "client", true(), "server")', {
+      status: '503',
+    });
+    expect(out).toBe('server');
+  });
+
+  it('still prefers an earlier matching branch over the fallback', () => {
+    const out = evalWith('case(status < 300, "ok", true(), "other")', { status: '200' });
+    expect(out).toBe('ok');
+  });
+
+  it('evaluates false() as false, so its branch is skipped', () => {
+    expect(evalWith('case(false(), "no", true(), "yes")', {})).toBe('yes');
+  });
+
+  it('treats if(true(), …) the same way', () => {
+    expect(evalWith('if(true(), "taken", "not")', {})).toBe('taken');
+  });
+});
+
+describe('#168 — null propagates through concatenation', () => {
+  it('produces no value when the left side is a missing field', () => {
+    expect(evalWith('absent_field . "-suffix"', { user: 'alice' })).toBeUndefined();
+  });
+
+  it('produces no value when the right side is a missing field', () => {
+    expect(evalWith('"prefix-" . absent_field', { user: 'alice' })).toBeUndefined();
+  });
+
+  it('still concatenates when both sides exist', () => {
+    expect(evalWith('user . "-suffix"', { user: 'alice' })).toBe('alice-suffix');
+  });
+
+  it('keeps an empty-string field distinct from a missing one', () => {
+    // A field that exists but is empty is not null, so it concatenates.
+    expect(evalWith('empty . "-suffix"', { empty: '' })).toBe('-suffix');
+  });
+
+  it('leaves the isnull() guard meaning what it says', () => {
+    expect(evalWith('if(isnull(absent_field), "missing", "present")', {})).toBe('missing');
+  });
+});

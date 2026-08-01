@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { applyIndexedExtractions } from '../processors/indexedExtractions';
+import { runPipeline } from '../pipeline';
 import type { SplunkEvent, ConfDirective } from '../types';
 
 function event(raw: string): SplunkEvent {
@@ -305,5 +306,34 @@ describe('applyIndexedExtractions — header names are sanitized (#68)', () => {
     );
     expect(events).toHaveLength(1);
     expect(events[0]!.fields.cs_method).toBe('GET');
+  });
+});
+
+describe('#164 — INDEXED_EXTRACTIONS turns off line merging by default', () => {
+  it('gives one event per JSON object, each with its fields extracted', () => {
+    const raw =
+      '{"ts":"2026-01-15T10:00:00Z","user":"alice","status":200}\n' +
+      '{"ts":"2026-01-15T10:00:01Z","user":"bob","status":404}\n';
+    const { result } = runPipeline(
+      raw,
+      { index: 'main', host: 'h', source: 's', sourcetype: 'st' },
+      '[st]\nINDEXED_EXTRACTIONS = JSON\nKV_MODE = none\n',
+      '',
+      { perEventPipeline: false, captureOffsets: false },
+    );
+    expect(result.events).toHaveLength(2);
+    expect(result.events[0]!.fields).toMatchObject({ user: 'alice', status: '200' });
+    expect(result.events[1]!.fields).toMatchObject({ user: 'bob', status: '404' });
+  });
+
+  it('still honours an explicit SHOULD_LINEMERGE', () => {
+    const { result } = runPipeline(
+      '{"a":1}\n{"a":2}\n',
+      { index: 'main', host: 'h', source: 's', sourcetype: 'st' },
+      '[st]\nINDEXED_EXTRACTIONS = JSON\nSHOULD_LINEMERGE = true\nKV_MODE = none\n',
+      '',
+      { perEventPipeline: false, captureOffsets: false },
+    );
+    expect(result.events).toHaveLength(1);
   });
 });

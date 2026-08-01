@@ -72,8 +72,9 @@ describe('SEDCMD — command detection requires a real delimiter (#126)', () => 
   });
 
   it('still recognises genuine y/// transliteration', () => {
-    const { diagnostics } = run('y/abc/ABC/', 'abc');
-    expect(diagnostics.some((d) => /transliteration is not simulated/.test(d.message))).toBe(true);
+    const { raw, diagnostics } = run('y/abc/ABC/', 'abc');
+    expect(raw).toBe('ABC');
+    expect(diagnostics).toHaveLength(0);
   });
 
   it('accepts a non-slash delimiter', () => {

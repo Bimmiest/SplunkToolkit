@@ -459,7 +459,15 @@ export function applyRegexTransform(
       // half is expanded on its own — Splunk tokenizes FORMAT at config time and
       // substitutes afterwards. Expanding first would let a captured value's own
       // spaces end the value early, and let a captured `::` synthesize a field.
-      const pairs = parseFormatPairs(format);
+      // `$0` means "what was in the DEST_KEY before the REGEX ran", and this
+      // branch is the one with no DEST_KEY — so the reference names nothing and
+      // Splunk creates no field for the pair at all. Expanding it to the whole
+      // match instead showed the user a field that cannot exist in their real
+      // deployment, which is worse than showing nothing (#175).
+      const pairs = parseFormatPairs(format).filter(
+        (p) => !/\$0(?!\d)/.test(p.key) && !/\$0(?!\d)/.test(p.value),
+      );
+      const keepFirstMatchOnly = phase === 'search-time' && !mvAdd;
       const { global } = compiled;
       global.lastIndex = 0;
       let m: RegExpExecArray | null;
@@ -468,7 +476,15 @@ export function applyRegexTransform(
           // Cleaned because FORMAT can name a field from the DATA (`$1::$2`), so
           // the key is only as well-formed as whatever the capture group caught.
           const field = cleanName(expandFormat(pair.key, m));
-          if (field) addMultiValue(result.fields, field, expandFormat(pair.value, m));
+          if (!field) continue;
+          // MV_ADD governs this path too, not just the named-capture-group one:
+          // at its default of false Splunk keeps the first match and discards
+          // the rest rather than building a multivalue field (#174). It is a
+          // search-time attribute, so an index-time transform still accumulates
+          // -- gating both phases on it would make MV_ADD do something where
+          // Splunk ignores it entirely.
+          if (keepFirstMatchOnly && hasField(result.fields, field)) continue;
+          addMultiValue(result.fields, field, expandFormat(pair.value, m));
         }
         // Guard against zero-length outer matches looping forever.
         if (m.index === global.lastIndex) global.lastIndex++;

@@ -52,12 +52,7 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   TIME_PREFIX: { support: 'simulated' },
   TIME_FORMAT: { support: 'simulated' },
   MAX_TIMESTAMP_LOOKAHEAD: { support: 'simulated' },
-  TZ: {
-    support: 'simulated',
-    note:
-      'Numeric offsets and a small table of zone abbreviations resolve; an IANA zone name ' +
-      'such as America/New_York is treated as UTC and warned about (#159).',
-  },
+  TZ: { support: 'simulated' },
   DATETIME_CONFIG: {
     support: 'ignored',
     issue: 85,
@@ -98,14 +93,11 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   TRANSFORMS: { support: 'simulated' },
   INDEXED_EXTRACTIONS: {
     support: 'simulated',
-    note: 'csv, tsv, psv and w3c are simulated; JSON is not (#164).',
+    note: 'The format itself is simulated; the attributes that customise it are not (#184).',
   },
   FIELDALIAS: { support: 'simulated' },
   EVAL: { support: 'simulated' },
-  SEDCMD: {
-    support: 'simulated',
-    note: 'The s/// substitute form only; y/// transliteration is not applied (#160).',
-  },
+  SEDCMD: { support: 'simulated' },
   KV_MODE: { support: 'simulated' },
   AUTO_KV_JSON: { support: 'simulated' },
   REGEX: { support: 'simulated' },
@@ -117,10 +109,7 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   REPEAT_MATCH: { support: 'simulated' },
   WRITE_META: { support: 'simulated' },
   INGEST_EVAL: { support: 'simulated' },
-  MV_ADD: {
-    support: 'simulated',
-    note: 'Honoured for named capture groups; the FORMAT-pairs path still accumulates (#174).',
-  },
+  MV_ADD: { support: 'simulated' },
   CLEAN_KEYS: { support: 'simulated' },
   KEEP_EMPTY_VALS: { support: 'simulated' },
   DEFAULT_VALUE: {

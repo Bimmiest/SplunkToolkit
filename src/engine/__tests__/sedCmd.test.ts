@@ -66,12 +66,31 @@ describe('applySedCommands', () => {
     expect(e._raw).toBe('Z');
   });
 
-  // SEM-14: unsupported sed features warn rather than silently no-op.
-  it('warns that y/// transliteration is not simulated', () => {
+  // Was "warns that y/// is not simulated" (SEM-14). The Splunk 10.4.0 capture
+  // `sedcmd-transliterate` pinned the real behaviour, so it is implemented (#160).
+  it('applies y/// transliteration to every occurrence', () => {
     const diags: ValidationDiagnostic[] = [];
-    const e = applySedCommands([event('abc')], [sedDir('x', 'y/abc/xyz/')], diags)[0]!;
-    expect(e._raw).toBe('abc'); // unchanged — not applied
-    expect(diags.some((d) => d.message.includes('y/// transliteration'))).toBe(true);
+    const e = applySedCommands([event('abcdef abc')], [sedDir('x', 'y/abc/ABC/')], diags)[0]!;
+    // Inside a longer word as well as standalone, and `def` untouched.
+    expect(e._raw).toBe('ABCdef ABC');
+    expect(diags).toHaveLength(0);
+  });
+
+  it('ignores a y/// whose two sets are different lengths, and says so', () => {
+    const diags: ValidationDiagnostic[] = [];
+    const e = applySedCommands([event('abc')], [sedDir('x', 'y/abc/XY/')], diags)[0]!;
+    expect(e._raw).toBe('abc');
+    expect(diags.some((d) => d.message.includes('same length'))).toBe(true);
+  });
+
+  it('resolves escapes inside a y/// set', () => {
+    const e = applySedCommands([event('a\tb')], [sedDir('x', 'y/\\t/ /')])[0]!;
+    expect(e._raw).toBe('a b');
+  });
+
+  it('transliterates regex metacharacters literally', () => {
+    const e = applySedCommands([event('a.b-c')], [sedDir('x', 'y/.-/_+/')])[0]!;
+    expect(e._raw).toBe('a_b+c');
   });
 
   it('warns that the numeric occurrence flag (s/.../.../N) is not simulated', () => {
