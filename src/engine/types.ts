@@ -224,6 +224,13 @@ export interface ParsedConf {
 
 export interface PipelineOptions {
   perEventPipeline: boolean;
+  /**
+   * Record capture offsets for positional EXTRACTs, populating `fieldOffsets`.
+   * Defaults to `true`. Set `false` in a consumer that renders no highlights —
+   * it drops the `'d'` flag, which is what makes an EXTRACT eligible for V8's
+   * linear-time regex fallback. See `extractFields` for the limits of that.
+   */
+  captureOffsets?: boolean;
 }
 
 export type OutputTabId = 'preview' | 'cim' | 'fields' | 'transforms' | 'architecture';

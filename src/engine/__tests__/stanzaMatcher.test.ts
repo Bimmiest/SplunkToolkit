@@ -147,3 +147,38 @@ describe('mergeDirectives — duplicate keys', () => {
     expect(merged.find((d) => d.key === 'KV_MODE')?.value).toBe('json');
   });
 });
+
+describe('matchStanzas — host case-insensitivity without the `i` flag (#118)', () => {
+  // `host::` matching is case-insensitive in Splunk. It is implemented by
+  // lower-casing both sides rather than compiling with `i`, because V8's
+  // linear-time regex fallback cannot compile a pattern carrying `d`, `i` or
+  // `u`, and this runs per event. These tests pin the BEHAVIOUR so the
+  // implementation stays free to keep the regex fallback-eligible.
+  const meta = (host: string): EventMetadata => ({ ...META, host });
+
+  it('matches a host stanza whose case differs from the event', () => {
+    const stanzas = [stanza('host', 'WebServer01')];
+    expect(matchStanzas(stanzas, meta('webserver01'))).toHaveLength(1);
+  });
+
+  it('matches when the event host is the upper-cased one', () => {
+    const stanzas = [stanza('host', 'webserver01')];
+    expect(matchStanzas(stanzas, meta('WEBSERVER01'))).toHaveLength(1);
+  });
+
+  it('still applies wildcards after case folding', () => {
+    const stanzas = [stanza('host', 'WEB*01')];
+    expect(matchStanzas(stanzas, meta('webserver01'))).toHaveLength(1);
+  });
+
+  it('does not match a genuinely different host', () => {
+    const stanzas = [stanza('host', 'WebServer02')];
+    expect(matchStanzas(stanzas, meta('webserver01'))).toHaveLength(0);
+  });
+
+  it('keeps `source::` case-SENSITIVE — only host folds', () => {
+    // Splunk treats source as case-sensitive; the folding must not leak across.
+    const stanzas = [stanza('source', '/VAR/LOG/apache/access.log')];
+    expect(matchStanzas(stanzas, META)).toHaveLength(0);
+  });
+});

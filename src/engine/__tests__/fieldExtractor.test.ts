@@ -93,3 +93,52 @@ describe('extractFields — fieldOffsets provenance', () => {
     expect(offsets![0][0]).toBeLessThan(raw.indexOf('/admin/'));
   });
 });
+
+describe('extractFields — captureOffsets (#118)', () => {
+  const raw = 'user=admin id=7';
+  const dirs = [dir('user', 'user=(?<user>\\w+)')];
+
+  it('captures offsets by default, so the browser keeps its highlighting', () => {
+    const [e] = extractFields([event(raw)], dirs);
+    expect(e.fields['user']).toBe('admin');
+    expect(e.fieldOffsets?.['user']).toHaveLength(1);
+  });
+
+  it('extracts the same fields with captureOffsets: false, but records no offsets', () => {
+    const [e] = extractFields([event(raw)], dirs, undefined, false);
+    // The point of the option is that ONLY the offsets go away. A caller that
+    // renders no highlights must not lose extraction itself.
+    expect(e.fields['user']).toBe('admin');
+    expect(e.fieldOffsets?.['user']).toBeUndefined();
+  });
+
+  it('declining offsets drops the `d` flag — the whole reason the option exists', () => {
+    // V8's linear-time fallback cannot compile a regex carrying `d`, `i` or `u`,
+    // so a Node consumer that keeps `d` keeps the largest user-controlled regex
+    // surface outside what the fallback can bound. Measured on this pattern:
+    // 8 ms compiled bare against 91,696 ms compiled with `d`.
+    //
+    // Asserting on the compiled flags rather than on elapsed time keeps this a
+    // unit test — a timing assertion here would take a minute and a half to fail.
+    // Filtered by pattern source: extractFields is not the only thing running a
+    // regex here, so position in the call log is not a reliable handle.
+    const flagsFor = (captureOffsets: boolean): string => {
+      const seen: string[] = [];
+      const spy = RegExp.prototype.exec;
+      RegExp.prototype.exec = function (this: RegExp, s: string) {
+        if (this.source.includes('user=')) seen.push(this.flags);
+        return spy.call(this, s);
+      };
+      try {
+        extractFields([event(raw)], dirs, undefined, captureOffsets);
+      } finally {
+        RegExp.prototype.exec = spy;
+      }
+      expect(seen).toHaveLength(1);
+      return seen[0];
+    };
+
+    expect(flagsFor(false)).not.toContain('d');
+    expect(flagsFor(true)).toContain('d');
+  });
+});
