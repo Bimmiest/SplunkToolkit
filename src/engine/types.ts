@@ -26,6 +26,26 @@ export interface ProcessingStep {
    * devalued), so the two are never merged.
    */
   fieldsRemoved?: string[];
+  /**
+   * FIELDALIAS steps only: the alias pairs this step created.
+   *
+   * `description` also names them, but as prose for a human to read. The Fields
+   * tab used to recover the mapping by running a regex over that sentence,
+   * which made a reworded description silently empty its Aliases column. The
+   * structured form is what consumers should read; `description` is for display.
+   */
+  fieldAliases?: { target: string; source: string }[];
+  /**
+   * EVAL steps only: the expression each computed field was produced by, keyed
+   * by field name.
+   *
+   * Carried here because it is the only place the association is both correct
+   * and already resolved — these are the directives that survived stanza
+   * matching for THIS event. Re-reading props.conf in the UI to recover it (as
+   * the Extractions tab did) reintroduces every question the parser has already
+   * answered: case sensitivity, line continuations, and which stanza applies.
+   */
+  evalExpressions?: Record<string, string>;
 }
 
 /**

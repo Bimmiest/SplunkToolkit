@@ -39,7 +39,8 @@ export function applyFieldAliases(
 
   return events.map((event) => {
     const newFields = { ...event.fields };
-    const added: string[] = [];
+    // Structured, so consumers never have to parse `description` back apart.
+    const created: { target: string; source: string }[] = [];
 
     for (const alias of aliases) {
       // `FIELDALIAS-cim = host AS dvc` is one of the most common CIM mappings:
@@ -55,10 +56,10 @@ export function applyFieldAliases(
       }
 
       setField(newFields, alias.target, sourceValue);
-      added.push(`${alias.target} (from ${alias.source})`);
+      created.push({ target: alias.target, source: alias.source });
     }
 
-    if (added.length === 0) return event;
+    if (created.length === 0) return event;
 
     return {
       ...event,
@@ -68,8 +69,9 @@ export function applyFieldAliases(
         {
           processor: 'FIELDALIAS',
           phase: 'search-time' as const,
-          description: `Created aliases: ${added.join(', ')}`,
-          fieldsAdded: added.map((a) => a.split(' ')[0]),
+          description: `Created aliases: ${created.map((a) => `${a.target} (from ${a.source})`).join(', ')}`,
+          fieldsAdded: created.map((a) => a.target),
+          fieldAliases: created,
         },
       ],
     };

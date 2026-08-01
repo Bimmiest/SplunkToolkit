@@ -60,14 +60,16 @@ export function FieldsTab() {
     }
   }, [sortKey]);
 
-  // Build alias mapping: target → source from FIELDALIAS processing traces
+  // Alias mapping (target → source), read as data off the FIELDALIAS steps.
+  // This was recovered by running a regex over `trace.description` — a display
+  // string — so rewording that sentence, or a field name containing a space,
+  // silently emptied this column and stopped alias rows being de-duplicated.
   const aliasMap = useMemo(() => {
-    const map = new Map<string, string>(); // target → source
+    const map = new Map<string, string>();
     for (const event of events) {
       for (const trace of event.processingTrace) {
-        if (trace.processor !== 'FIELDALIAS') continue;
-        for (const match of trace.description.matchAll(/(\S+)\s+\(from\s+(\S+)\)/g)) {
-          map.set(match[1], match[2]);
+        for (const { target, source } of trace.fieldAliases ?? []) {
+          map.set(target, source);
         }
       }
     }

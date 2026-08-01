@@ -86,7 +86,7 @@ export function applyEvalExpressions(
 
   return events.map((event) => {
     // Eval expressions run in parallel — compute all before applying
-    const results = new Map<string, EvalValue>();
+    const results = new Map<string, { value: EvalValue; expression: string }>();
 
     for (const c of compiled) {
       if (c.error !== null) {
@@ -95,7 +95,7 @@ export function applyEvalExpressions(
       }
       try {
         const value = evalNode(c.ast!, { event, onStubWarning: (fn) => pushStub(c.dir, fn) });
-        results.set(c.fieldName, value);
+        results.set(c.fieldName, { value, expression: c.dir.value.trim() });
       } catch (err) {
         pushError(c.dir, c.fieldName, err instanceof Error ? err.message : String(err));
       }
@@ -105,8 +105,12 @@ export function applyEvalExpressions(
 
     const newFields = { ...event.fields };
     const added: string[] = [];
+    // The expression behind each computed field, so the UI never has to
+    // re-parse props.conf to recover it. These are the directives that survived
+    // stanza matching for this event, which a text scan cannot know.
+    const evalExpressions: Record<string, string> = {};
 
-    for (const [field, value] of results) {
+    for (const [field, { value, expression }] of results) {
       if (value === null) {
         deleteField(newFields, field);
       } else if (Array.isArray(value)) {
@@ -115,6 +119,7 @@ export function applyEvalExpressions(
         setField(newFields, field, String(value));
       }
       added.push(field);
+      evalExpressions[field] = expression;
     }
 
     return {
@@ -127,6 +132,7 @@ export function applyEvalExpressions(
           phase: 'search-time' as const,
           description: `Computed fields: ${added.join(', ')}`,
           fieldsAdded: added,
+          evalExpressions,
         },
       ],
     };
