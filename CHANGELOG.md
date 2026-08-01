@@ -4,7 +4,7 @@ All notable changes to Propslab are documented here, newest first.
 
 ---
 
-## Unreleased
+## 1.1.0 — 2026-08-01
 
 ### Fixed
 
