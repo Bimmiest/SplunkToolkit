@@ -281,9 +281,9 @@ A simulator's correctness oracle is "matches real Splunk", which is a closed-sou
 
 | Level | Count | Meaning |
 |---|---|---|
-| **simulated** | 32 | The engine implements it and tests assert the behaviour. |
+| **simulated** | 36 | The engine implements it and tests assert the behaviour. |
 | **documented** | 25 | Recognised on purpose, outside the simulation for a reason that is not going to change — it belongs to a layer a browser has no access to, or it has no observable effect on output. |
-| **ignored** | 22 | Should be simulated, is not yet, and names the issue tracking it. Every one of these is a known wrong answer. |
+| **ignored** | 18 | Should be simulated, is not yet, and names the issue tracking it. Every one of these is a known wrong answer. |
 
 Writing a directive that is not `simulated` produces a diagnostic under its editor — a warning for `ignored`, an informational note for `documented`. The dictionary and the editor hover say the same thing on the entry itself. The point is that the tool never silently renders output as though a line you wrote were absent.
 
@@ -302,7 +302,6 @@ Each of these is a directive the preview accepts and then does not honour.
 | `FIELD_DELIMITER`, `FIELD_QUOTE`, `FIELD_NAMES`, `HEADER_FIELD_LINE_NUMBER`, `PREAMBLE_REGEX`, `TIMESTAMP_FIELDS` | Every override to delimited `INDEXED_EXTRACTIONS` | [#184](https://github.com/Bimmiest/SplunkToolkit/issues/184) |
 | `ANNOTATE_PUNCT` | The `punct` field is never generated | [#185](https://github.com/Bimmiest/SplunkToolkit/issues/185) |
 | `MUST_NOT_BREAK_BEFORE`, `MUST_NOT_BREAK_AFTER` | The negative line-merging rules — a line they protect can still be broken on | [#190](https://github.com/Bimmiest/SplunkToolkit/issues/190) |
-| `disabled`, `sourcetype`, `rename`, `priority` | Stanza-level directives that change which stanza applies | [#186](https://github.com/Bimmiest/SplunkToolkit/issues/186) |
 
 ### Deliberately out of scope (`documented`)
 
@@ -323,6 +322,7 @@ Places where the simulator diverges from real Splunk. Verify anything suspicious
 
 - **Delimited `INDEXED_EXTRACTIONS` overrides not honoured.** For `csv`/`tsv`/`psv`/`w3c`, the header is taken from line 1 and the delimiter is fixed per format. `FIELD_NAMES`, `FIELD_HEADER_REGEX`, `FIELD_QUOTE`, `KEEP_EMPTY_VALS`, and `CLEAN_KEYS` are parsed but ignored. This is the `INDEXED_EXTRACTIONS` context only — transforms.conf's own `CLEAN_KEYS` **is** simulated, pinned to a Splunk 10.4.0 capture.
 - **Stanza specificity is a heuristic.** Ranked by literal character count. Splunk's real tie-breaking for equal-score `source::` patterns is alphabetical; ordering can diverge for tied patterns.
+- **`priority` defaults are taken from the documentation, not from a capture.** An explicit `priority` outranks the usual `source` > `host` > `sourcetype` ordering, and stanzas that declare none fall back to Splunk's documented defaults — 100 for `[host::…]` and `[source::…]`, 0 for `[<sourcetype>]`. Those defaults are what decide whether a `priority = 50` on a sourcetype stanza beats an undeclared `source::` stanza (it does not). No fidelity fixture pins this, so it is the one part of stanza resolution asserted only against our reading of the docs. `sourcetype` and `rename` are in the same position, though their rules are less ambiguous.
 - **`KV_MODE = xml`.** Uses `DOMParser` inside the Web Worker — works in Chromium, historically not in Firefox workers. A try/catch falls back silently, so XML extraction may produce no fields on unsupported browsers. Element fields are named by their dotted path from the document root, including the root itself (`<event><user>…` gives `event.user`), which the Splunk 10.4.0 capture pins. Attribute naming is *not* pinned by any capture: attributes keep their bare names, except that a `Name` attribute follows the Windows event-log convention and names the field itself.
 - **`PAIR_RE` in transform `FORMAT` does not handle escaped quotes in quoted values.** `"([^"]*)"` stops at the first inner `"`, so `field::"say \"hi\""` parses as `field=say \`. Real Splunk behaviour here is under-documented; treat as an edge case.
 
