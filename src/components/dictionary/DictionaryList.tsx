@@ -189,7 +189,10 @@ export function DictionaryList({
       // and moves the selection, which is what lets one Tab stop cover 80 rows.
       aria-activedescendant={selectedId ? optionDomId(selectedId) : undefined}
       onKeyDown={handleKeyDown}
-      className="flex-1 min-h-0 overflow-y-auto py-1 outline-none focus-visible:ring-2 focus-visible:ring-inset"
+      // `@container` so the rows can respond to the PANEL's width rather than
+      // the viewport's — the list is resizable, so a viewport breakpoint would
+      // describe the wrong box entirely.
+      className="@container flex-1 min-h-0 overflow-y-auto py-1 outline-none focus-visible:ring-2 focus-visible:ring-inset"
     >
       {groups.map(({ group, entries: items }) => (
         <div key={group} role="group" aria-label={group}>
@@ -229,17 +232,22 @@ export function DictionaryList({
                 >
                   {entry.title}
                 </span>
-                {entry.kind === 'directive' ? (
-                  <>
-                    <FileBadge appliesTo={entry.info.appliesTo} short />
-                    <PhaseBadge phase={entry.info.phase} />
-                  </>
-                ) : (
-                  <>
-                    <FileBadge appliesTo="props.conf" short />
-                    <Chip>stanza</Chip>
-                  </>
-                )}
+                {/* Dropped once the panel is too narrow to hold a key beside
+                    them — a truncated key is worse than an absent badge, and
+                    the detail pane repeats both anyway. */}
+                <span className="hidden @[260px]:flex items-center gap-1.5">
+                  {entry.kind === 'directive' ? (
+                    <>
+                      <FileBadge appliesTo={entry.info.appliesTo} short />
+                      <PhaseBadge phase={entry.info.phase} />
+                    </>
+                  ) : (
+                    <>
+                      <FileBadge appliesTo="props.conf" short />
+                      <Chip>stanza</Chip>
+                    </>
+                  )}
+                </span>
               </div>
             );
           })}

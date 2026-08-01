@@ -103,11 +103,16 @@ export function DictionaryView() {
   }
 
   return (
-    // Panel sizes are STRINGS on purpose: react-resizable-panels v4 reads a
-    // number as pixels and a string as a percentage. As numbers, maxSize={45}
-    // pinned this list to 45px wide.
+    // Mixed units, deliberately: react-resizable-panels v4 reads a number as
+    // pixels and a string as a percentage, and the two bounds want different
+    // ones. The floor is a PIXEL count because it is about legibility — a row
+    // needs about this much to show a key beside its badges, and that does not
+    // change with the window. A percentage floor gets it backwards, growing on
+    // exactly the wide screens where a narrow list is most reasonable and
+    // refusing to shrink for the small ones that need it. The ceiling stays a
+    // percentage because it is about proportion, not content.
     <Group orientation="horizontal" id="dictionary-horizontal">
-      <Panel defaultSize="26" minSize="16" maxSize="45" id="dictionary-list">
+      <Panel defaultSize="26" minSize={168} maxSize="45" id="dictionary-list">
         {list}
       </Panel>
       <Separator

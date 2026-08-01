@@ -29,7 +29,11 @@ export function Chip({
   return (
     <span
       className={`inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight whitespace-nowrap ${mono ? 'font-mono' : ''}`}
-      style={{ backgroundColor: `${color}20`, color }}
+      // color-mix, not a concatenated `${color}20` alpha suffix: these tones are
+      // `var(--color-…)` references, and appending hex digits to a var() call
+      // produces a declaration the browser drops — which is why these pills
+      // rendered as bare coloured text with no fill.
+      style={{ backgroundColor: `color-mix(in srgb, ${color} 15%, transparent)`, color }}
     >
       {children}
     </span>

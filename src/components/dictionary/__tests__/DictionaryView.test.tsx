@@ -157,3 +157,48 @@ describe('DictionaryView list badges', () => {
       .toEqual(['props', 'transforms']);
   });
 });
+
+describe('DictionaryDetail layout', () => {
+  beforeEach(() => {
+    useAppStore.setState(initial, true);
+  });
+
+  it('leads with the category as an eyebrow above the key', () => {
+    useAppStore.setState({ dictionarySelection: 'KV_MODE' });
+    renderDictionary();
+    expect(screen.getAllByText('Field Extraction').length).toBeGreaterThan(0);
+    expect(screen.getByRole('heading', { level: 2, name: 'KV_MODE' })).toBeInTheDocument();
+  });
+
+  it('labels the example card with the conf file it belongs in', () => {
+    useAppStore.setState({ dictionarySelection: 'KV_MODE' });
+    renderDictionary();
+    // The card header names the file, so the snippet is never ambiguous about
+    // which of the two editors it should be pasted into.
+    expect(screen.getAllByText('props.conf').length).toBeGreaterThan(0);
+  });
+
+  it('shows the class-suffix explanation only for class-based keys', () => {
+    useAppStore.setState({ dictionarySelection: 'EXTRACT' });
+    const { unmount } = renderDictionary();
+    expect(screen.getByText(/takes a class name suffix/)).toBeInTheDocument();
+    unmount();
+
+    useAppStore.setState({ dictionarySelection: 'TRUNCATE' });
+    renderDictionary();
+    expect(screen.queryByText(/takes a class name suffix/)).not.toBeInTheDocument();
+  });
+
+  it('omits the valid-values card for directives with no enum', () => {
+    useAppStore.setState({ dictionarySelection: 'TRUNCATE' });
+    renderDictionary();
+    expect(screen.queryByText('Valid values')).not.toBeInTheDocument();
+  });
+
+  it('shows the valid-values card when the registry defines one', () => {
+    useAppStore.setState({ dictionarySelection: 'KV_MODE' });
+    renderDictionary();
+    expect(screen.getByText('Valid values')).toBeInTheDocument();
+    expect(screen.getByText('auto_escaped', { exact: true })).toBeInTheDocument();
+  });
+});
