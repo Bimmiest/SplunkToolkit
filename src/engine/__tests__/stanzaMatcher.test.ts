@@ -26,7 +26,7 @@ describe('matchStanzas — precedence ordering', () => {
       stanza('source', '/var/log/apache/access.log'),
     ];
     const result = matchStanzas(stanzas, META);
-    expect(result[0].type).toBe('source');
+    expect(result[0]!.type).toBe('source');
   });
 
   it('host wins over sourcetype and default', () => {
@@ -36,7 +36,7 @@ describe('matchStanzas — precedence ordering', () => {
       stanza('host', 'webserver01'),
     ];
     const result = matchStanzas(stanzas, META);
-    expect(result[0].type).toBe('host');
+    expect(result[0]!.type).toBe('host');
   });
 
   it('sourcetype wins over default', () => {
@@ -45,7 +45,7 @@ describe('matchStanzas — precedence ordering', () => {
       stanza('sourcetype', 'access_combined'),
     ];
     const result = matchStanzas(stanzas, META);
-    expect(result[0].type).toBe('sourcetype');
+    expect(result[0]!.type).toBe('sourcetype');
   });
 
   it('returns all four types in order: source, host, sourcetype, default', () => {
@@ -66,7 +66,7 @@ describe('matchStanzas — precedence ordering', () => {
     ];
     const result = matchStanzas(stanzas, META);
     expect(result).toHaveLength(1);
-    expect(result[0].type).toBe('default');
+    expect(result[0]!.type).toBe('default');
   });
 });
 
@@ -134,7 +134,7 @@ describe('mergeDirectives — duplicate keys', () => {
     const merged = mergeDirectives([s]);
     const truncate = merged.filter((d) => d.key === 'TRUNCATE');
     expect(truncate).toHaveLength(1);
-    expect(truncate[0].value).toBe('500');
+    expect(truncate[0]!.value).toBe('500');
   });
 
   it('keeps the higher-precedence stanza when the same key appears across stanzas', () => {

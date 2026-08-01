@@ -20,18 +20,18 @@ function dir(className: string, value: string): ConfDirective {
 
 describe('applyFieldAliases — literal', () => {
   it('creates an alias and keeps the original field', () => {
-    const [e] = applyFieldAliases([event({ ip: '10.0.0.1' })], [dir('a', 'ip AS ipaddress')]);
+    const e = applyFieldAliases([event({ ip: '10.0.0.1' })], [dir('a', 'ip AS ipaddress')])[0]!;
     expect(e.fields['ipaddress']).toBe('10.0.0.1');
     expect(e.fields['ip']).toBe('10.0.0.1');
   });
 
   it('ASNEW does not overwrite an existing target', () => {
-    const [e] = applyFieldAliases([event({ ip: '10.0.0.1', addr: 'keep' })], [dir('a', 'ip ASNEW addr')]);
+    const e = applyFieldAliases([event({ ip: '10.0.0.1', addr: 'keep' })], [dir('a', 'ip ASNEW addr')])[0]!;
     expect(e.fields['addr']).toBe('keep');
   });
 
   it('does nothing when the source field is absent', () => {
-    const [e] = applyFieldAliases([event({ other: 'x' })], [dir('a', 'ip AS ipaddress')]);
+    const e = applyFieldAliases([event({ other: 'x' })], [dir('a', 'ip AS ipaddress')])[0]!;
     expect(e.fields['ipaddress']).toBeUndefined();
   });
 });
@@ -41,11 +41,11 @@ describe('applyFieldAliases — wildcards are not supported (Splunk parity)', ()
   // command). The tool must not simulate it; it warns and creates nothing.
   it('does NOT create wildcard aliases and warns instead', () => {
     const diags: ValidationDiagnostic[] = [];
-    const [e] = applyFieldAliases(
+    const e = applyFieldAliases(
       [event({ src_ip: '10.0.0.1', src_port: '443' })],
       [dir('w', 'src_* AS dest_*')],
       diags,
-    );
+    )[0]!;
     expect(e.fields['dest_ip']).toBeUndefined();
     expect(e.fields['dest_port']).toBeUndefined();
     expect(e.fields['src_ip']).toBe('10.0.0.1'); // originals untouched
@@ -54,11 +54,11 @@ describe('applyFieldAliases — wildcards are not supported (Splunk parity)', ()
 
   it('warns for a prefix-strip wildcard (event.* AS *) and creates nothing', () => {
     const diags: ValidationDiagnostic[] = [];
-    const [e] = applyFieldAliases(
+    const e = applyFieldAliases(
       [event({ 'event.field1': 'A', 'event.field2': 'B' })],
       [dir('w', 'event.* AS *')],
       diags,
-    );
+    )[0]!;
     expect(e.fields['field1']).toBeUndefined();
     expect(e.fields['field2']).toBeUndefined();
     expect(diags.some((d) => d.message.includes('does not support wildcards'))).toBe(true);
@@ -67,7 +67,7 @@ describe('applyFieldAliases — wildcards are not supported (Splunk parity)', ()
 
 describe('applyFieldAliases — dotted (nested JSON) field names', () => {
   it('resolves a single-quoted dotted source field', () => {
-    const [e] = applyFieldAliases([event({ 'event.field': 'V' })], [dir('a', "'event.field' AS myfield")]);
+    const e = applyFieldAliases([event({ 'event.field': 'V' })], [dir('a', "'event.field' AS myfield")])[0]!;
     expect(e.fields['myfield']).toBe('V');
   });
 

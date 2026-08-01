@@ -20,31 +20,31 @@ function dir(value: string): ConfDirective {
 
 describe('applyKvMode — json', () => {
   it('flattens a whole-event JSON object', () => {
-    const [r] = applyKvMode([event('{"action":"login","user":{"name":"alice"}}')], [dir('json')]);
+    const r = applyKvMode([event('{"action":"login","user":{"name":"alice"}}')], [dir('json')])[0]!;
     expect(r.fields['action']).toBe('login');
     expect(r.fields['user.name']).toBe('alice');
     expect(r.fields['user']).toBeUndefined();
   });
 
   it('uses {} multivalue notation for arrays of objects', () => {
-    const [r] = applyKvMode([event('{"items":[{"id":1},{"id":2}]}')], [dir('json')]);
+    const r = applyKvMode([event('{"items":[{"id":1},{"id":2}]}')], [dir('json')])[0]!;
     expect(r.fields['items{}.id']).toEqual(['1', '2']);
   });
 
   it('decodes escaped quotes and newlines inside JSON strings', () => {
-    const [r] = applyKvMode([event('{"q":"say \\"hi\\"","m":"a\\nb"}')], [dir('json')]);
+    const r = applyKvMode([event('{"q":"say \\"hi\\"","m":"a\\nb"}')], [dir('json')])[0]!;
     expect(r.fields['q']).toBe('say "hi"');
     expect(r.fields['m']).toBe('a\nb');
   });
 
   it('extracts an embedded JSON object from surrounding text', () => {
-    const [r] = applyKvMode([event('level=info payload={"a":1,"b":2}')], [dir('json')]);
+    const r = applyKvMode([event('level=info payload={"a":1,"b":2}')], [dir('json')])[0]!;
     expect(r.fields['a']).toBe('1');
     expect(r.fields['b']).toBe('2');
   });
 
   it('extracts a top-level JSON array rather than just its first element', () => {
-    const [r] = applyKvMode([event('[1,2,3]')], [dir('json')]);
+    const r = applyKvMode([event('[1,2,3]')], [dir('json')])[0]!;
     expect(r.fields['{}']).toEqual(['1', '2', '3']);
   });
 
@@ -53,29 +53,29 @@ describe('applyKvMode — json', () => {
     // `fields[name] === undefined` check would read back the inherited function
     // for keys like `toString`/`valueOf`, mangle the value into a multivalue,
     // and silently drop the field from the extracted list.
-    const [r] = applyKvMode(
+    const r = applyKvMode(
       [event('{"toString":"x","valueOf":"y","hasOwnProperty":"z"}')],
       [dir('json')],
-    );
+    )[0]!;
     expect(r.fields['toString']).toBe('x');
     expect(r.fields['valueOf']).toBe('y');
     expect(r.fields['hasOwnProperty']).toBe('z');
   });
 
   it('still promotes genuinely repeated prototype-named keys to multivalue', () => {
-    const [r] = applyKvMode([event('{"items":[{"toString":"a"},{"toString":"b"}]}')], [dir('json')]);
+    const r = applyKvMode([event('{"items":[{"toString":"a"},{"toString":"b"}]}')], [dir('json')])[0]!;
     expect(r.fields['items{}.toString']).toEqual(['a', 'b']);
   });
 
   it('extracts constructor/prototype keys as real fields (Splunk does)', () => {
-    const [r] = applyKvMode([event('{"constructor":"a","prototype":"b"}')], [dir('json')]);
+    const r = applyKvMode([event('{"constructor":"a","prototype":"b"}')], [dir('json')])[0]!;
     expect(Object.prototype.hasOwnProperty.call(r.fields, 'constructor')).toBe(true);
     expect(r.fields['constructor']).toBe('a');
     expect(r.fields['prototype']).toBe('b');
   });
 
   it('extracts a __proto__ key as a field without polluting Object.prototype', () => {
-    const [r] = applyKvMode([event('{"__proto__":"pwned","keep":"ok"}')], [dir('json')]);
+    const r = applyKvMode([event('{"__proto__":"pwned","keep":"ok"}')], [dir('json')])[0]!;
     expect(Object.prototype.hasOwnProperty.call(r.fields, '__proto__')).toBe(true);
     expect(r.fields['__proto__']).toBe('pwned');
     expect(r.fields['keep']).toBe('ok');
@@ -94,7 +94,7 @@ describe('applyKvMode — json', () => {
       '"alert":{"action":"blocked","signature_id":3,"rev":0,"signature":"s","category":"","severity":3},' +
       '"flow_id":<ID>}}';
     const diagnostics: ValidationDiagnostic[] = [];
-    const [r] = applyKvMode([event(malformed)], [dir('json')], diagnostics);
+    const r = applyKvMode([event(malformed)], [dir('json')], diagnostics)[0]!;
 
     expect(r.fields['action']).toBeUndefined();
     expect(r.fields['category']).toBeUndefined();
@@ -102,12 +102,12 @@ describe('applyKvMode — json', () => {
     expect(Object.keys(r.fields)).toHaveLength(0);
 
     expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0].level).toBe('warning');
-    expect(diagnostics[0].message).toMatch(/not valid JSON/);
+    expect(diagnostics[0]!.level).toBe('warning');
+    expect(diagnostics[0]!.message).toMatch(/not valid JSON/);
     // The warning is a data problem: it targets the Raw Log panel, not props.conf,
     // and points at the offending input line.
-    expect(diagnostics[0].file).toBe('raw');
-    expect(diagnostics[0].line).toBe(1);
+    expect(diagnostics[0]!.file).toBe('raw');
+    expect(diagnostics[0]!.line).toBe(1);
   });
 
   it('extracts the full dotted field set once the malformed JSON is valid', () => {
@@ -115,7 +115,7 @@ describe('applyKvMode — json', () => {
       '{"firewall_name":"fw","event":{"app_proto":"ntp",' +
       '"alert":{"action":"blocked","signature_id":3},"flow_id":123}}';
     const diagnostics: ValidationDiagnostic[] = [];
-    const [r] = applyKvMode([event(valid)], [dir('json')], diagnostics);
+    const r = applyKvMode([event(valid)], [dir('json')], diagnostics)[0]!;
 
     expect(r.fields['firewall_name']).toBe('fw');
     expect(r.fields['event.app_proto']).toBe('ntp');
@@ -126,35 +126,35 @@ describe('applyKvMode — json', () => {
 
   it('warns (without scavenging) when malformed JSON is seen in default auto mode', () => {
     const diagnostics: ValidationDiagnostic[] = [];
-    const [r] = applyKvMode([event('{"a":1,"b":<ID>}')], [], diagnostics);
+    const r = applyKvMode([event('{"a":1,"b":<ID>}')], [], diagnostics)[0]!;
     expect(Object.keys(r.fields)).toHaveLength(0);
     expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0].message).toMatch(/KV_MODE = auto/);
+    expect(diagnostics[0]!.message).toMatch(/KV_MODE = auto/);
   });
 });
 
 describe('applyKvMode — auto (AUTO_KV_JSON)', () => {
   it('auto-extracts JSON when the event is JSON and KV_MODE is unset (default auto)', () => {
-    const [r] = applyKvMode([event('{"action":"login","code":200}')], []);
+    const r = applyKvMode([event('{"action":"login","code":200}')], [])[0]!;
     expect(r.fields['action']).toBe('login');
     expect(r.fields['code']).toBe('200');
   });
 
   it('still extracts key=value pairs alongside auto JSON', () => {
-    const [r] = applyKvMode([event('status=ok count=3')], [dir('auto')]);
+    const r = applyKvMode([event('status=ok count=3')], [dir('auto')])[0]!;
     expect(r.fields['status']).toBe('ok');
     expect(r.fields['count']).toBe('3');
   });
 
   // #22: a key=value substring inside a quoted value must NOT become a field.
   it('does not extract phantom fields from inside a quoted value', () => {
-    const [r] = applyKvMode([event('msg="error code=42 occurred"')], [dir('auto')]);
+    const r = applyKvMode([event('msg="error code=42 occurred"')], [dir('auto')])[0]!;
     expect(r.fields['msg']).toBe('error code=42 occurred');
     expect(r.fields['code']).toBeUndefined();
   });
 
   it('still extracts real bare pairs that follow a quoted value', () => {
-    const [r] = applyKvMode([event('msg="x=1 y=2" status=ok')], [dir('auto')]);
+    const r = applyKvMode([event('msg="x=1 y=2" status=ok')], [dir('auto')])[0]!;
     expect(r.fields['msg']).toBe('x=1 y=2');
     expect(r.fields['status']).toBe('ok');
     expect(r.fields['x']).toBeUndefined();
@@ -162,23 +162,23 @@ describe('applyKvMode — auto (AUTO_KV_JSON)', () => {
   });
 
   it('does not auto-extract JSON when AUTO_KV_JSON=false', () => {
-    const [r] = applyKvMode(
+    const r = applyKvMode(
       [event('{"action":"login"}')],
       [dir('auto'), { key: 'AUTO_KV_JSON', value: 'false', line: 2, directiveType: 'AUTO_KV_JSON' }],
-    );
+    )[0]!;
     expect(r.fields['action']).toBeUndefined();
   });
 });
 
 describe('applyKvMode — auto_escaped', () => {
   it('honours backslash-escaped quotes inside quoted values', () => {
-    const [r] = applyKvMode([event('msg="say \\"hi\\"" user=bob')], [dir('auto_escaped')]);
+    const r = applyKvMode([event('msg="say \\"hi\\"" user=bob')], [dir('auto_escaped')])[0]!;
     expect(r.fields['msg']).toBe('say "hi"');
     expect(r.fields['user']).toBe('bob');
   });
 
   it('plain auto stops the value at the first inner quote', () => {
-    const [r] = applyKvMode([event('msg="say \\"hi\\""')], [dir('auto')]);
+    const r = applyKvMode([event('msg="say \\"hi\\""')], [dir('auto')])[0]!;
     // Without escape handling the value terminates at the first inner quote.
     expect(r.fields['msg']).toBe('say \\');
   });
@@ -187,7 +187,7 @@ describe('applyKvMode — auto_escaped', () => {
 describe('applyKvMode — multi (multikv)', () => {
   it('extracts columns from a space-aligned table as multivalue fields', () => {
     const raw = ['name   age   city', 'alice  30    NYC', 'bob    25    LA'].join('\n');
-    const [r] = applyKvMode([event(raw)], [dir('multi')]);
+    const r = applyKvMode([event(raw)], [dir('multi')])[0]!;
     expect(r.fields['name']).toEqual(['alice', 'bob']);
     expect(r.fields['age']).toEqual(['30', '25']);
     expect(r.fields['city']).toEqual(['NYC', 'LA']);
@@ -195,7 +195,7 @@ describe('applyKvMode — multi (multikv)', () => {
 
   it('skips a dashed separator row under the header', () => {
     const raw = ['user   code', '-----  ----', 'alice  200'].join('\n');
-    const [r] = applyKvMode([event(raw)], [dir('multi')]);
+    const r = applyKvMode([event(raw)], [dir('multi')])[0]!;
     expect(r.fields['user']).toBe('alice');
     expect(r.fields['code']).toBe('200');
   });
@@ -205,7 +205,7 @@ describe('applyKvMode — multi (multikv)', () => {
     // fixed-width slice at the header offsets would cut "bob 40" into
     // NAME="bob 4"/AGE="0". Whitespace tokenization recovers the real columns.
     const raw = ['NAME AGE', 'bob 40', 'alice 7'].join('\n');
-    const [r] = applyKvMode([event(raw)], [dir('multi')]);
+    const r = applyKvMode([event(raw)], [dir('multi')])[0]!;
     expect(r.fields['NAME']).toEqual(['bob', 'alice']);
     expect(r.fields['AGE']).toEqual(['40', '7']);
   });
@@ -216,7 +216,7 @@ describe('applyKvMode — multi (multikv)', () => {
       '1 ?     Ss',
       '4242 pts/0 R+',
     ].join('\n');
-    const [r] = applyKvMode([event(raw)], [dir('multi')]);
+    const r = applyKvMode([event(raw)], [dir('multi')])[0]!;
     expect(r.fields['PID']).toEqual(['1', '4242']);
     expect(r.fields['TTY']).toEqual(['?', 'pts/0']);
     expect(r.fields['STAT']).toEqual(['Ss', 'R+']);
@@ -225,23 +225,23 @@ describe('applyKvMode — multi (multikv)', () => {
 
 describe('applyKvMode — repeated keys accumulate (#64)', () => {
   it('multivalues a repeated bare key', () => {
-    const [out] = applyKvMode([event('user=alice user=bob')], [dir('auto')]);
+    const out = applyKvMode([event('user=alice user=bob')], [dir('auto')])[0]!;
     expect(out.fields.user).toEqual(['alice', 'bob']);
   });
 
   it('multivalues a repeated quoted key', () => {
-    const [out] = applyKvMode([event('msg="first one" msg="second one"')], [dir('auto')]);
+    const out = applyKvMode([event('msg="first one" msg="second one"')], [dir('auto')])[0]!;
     expect(out.fields.msg).toEqual(['first one', 'second one']);
   });
 
   it('keeps a single occurrence scalar', () => {
-    const [out] = applyKvMode([event('user=alice')], [dir('auto')]);
+    const out = applyKvMode([event('user=alice')], [dir('auto')])[0]!;
     expect(out.fields.user).toBe('alice');
   });
 
   it('does not append to a field an earlier processor already extracted', () => {
     const ev = { ...event('user=bob'), fields: { user: 'from-indexed-extraction' } };
-    const [out] = applyKvMode([ev], [dir('auto')]);
+    const out = applyKvMode([ev], [dir('auto')])[0]!;
     expect(out.fields.user).toBe('from-indexed-extraction');
   });
 });
@@ -261,7 +261,7 @@ describe('applyKvMode — extraction never mutates the input event (#63)', () =>
 
   it('records an append so the result is not discarded', () => {
     const ev = { ...event(TABLE), fields: { NAME: ['zero'] } };
-    const [out] = applyKvMode([ev], [dir('multi')]);
+    const out = applyKvMode([ev], [dir('multi')])[0]!;
     expect(out.fields.NAME).toEqual(['zero', 'a', 'b']);
   });
 });

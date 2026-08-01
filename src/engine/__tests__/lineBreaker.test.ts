@@ -14,15 +14,15 @@ describe('breakLines — basic LINE_BREAKER', () => {
     // SHOULD_LINEMERGE=true + BREAK_ONLY_BEFORE_DATE=true (default)
     // None of the lines look like dates, so they all merge into one event
     expect(events).toHaveLength(1);
-    expect(events[0]._raw).toContain('line1');
+    expect(events[0]!._raw).toContain('line1');
   });
 
   it('preserves events when SHOULD_LINEMERGE=false', () => {
     const events = breakLines('line1\nline2\nline3', [dir('SHOULD_LINEMERGE', 'false')], META);
     expect(events).toHaveLength(3);
-    expect(events[0]._raw).toBe('line1');
-    expect(events[1]._raw).toBe('line2');
-    expect(events[2]._raw).toBe('line3');
+    expect(events[0]!._raw).toBe('line1');
+    expect(events[1]!._raw).toBe('line2');
+    expect(events[2]!._raw).toBe('line3');
   });
 });
 
@@ -33,7 +33,7 @@ describe('breakLines — MAX_EVENTS line cap (SEM-5)', () => {
     const raw = Array.from({ length: 9 }, (_, i) => `line${i}`).join('\n');
     const events = breakLines(raw, [dir('MAX_EVENTS', '3')], META);
     expect(events).toHaveLength(3);
-    expect(events[0]._raw.split('\n')).toHaveLength(3);
+    expect(events[0]!._raw.split('\n')).toHaveLength(3);
   });
 
   it('defaults to 256 lines (no cap for small inputs)', () => {
@@ -54,9 +54,9 @@ describe('breakLines — SHOULD_LINEMERGE defaults', () => {
     const raw = '2024-01-15 first event\ncontinuation of first\n2024-01-16 second event\n';
     const events = breakLines(raw, [], META);
     expect(events).toHaveLength(2);
-    expect(events[0]._raw).toContain('first event');
-    expect(events[0]._raw).toContain('continuation');
-    expect(events[1]._raw).toContain('second event');
+    expect(events[0]!._raw).toContain('first event');
+    expect(events[0]!._raw).toContain('continuation');
+    expect(events[1]!._raw).toContain('second event');
   });
 
   it('does NOT merge everything into one event by default', () => {
@@ -77,8 +77,8 @@ describe('breakLines — BREAK_ONLY_BEFORE', () => {
     const raw = 'START event1\ncontinuation\nSTART event2\ncontinuation2\n';
     const events = breakLines(raw, [dir('BREAK_ONLY_BEFORE', '^START')], META);
     expect(events).toHaveLength(2);
-    expect(events[0]._raw).toContain('continuation');
-    expect(events[1]._raw).toContain('continuation2');
+    expect(events[0]!._raw).toContain('continuation');
+    expect(events[1]!._raw).toContain('continuation2');
   });
 });
 
@@ -91,9 +91,9 @@ describe('breakLines — custom LINE_BREAKER', () => {
       dir('SHOULD_LINEMERGE', 'false'),
     ], META);
     expect(events).toHaveLength(3);
-    expect(events[0]._raw).toBe('event1');
-    expect(events[1]._raw).toBe('event2');
-    expect(events[2]._raw).toBe('event3');
+    expect(events[0]!._raw).toBe('event1');
+    expect(events[1]!._raw).toBe('event2');
+    expect(events[2]!._raw).toBe('event3');
   });
 
   it('uses d-flag indices correctly when separator repeats within the match', () => {

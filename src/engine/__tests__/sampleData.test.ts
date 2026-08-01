@@ -13,7 +13,7 @@ describe('sampleData — Palo Alto byte columns (#76)', () => {
 
   it('maps the PAN-OS Bytes / Bytes Sent / Bytes Received columns in order', () => {
     const { result } = runPipeline(pan.rawData, meta, pan.propsConf, pan.transformsConf);
-    const [first] = result.events;
+    const first = result.events[0]!;
     // Row 1 columns after `action`: 120 (total), 80 (sent), 40 (received).
     expect(first.fields.bytes).toBe('120');
     expect(first.fields.bytes_sent).toBe('80');

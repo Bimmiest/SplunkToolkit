@@ -30,80 +30,80 @@ const dir = (key: string, value: string, directiveType: string, className?: stri
 
 describe('EXTRACT — a capture group named after an Object.prototype member (#120)', () => {
   it.each(PROTO_NAMES)('extracts (?<%s>…) as an ordinary field', (name) => {
-    const [r] = extractFields(
+    const r = extractFields(
       [ev('v=hello')],
       [dir('EXTRACT-a', `v=(?<${name}>\\w+)`, 'EXTRACT', 'a')],
-    );
+    )[0]!;
     expect(hasField(r.fields, name)).toBe(true);
     expect(r.fields[name]).toBe('hello');
   });
 
   it('records the offset for such a field too', () => {
-    const [r] = extractFields(
+    const r = extractFields(
       [ev('v=hello')],
       [dir('EXTRACT-a', 'v=(?<toString>\\w+)', 'EXTRACT', 'a')],
-    );
+    )[0]!;
     expect(r.fieldOffsets?.toString).toEqual([[2, 7]]);
   });
 });
 
 describe('FIELDALIAS — never binds an inherited member (#120)', () => {
   it('does not alias a field that does not exist', () => {
-    const [r] = applyFieldAliases(
+    const r = applyFieldAliases(
       [ev('hello')],
       [dir('FIELDALIAS-x', 'toString AS dvc', 'FIELDALIAS', 'x')],
-    );
+    )[0]!;
     // Previously `dvc` was set to Object.prototype.toString — a JS function in
     // the field bag, which then fails to structured-clone out of the worker.
     expect(hasField(r.fields, 'dvc')).toBe(false);
   });
 
   it('aliases a real field of that name', () => {
-    const [r] = applyFieldAliases(
+    const r = applyFieldAliases(
       [ev('hello', { toString: 'real-value' })],
       [dir('FIELDALIAS-x', 'toString AS dvc', 'FIELDALIAS', 'x')],
-    );
+    )[0]!;
     expect(r.fields.dvc).toBe('real-value');
   });
 
   it('ASNEW does not treat an inherited member as an existing target', () => {
-    const [r] = applyFieldAliases(
+    const r = applyFieldAliases(
       [ev('hello', { src: 'v' })],
       [dir('FIELDALIAS-x', 'src ASNEW toString', 'FIELDALIAS', 'x')],
-    );
+    )[0]!;
     expect(r.fields.toString).toBe('v');
   });
 });
 
 describe('EVAL — reads and writes such names as fields (#120)', () => {
   it('isnull() on a non-existent prototype-named field is true', () => {
-    const [r] = applyEvalExpressions(
+    const r = applyEvalExpressions(
       [ev('x')],
       [dir('EVAL-out', 'if(isnull(toString), "absent", "present")', 'EVAL', 'out')],
-    );
+    )[0]!;
     expect(r.fields.out).toBe('absent');
   });
 
   it('writes a computed field with a prototype-colliding name', () => {
-    const [r] = applyEvalExpressions(
+    const r = applyEvalExpressions(
       [ev('x')],
       [dir('EVAL-constructor', '"computed"', 'EVAL', 'constructor')],
-    );
+    )[0]!;
     expect(r.fields.constructor).toBe('computed');
   });
 });
 
 describe('INGEST_EVAL / INDEXED_EXTRACTIONS — same names, same treatment (#120)', () => {
   it('INGEST_EVAL assigns a prototype-colliding field', () => {
-    const [r] = applyIngestEval([ev('x')], [dir('INGEST_EVAL', 'valueOf="v"', 'INGEST_EVAL')]);
+    const r = applyIngestEval([ev('x')], [dir('INGEST_EVAL', 'valueOf="v"', 'INGEST_EVAL')])[0]!;
     expect(r.fields.valueOf).toBe('v');
   });
 
   it('CSV header colliding with a prototype member becomes a field', () => {
     const events = [ev('toString,b'), ev('1,2')];
-    const [r] = applyIndexedExtractions(events, [
+    const r = applyIndexedExtractions(events, [
       dir('INDEXED_EXTRACTIONS', 'csv', 'INDEXED_EXTRACTIONS'),
-    ]);
+    ])[0]!;
     expect(r.fields.toString).toBe('1');
     expect(r.fields.b).toBe('2');
   });

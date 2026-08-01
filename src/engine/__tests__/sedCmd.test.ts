@@ -20,56 +20,56 @@ function sedDir(className: string, value: string): ConfDirective {
 
 describe('applySedCommands', () => {
   it('performs a basic substitution', () => {
-    const [e] = applySedCommands([event('hello world')], [sedDir('x', 's/world/there/')]);
+    const e = applySedCommands([event('hello world')], [sedDir('x', 's/world/there/')])[0]!;
     expect(e._raw).toBe('hello there');
   });
 
   it('honours the global flag', () => {
-    const [e] = applySedCommands([event('a a a')], [sedDir('x', 's/a/b/g')]);
+    const e = applySedCommands([event('a a a')], [sedDir('x', 's/a/b/g')])[0]!;
     expect(e._raw).toBe('b b b');
   });
 
   it('uses sed backreferences (\\1) in the replacement', () => {
-    const [e] = applySedCommands([event('id=42')], [sedDir('x', 's/id=(\\d+)/user-\\1/')]);
+    const e = applySedCommands([event('id=42')], [sedDir('x', 's/id=(\\d+)/user-\\1/')])[0]!;
     expect(e._raw).toBe('user-42');
   });
 
   // BUG-2: a literal `$` in the replacement is a substitution pattern in JS and
   // used to mangle the output (e.g. $5 became part of capture-ref handling).
   it('treats a literal $ in the replacement as literal', () => {
-    const [e] = applySedCommands([event('price')], [sedDir('x', 's/price/$5.00/')]);
+    const e = applySedCommands([event('price')], [sedDir('x', 's/price/$5.00/')])[0]!;
     expect(e._raw).toBe('$5.00');
   });
 
   // #21: an escaped delimiter in the replacement drops the backslash (GNU sed:
   // `echo abc | sed 's/b/x\/y/'` → `ax/yc`), rather than leaving a stray `\`.
   it('unescapes an escaped delimiter in the replacement', () => {
-    const [e] = applySedCommands([event('abc')], [sedDir('x', 's/b/x\\/y/')]);
+    const e = applySedCommands([event('abc')], [sedDir('x', 's/b/x\\/y/')])[0]!;
     expect(e._raw).toBe('ax/yc');
   });
 
   it('unescapes a doubled backslash to a single backslash', () => {
-    const [e] = applySedCommands([event('a')], [sedDir('x', 's/a/x\\\\y/')]);
+    const e = applySedCommands([event('a')], [sedDir('x', 's/a/x\\\\y/')])[0]!;
     expect(e._raw).toBe('x\\y');
   });
 
   // A backslash-escaped backslash before a digit is a literal backslash, not a
   // backreference: `\\1` → literal `\1`, never capture group 1.
   it('does not treat an escaped backslash before a digit as a backreference', () => {
-    const [e] = applySedCommands([event('foo')], [sedDir('x', 's/(o)/\\\\1/g')]);
+    const e = applySedCommands([event('foo')], [sedDir('x', 's/(o)/\\\\1/g')])[0]!;
     expect(e._raw).toBe('f\\1\\1');
   });
 
   it('applies multiple SEDCMD classes in ASCII order', () => {
     // class "a" runs before class "b": a turns X→Y, then b turns Y→Z.
-    const [e] = applySedCommands([event('X')], [sedDir('b', 's/Y/Z/'), sedDir('a', 's/X/Y/')]);
+    const e = applySedCommands([event('X')], [sedDir('b', 's/Y/Z/'), sedDir('a', 's/X/Y/')])[0]!;
     expect(e._raw).toBe('Z');
   });
 
   // SEM-14: unsupported sed features warn rather than silently no-op.
   it('warns that y/// transliteration is not simulated', () => {
     const diags: ValidationDiagnostic[] = [];
-    const [e] = applySedCommands([event('abc')], [sedDir('x', 'y/abc/xyz/')], diags);
+    const e = applySedCommands([event('abc')], [sedDir('x', 'y/abc/xyz/')], diags)[0]!;
     expect(e._raw).toBe('abc'); // unchanged — not applied
     expect(diags.some((d) => d.message.includes('y/// transliteration'))).toBe(true);
   });

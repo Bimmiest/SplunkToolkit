@@ -48,7 +48,7 @@ describe('parseConf — layered input is opt-in and additive (#115)', () => {
   it('stamps the layer name on every stanza and directive', () => {
     const parsed = parseConf([{ layer: 'default', text: '[st]\nKV_MODE = json' }], 'props.conf');
     expect(stanza(parsed, 'st').layer).toBe('default');
-    expect(directive(parsed, 'st', 'KV_MODE')[0].layer).toBe('default');
+    expect(directive(parsed, 'st', 'KV_MODE')[0]!.layer).toBe('default');
   });
 
   it('accepts an empty layer list', () => {
@@ -87,7 +87,9 @@ describe('parseConf — default/ and local/ merge per attribute (#115)', () => {
 
   it('records what the winner overrode, and what the loser lost to', () => {
     const parsed = parseConf(layers, 'props.conf');
-    const [loser, winner] = directive(parsed, 'st', 'KV_MODE');
+    const kvModes = directive(parsed, 'st', 'KV_MODE');
+    const loser = kvModes[0]!;
+    const winner = kvModes[1]!;
 
     expect(winner.overrides).toEqual([{ layer: 'default', line: 2, value: 'json' }]);
     expect(winner.overriddenBy).toBeUndefined();
@@ -97,7 +99,7 @@ describe('parseConf — default/ and local/ merge per attribute (#115)', () => {
 
   it('leaves an uncontested directive unannotated', () => {
     const parsed = parseConf(layers, 'props.conf');
-    const tz = directive(parsed, 'st', 'TZ')[0];
+    const tz = directive(parsed, 'st', 'TZ')[0]!;
     expect(tz.overrides).toBeUndefined();
     expect(tz.overriddenBy).toBeUndefined();
   });
@@ -154,7 +156,7 @@ describe('parseConf — default/ and local/ merge per attribute (#115)', () => {
     );
     // Splunk ignores `kv_mode` outright, so it cannot shadow KV_MODE.
     expect(resolved(parsed, 'KV_MODE')!.value).toBe('json');
-    expect(directive(parsed, 'st', 'KV_MODE')[0].overriddenBy).toBeUndefined();
+    expect(directive(parsed, 'st', 'KV_MODE')[0]!.overriddenBy).toBeUndefined();
   });
 
   it('does not merge across stanza names or stanza types', () => {
@@ -166,7 +168,7 @@ describe('parseConf — default/ and local/ merge per attribute (#115)', () => {
       'props.conf',
     );
     expect(directive(parsed, 'st', 'TZ')).toHaveLength(1);
-    expect(directive(parsed, 'st', 'TZ')[0].value).toBe('UTC');
+    expect(directive(parsed, 'st', 'TZ')[0]!.value).toBe('UTC');
   });
 });
 
@@ -242,7 +244,7 @@ describe('parseConf — diagnostics name their layer (#115)', () => {
 
   it('omits the layer key entirely for a flat parse', () => {
     const parsed = parseConf('[st]\nkv_mode = none', 'props.conf');
-    expect('layer' in parsed.errors[0]).toBe(false);
+    expect('layer' in parsed.errors[0]!).toBe(false);
   });
 });
 
@@ -259,7 +261,7 @@ describe('runPipeline — accepts layered confs (#115)', () => {
       ],
       '',
     );
-    expect(result.events[0].fields.user).toBe('alice');
+    expect(result.events[0]!.fields.user).toBe('alice');
   });
 
   it('applies the default when local does not redefine the attribute', () => {
@@ -272,7 +274,7 @@ describe('runPipeline — accepts layered confs (#115)', () => {
       ],
       '',
     );
-    expect(result.events[0].fields.user).toBeUndefined();
+    expect(result.events[0]!.fields.user).toBeUndefined();
   });
 
   it('reports which layer a config diagnostic came from', () => {
@@ -302,13 +304,13 @@ describe('runPipeline — accepts layered confs (#115)', () => {
       ],
     );
     // local replaces the REGEX attribute outright, so only `action` extracts.
-    expect(result.events[0].fields.action).toBe('login');
-    expect(result.events[0].fields.user).toBeUndefined();
+    expect(result.events[0]!.fields.action).toBe('login');
+    expect(result.events[0]!.fields.user).toBeUndefined();
   });
 
   it('still accepts plain strings', () => {
     const { result } = runPipeline(RAW, META, '[st]\nKV_MODE = auto', '');
-    expect(result.events[0].fields.user).toBe('alice');
+    expect(result.events[0]!.fields.user).toBe('alice');
   });
 });
 

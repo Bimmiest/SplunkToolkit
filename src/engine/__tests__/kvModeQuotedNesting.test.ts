@@ -15,35 +15,35 @@ const kv = (mode: string): ConfDirective[] =>
 // still scanning the untouched original, so it never saw the blanking.
 describe('KV_MODE auto — quoted passes do not mine inside each other (#123)', () => {
   it('does not extract a single-quoted pair from inside a double-quoted value', () => {
-    const [r] = applyKvMode([ev(`msg="an x='inner' thing" a=1`)], kv('auto'));
+    const r = applyKvMode([ev(`msg="an x='inner' thing" a=1`)], kv('auto'))[0]!;
     expect(r.fields.msg).toBe("an x='inner' thing");
     expect(r.fields.a).toBe('1');
     expect(r.fields).not.toHaveProperty('x');
   });
 
   it('does not extract a double-quoted pair from inside a single-quoted value', () => {
-    const [r] = applyKvMode([ev(`msg='an x="inner" thing' a=1`)], kv('auto'));
+    const r = applyKvMode([ev(`msg='an x="inner" thing' a=1`)], kv('auto'))[0]!;
     expect(r.fields.msg).toBe('an x="inner" thing');
     expect(r.fields.a).toBe('1');
     expect(r.fields).not.toHaveProperty('x');
   });
 
   it('still extracts genuine single-quoted pairs outside any quoted value', () => {
-    const [r] = applyKvMode([ev(`user='alice' role="admin" id=7`)], kv('auto'));
+    const r = applyKvMode([ev(`user='alice' role="admin" id=7`)], kv('auto'))[0]!;
     expect(r.fields.user).toBe('alice');
     expect(r.fields.role).toBe('admin');
     expect(r.fields.id).toBe('7');
   });
 
   it('still keeps the bare pass out of quoted values', () => {
-    const [r] = applyKvMode([ev(`msg="error code=42" status=ok`)], kv('auto'));
+    const r = applyKvMode([ev(`msg="error code=42" status=ok`)], kv('auto'))[0]!;
     expect(r.fields.msg).toBe('error code=42');
     expect(r.fields.status).toBe('ok');
     expect(r.fields).not.toHaveProperty('code');
   });
 
   it('auto_escaped still unescapes and still blocks nested mining', () => {
-    const [r] = applyKvMode([ev(`msg="say \\"hi\\" x='inner'" a=1`)], kv('auto_escaped'));
+    const r = applyKvMode([ev(`msg="say \\"hi\\" x='inner'" a=1`)], kv('auto_escaped'))[0]!;
     expect(r.fields.msg).toBe(`say "hi" x='inner'`);
     expect(r.fields.a).toBe('1');
     expect(r.fields).not.toHaveProperty('x');

@@ -12,7 +12,7 @@ const sed = (value: string, className = 'x'): ConfDirective =>
 
 function run(value: string, raw: string) {
   const diagnostics: ValidationDiagnostic[] = [];
-  const [event] = applySedCommands([ev(raw)], [sed(value)], diagnostics);
+  const event = applySedCommands([ev(raw)], [sed(value)], diagnostics)[0]!;
   return { raw: event._raw, diagnostics };
 }
 
@@ -46,9 +46,9 @@ describe('SEDCMD — an uncompilable pattern warns rather than vanishing (#122)'
     const { raw, diagnostics } = run('s/(a+)+$/Z/', 'aaaa!');
     expect(raw).toBe('aaaa!');
     expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0].level).toBe('warning');
-    expect(diagnostics[0].message).toMatch(/could not be compiled safely/);
-    expect(diagnostics[0].directiveKey).toBe('SEDCMD-x');
+    expect(diagnostics[0]!.level).toBe('warning');
+    expect(diagnostics[0]!.message).toMatch(/could not be compiled safely/);
+    expect(diagnostics[0]!.directiveKey).toBe('SEDCMD-x');
   });
 
   it('warns when the pattern is not valid regex at all', () => {
