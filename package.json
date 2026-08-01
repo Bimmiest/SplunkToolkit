@@ -19,6 +19,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "capture:fixtures": "node scripts/capture-fixtures.ts",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"
   },
