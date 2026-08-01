@@ -281,3 +281,65 @@ describe('applyTransforms — SOURCE_KEY reads pipeline metadata (#53)', () => {
     expect(out.fields.tier_copy).toBe('gold');
   });
 });
+
+describe('applyTransforms — search-time-only attributes reached index-time', () => {
+  /** REPORT-<class>, so the same stanza can be driven down the search-time path. */
+  function reportDir(stanzaName: string): ConfDirective[] {
+    return [{ key: 'REPORT-x', value: stanzaName, line: 1, directiveType: 'REPORT', className: 'x' }];
+  }
+
+  const warnMsg = (d: ValidationDiagnostic) =>
+    d.message.includes('valid only for search-time field extractions');
+
+  it('warns when a DELIMS stanza is referenced by TRANSFORMS-', () => {
+    const diags: ValidationDiagnostic[] = [];
+    const conf = transformsConf('pairs', { DELIMS: '"|", "="' });
+    applyTransforms([event('a=1|b=2')], transformsDir('pairs'), conf, 'index-time', diags);
+
+    const warning = diags.find(warnMsg);
+    expect(warning).toBeDefined();
+    expect(warning?.level).toBe('warning');
+    expect(warning?.message).toContain('DELIMS');
+    // The consequence, not just the rule: this stanza produces nothing at all.
+    expect(warning?.message).toContain('extracts nothing at all');
+    expect(warning?.message).toContain('REPORT-<class>');
+  });
+
+  it('warns once per stanza however many events flow through', () => {
+    const diags: ValidationDiagnostic[] = [];
+    const conf = transformsConf('pairs', { DELIMS: '"|", "="' });
+    applyTransforms(
+      [event('a=1|b=2'), event('c=3|d=4'), event('e=5|f=6')],
+      transformsDir('pairs'), conf, 'index-time', diags,
+    );
+    expect(diags.filter(warnMsg)).toHaveLength(1);
+  });
+
+  it('names every offending attribute, not just the first', () => {
+    const diags: ValidationDiagnostic[] = [];
+    const conf = transformsConf('kv', {
+      REGEX: '(\\w+)=(\\w+)', FORMAT: '$1::$2', MV_ADD: 'true', CLEAN_KEYS: 'false',
+    });
+    applyTransforms([event('a=1')], transformsDir('kv'), conf, 'index-time', diags);
+
+    const warning = diags.find(warnMsg);
+    expect(warning?.message).toContain('MV_ADD');
+    expect(warning?.message).toContain('CLEAN_KEYS');
+    // No DELIMS here, so the stanza still extracts via REGEX.
+    expect(warning?.message).not.toContain('extracts nothing at all');
+  });
+
+  it('stays quiet on the search-time pass, where the attributes are valid', () => {
+    const diags: ValidationDiagnostic[] = [];
+    const conf = transformsConf('pairs', { DELIMS: '"|", "="' });
+    applyTransforms([event('a=1|b=2')], reportDir('pairs'), conf, 'search-time', diags);
+    expect(diags.filter(warnMsg)).toHaveLength(0);
+  });
+
+  it('stays quiet for a stanza that uses none of them', () => {
+    const diags: ValidationDiagnostic[] = [];
+    const conf = transformsConf('route', { REGEX: '(\\w+)', DEST_KEY: 'MetaData:Index', FORMAT: 'main' });
+    applyTransforms([event('hello')], transformsDir('route'), conf, 'index-time', diags);
+    expect(diags.filter(warnMsg)).toHaveLength(0);
+  });
+});

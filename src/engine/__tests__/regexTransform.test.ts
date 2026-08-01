@@ -28,6 +28,16 @@ function stanza(name: string, directives: Record<string, string>): ConfStanza {
   };
 }
 
+/**
+ * DELIMS, FIELDS, MV_ADD, CLEAN_KEYS and KEEP_EMPTY_VALS are documented as valid
+ * only for search-time field extractions, and the engine now honours that — so a
+ * test for any of them has to say which pass it is exercising. `applyRegexTransform`
+ * defaults to index-time, which is right for DEST_KEY/WRITE_META routing.
+ */
+function searchTime(ev: SplunkEvent, s: ConfStanza) {
+  return applyRegexTransform(ev, s, undefined, 'search-time');
+}
+
 describe('applyRegexTransform — zero-length match guard', () => {
   it('terminates on a DEST_KEY=<field> regex that can match the empty string', () => {
     // `(.*)` matches the whole line then an empty string at the end — without a
@@ -139,7 +149,7 @@ describe('applyRegexTransform — named capture groups', () => {
       REPEAT_MATCH: 'true',
       MV_ADD: 'true',
     });
-    const result = applyRegexTransform(event('a b c'), s);
+    const result = searchTime(event('a b c'), s);
     expect(result.fields['toString']).toEqual(['a', 'b', 'c']);
   });
 
@@ -158,31 +168,31 @@ describe('applyRegexTransform — named capture groups', () => {
 describe('applyRegexTransform — REPEAT_MATCH / MV_ADD', () => {
   it('defaults to the first match only (single value)', () => {
     const s = stanza('nums', { REGEX: '(?<num>\\d+)' });
-    const result = applyRegexTransform(event('1 2 3'), s);
+    const result = searchTime(event('1 2 3'), s);
     expect(result.fields['num']).toBe('1');
   });
 
   it('REPEAT_MATCH + MV_ADD collects every match into a multivalue field', () => {
     const s = stanza('nums', { REGEX: '(?<num>\\d+)', REPEAT_MATCH: 'true', MV_ADD: 'true' });
-    const result = applyRegexTransform(event('1 2 3'), s);
+    const result = searchTime(event('1 2 3'), s);
     expect(result.fields['num']).toEqual(['1', '2', '3']);
   });
 
   it('REPEAT_MATCH without MV_ADD keeps the first value and discards the rest', () => {
     const s = stanza('nums', { REGEX: '(?<num>\\d+)', REPEAT_MATCH: 'true' });
-    const result = applyRegexTransform(event('1 2 3'), s);
+    const result = searchTime(event('1 2 3'), s);
     expect(result.fields['num']).toBe('1');
   });
 
   it('MV_ADD without REPEAT_MATCH still only sees the first match', () => {
     const s = stanza('nums', { REGEX: '(?<num>\\d+)', MV_ADD: 'true' });
-    const result = applyRegexTransform(event('1 2 3'), s);
+    const result = searchTime(event('1 2 3'), s);
     expect(result.fields['num']).toBe('1');
   });
 
   it('REPEAT_MATCH + MV_ADD builds multivalue across multiple named groups', () => {
     const s = stanza('kv', { REGEX: '(?<k>\\w+)=(?<v>\\d+)', REPEAT_MATCH: 'true', MV_ADD: 'true' });
-    const result = applyRegexTransform(event('a=1 b=2 c=3'), s);
+    const result = searchTime(event('a=1 b=2 c=3'), s);
     expect(result.fields['k']).toEqual(['a', 'b', 'c']);
     expect(result.fields['v']).toEqual(['1', '2', '3']);
   });
@@ -300,7 +310,7 @@ describe('applyRegexTransform — numbered groups with FORMAT', () => {
 describe('applyRegexTransform — DELIMS / FIELDS', () => {
   it('extracts field/value pairs with two delimiter sets', () => {
     const s = stanza('pipe_eq', { DELIMS: '"|", "="' });
-    const result = applyRegexTransform(event('user=alice|action=login|status=200'), s);
+    const result = searchTime(event('user=alice|action=login|status=200'), s);
     expect(result.matched).toBe(true);
     expect(result.fields['user']).toBe('alice');
     expect(result.fields['action']).toBe('login');
@@ -309,7 +319,7 @@ describe('applyRegexTransform — DELIMS / FIELDS', () => {
 
   it('treats each character in a set as its own delimiter', () => {
     const s = stanza('multi', { DELIMS: '"|;", "="' });
-    const result = applyRegexTransform(event('a=1|b=2;c=3'), s);
+    const result = searchTime(event('a=1|b=2;c=3'), s);
     expect(result.fields['a']).toBe('1');
     expect(result.fields['b']).toBe('2');
     expect(result.fields['c']).toBe('3');
@@ -317,13 +327,13 @@ describe('applyRegexTransform — DELIMS / FIELDS', () => {
 
   it('splits key/value on the first kv-delimiter occurrence only', () => {
     const s = stanza('kv', { DELIMS: '" ", "="' });
-    const result = applyRegexTransform(event('url=/path?a=1'), s);
+    const result = searchTime(event('url=/path?a=1'), s);
     expect(result.fields['url']).toBe('/path?a=1');
   });
 
   it('names positional values via FIELDS with a single DELIMS set', () => {
     const s = stanza('csv', { DELIMS: '","', FIELDS: '"ts", "user", "action"' });
-    const result = applyRegexTransform(event('2026-01-01,alice,login'), s);
+    const result = searchTime(event('2026-01-01,alice,login'), s);
     expect(result.fields['ts']).toBe('2026-01-01');
     expect(result.fields['user']).toBe('alice');
     expect(result.fields['action']).toBe('login');
@@ -331,20 +341,20 @@ describe('applyRegexTransform — DELIMS / FIELDS', () => {
 
   it('decodes escape sequences in DELIMS (tab/newline)', () => {
     const s = stanza('tabbed', { DELIMS: '"\\n", ":\\t" ' });
-    const result = applyRegexTransform(event('key1:\tval1\nkey2:\tval2'), s);
+    const result = searchTime(event('key1:\tval1\nkey2:\tval2'), s);
     expect(result.fields['key1']).toBe('val1');
     expect(result.fields['key2']).toBe('val2');
   });
 
   it('accumulates repeated keys into a multivalue field', () => {
     const s = stanza('rep', { DELIMS: '" ", "="' });
-    const result = applyRegexTransform(event('tag=a tag=b tag=c'), s);
+    const result = searchTime(event('tag=a tag=b tag=c'), s);
     expect(result.fields['tag']).toEqual(['a', 'b', 'c']);
   });
 
   it('drops empty values and pairs without a kv delimiter', () => {
     const s = stanza('sparse', { DELIMS: '"|", "="' });
-    const result = applyRegexTransform(event('a=1|justtext|b='), s);
+    const result = searchTime(event('a=1|justtext|b='), s);
     expect(result.fields['a']).toBe('1');
     expect(result.fields['b']).toBeUndefined();
     expect(result.fields['justtext']).toBeUndefined();
@@ -352,7 +362,7 @@ describe('applyRegexTransform — DELIMS / FIELDS', () => {
 
   it('reads from SOURCE_KEY when set', () => {
     const s = stanza('fromfield', { DELIMS: '"&", "="', SOURCE_KEY: 'query' });
-    const result = applyRegexTransform(event('ignored', { query: 'x=1&y=2' }), s);
+    const result = searchTime(event('ignored', { query: 'x=1&y=2' }), s);
     expect(result.fields['x']).toBe('1');
     expect(result.fields['y']).toBe('2');
   });
@@ -474,5 +484,66 @@ describe('applyRegexTransform — FORMAT is tokenized before capture substitutio
       stanza('t', { REGEX: 'k=([^;]*);', FORMAT: 'k::$1' }),
     );
     expect(r.fields.k).toEqual(['a b', 'c d']);
+  });
+});
+
+describe('applyRegexTransform — search-time-only attributes are ignored index-time', () => {
+  it('extracts nothing from a DELIMS stanza reached through TRANSFORMS-', () => {
+    // DELIMS is the alternative to REGEX, so an index-time reference leaves the
+    // stanza with no extraction mechanism at all.
+    const s = stanza('pairs', { DELIMS: '"|", "="' });
+    const result = applyRegexTransform(event('a=1|b=2'), s, undefined, 'index-time');
+    expect(result.matched).toBe(false);
+    expect(result.fields).toEqual({});
+  });
+
+  it('still extracts from the same stanza at search time', () => {
+    const s = stanza('pairs', { DELIMS: '"|", "="' });
+    expect(searchTime(event('a=1|b=2'), s).fields).toEqual({ a: '1', b: '2' });
+  });
+
+  it('ignores MV_ADD index-time, keeping the first value', () => {
+    // Named capture groups — the path that consults MV_ADD. (FORMAT-pair
+    // extraction accumulates unconditionally regardless of MV_ADD, which is the
+    // separate known divergence #174.)
+    const s = stanza('nums', { REGEX: '(?<num>\\d+)', REPEAT_MATCH: 'true', MV_ADD: 'true' });
+    const result = applyRegexTransform(event('1 2 3'), s, undefined, 'index-time');
+    expect(result.fields['num']).toBe('1');
+  });
+});
+
+describe('applyRegexTransform — CLEAN_KEYS', () => {
+  it('rewrites punctuation to underscores and strips the leading run', () => {
+    // Pinned by the Splunk 10.4.0 capture in report-delims-field-and-value:
+    // `2026-01-15T10:00:00Z a` comes back as `T10_00_00Z_a`.
+    const s = stanza('pairs', { DELIMS: '";", "="' });
+    const result = searchTime(event('2026-01-15T10:00:00Z a=1;b=2'), s);
+    expect(Object.keys(result.fields).sort()).toEqual(['T10_00_00Z_a', 'b']);
+  });
+
+  it('keeps interior underscores', () => {
+    const s = stanza('cols', { DELIMS: '","', FIELDS: '"col_a", "col_b"' });
+    expect(Object.keys(searchTime(event('x,y'), s))).toBeTruthy();
+    expect(searchTime(event('x,y'), s).fields).toEqual({ col_a: 'x', col_b: 'y' });
+  });
+
+  it('is disabled by CLEAN_KEYS = 0', () => {
+    const s = stanza('raw', { REGEX: '([\\w.\\- ]+)=(\\w+)', FORMAT: '$1::$2', CLEAN_KEYS: '0' });
+    expect(searchTime(event('my.odd-key=value'), s).fields).toEqual({ 'my.odd-key': 'value' });
+  });
+
+  it('is disabled by CLEAN_KEYS = false', () => {
+    const s = stanza('raw', { REGEX: '([\\w.\\- ]+)=(\\w+)', FORMAT: '$1::$2', CLEAN_KEYS: 'false' });
+    expect(searchTime(event('my.odd-key=value'), s).fields).toEqual({ 'my.odd-key': 'value' });
+  });
+
+  it('cleans FORMAT-named keys, which come from the data', () => {
+    const s = stanza('kv', { REGEX: '([\\w.\\-]+)=(\\w+)', FORMAT: '$1::$2' });
+    expect(searchTime(event('odd.key-name=v'), s).fields).toEqual({ odd_key_name: 'v' });
+  });
+
+  it('leaves a key that is already clean alone', () => {
+    const s = stanza('kv', { REGEX: '(\\w+)=(\\w+)', FORMAT: '$1::$2' });
+    expect(searchTime(event('user=alice'), s).fields).toEqual({ user: 'alice' });
   });
 });

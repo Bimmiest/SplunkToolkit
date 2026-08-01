@@ -569,15 +569,17 @@ export const CORPUS: FixtureCase[] = [
   },
   {
     id: 'report-delims-field-and-value',
-    knownMismatch: '#173',
-    directives: ['REPORT-', 'DELIMS'],
+    directives: ['REPORT-', 'DELIMS', 'CLEAN_KEYS'],
     phase: 'search-time',
     props: 'SHOULD_LINEMERGE = false\nTZ = UTC\nKV_MODE = none\nREPORT-pairs2 = fx_report_delims_pairs\n',
     transforms: '[fx_report_delims_pairs]\nDELIMS = ";", "="\n',
     input: '2026-01-15T10:00:00Z a=1;b=2;c=3\n',
     note:
       'The two-argument DELIMS form, where the first splits records and the second splits key ' +
-      'from value -- field names come from the data rather than from FIELDS.',
+      'from value -- field names come from the data rather than from FIELDS. Because the names ' +
+      'come from the data they are also what pins CLEAN_KEYS: the leading timestamp lands in the ' +
+      'first key, and Splunk returns it as `T10_00_00Z_a` -- punctuation rewritten to underscores, ' +
+      'then the leading digits and underscores stripped.',
   },
   {
     id: 'report-mv-add-false',
