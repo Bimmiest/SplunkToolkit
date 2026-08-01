@@ -1,5 +1,8 @@
 import type { languages, editor, Position, CancellationToken } from 'monaco-editor';
 import { getDirectiveInfo, getClassBasedDirectiveBase } from '../engine/directiveRegistry';
+import { classifyStanza } from '../engine/stanzaRegistry';
+import { getStagesForDirective } from '../engine/pipelineStages';
+import { openDictionaryCommandUri } from './dictionaryCommand';
 
 export function createHoverProvider(fileType: 'props.conf' | 'transforms.conf'): languages.HoverProvider {
   return {
@@ -46,7 +49,11 @@ export function createHoverProvider(fileType: 'props.conf' | 'transforms.conf'):
         if (info) {
           const keyStart = line.indexOf(key) + 1;
           return {
-            contents: [{ value: formatDirectiveHover(info, key) }],
+            // `isTrusted` is what lets the "Open in dictionary" command link
+            // work; Monaco ignores `command:` URIs in untrusted Markdown. The
+            // content is built here from the local registry, never from the
+            // document, so nothing user-authored reaches the link.
+            contents: [{ value: formatDirectiveHover(info, key), isTrusted: true }],
             range: {
               startLineNumber: position.lineNumber,
               startColumn: keyStart,
@@ -84,6 +91,11 @@ function formatDirectiveHover(info: import('../engine/directiveRegistry').Direct
   parts.push(`| **Default** | \`${info.defaultValue || '(none)'}\` |`);
   parts.push(`| **Applies to** | ${info.appliesTo} |`);
 
+  const stages = getStagesForDirective(info.key);
+  if (stages.length > 0) {
+    parts.push(`| **Stage** | ${stages.map((s) => `${s.step}. ${s.name}`).join(', ')} |`);
+  }
+
   if (info.enumValues && info.enumValues.length > 0) {
     parts.push(`| **Valid values** | ${info.enumValues.map((v) => `\`${v}\``).join(', ')} |`);
   }
@@ -99,58 +111,35 @@ function formatDirectiveHover(info: import('../engine/directiveRegistry').Direct
     parts.push('> **Deprecated:** This directive is deprecated and may be removed in future versions.');
   }
 
+  // Links to the canonical key, not `actualKey`: the dictionary documents
+  // `EXTRACT`, and "EXTRACT-client_ip" is one instance of it.
+  parts.push('');
+  parts.push(`[Open in dictionary](${openDictionaryCommandUri(info.key)})`);
+
   return parts.join('\n');
 }
 
+/**
+ * Render a stanza header hover from the shared stanza registry, so this and the
+ * dictionary describe precedence identically.
+ */
 function getStanzaHoverContent(stanzaName: string): string {
-  if (stanzaName === 'default') {
-    return [
-      '### [default]',
-      '',
-      'Default stanza that applies to **all** sourcetypes.',
-      '',
-      'Settings here provide baseline configuration that can be overridden by more specific stanzas.',
-      '',
-      '**Precedence:** Lowest (overridden by `[sourcetype]`, `[host::*]`, and `[source::*]`)',
-    ].join('\n');
+  const { kind, pattern } = classifyStanza(stanzaName);
+
+  const parts: string[] = [`### [${stanzaName}]`, '', kind.description, ''];
+
+  if (kind.id === 'sourcetype' && pattern) {
+    parts.push(`Applies to events with \`sourcetype=${pattern}\`.`, '');
+  } else if (pattern) {
+    parts.push(`Matching pattern: \`${pattern}\``, '');
   }
 
-  if (stanzaName.startsWith('source::')) {
-    const pattern = stanzaName.slice('source::'.length);
-    return [
-      `### [source::${pattern}]`,
-      '',
-      `Source-based stanza matching source path pattern: \`${pattern}\``,
-      '',
-      '**Precedence:** Highest — overrides all other stanza types.',
-      '',
-      '**Pattern syntax:**',
-      '- `*` matches any characters within a path segment',
-      '- `...` matches any path segments (recursive wildcard)',
-      '- More specific patterns take precedence over less specific ones',
-    ].join('\n');
+  parts.push(`**Precedence:** ${kind.precedence}`);
+
+  if (kind.patternSyntax.length > 0) {
+    parts.push('', '**Pattern syntax:**');
+    for (const line of kind.patternSyntax) parts.push(`- ${line}`);
   }
 
-  if (stanzaName.startsWith('host::')) {
-    const pattern = stanzaName.slice('host::'.length);
-    return [
-      `### [host::${pattern}]`,
-      '',
-      `Host-based stanza matching hostname pattern: \`${pattern}\``,
-      '',
-      '**Precedence:** Overrides `[sourcetype]` and `[default]`, overridden by `[source::*]`.',
-      '',
-      '**Pattern syntax:**',
-      '- `*` matches any characters',
-      '- More specific patterns take precedence',
-    ].join('\n');
-  }
-
-  return [
-    `### [${stanzaName}]`,
-    '',
-    `Sourcetype stanza — applies to events with \`sourcetype=${stanzaName}\`.`,
-    '',
-    '**Precedence:** Overrides `[default]`, overridden by `[host::*]` and `[source::*]`.',
-  ].join('\n');
+  return parts.join('\n');
 }

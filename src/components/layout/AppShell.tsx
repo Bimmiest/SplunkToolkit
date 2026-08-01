@@ -1,14 +1,13 @@
-import { Panel, Group, Separator } from 'react-resizable-panels';
+import { useState } from 'react';
 import { Header } from './Header';
 import { StatusBar } from './StatusBar';
-import { RawPanel } from '../raw/RawPanel';
-import { PropsConfEditor } from '../editor/PropsConfEditor';
-import { TransformsConfEditor } from '../editor/TransformsConfEditor';
-import { PreviewPanel } from '../preview/PreviewPanel';
+import { ActivityRail } from './ActivityRail';
+import { SimulatorView } from './SimulatorView';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { HelpPanel } from '../help/HelpPanel';
 import { SettingsPanel } from '../settings/SettingsPanel';
 import { FirstRunBanner } from '../onboarding/FirstRunBanner';
+import { DictionaryView } from '../dictionary/DictionaryView';
 import { useProcessingPipeline } from '../../hooks/useProcessingPipeline';
 import { useAppStore } from '../../store/useAppStore';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
@@ -16,36 +15,23 @@ import { CommandPalette } from '../ui/CommandPalette';
 import { ScaffoldModal } from '../scaffold/ScaffoldModal';
 import { MobileShell } from './MobileShell';
 
-function ResizeHandle({ direction = 'vertical' }: { direction?: 'horizontal' | 'vertical' }) {
-  return (
-    <Separator
-      className={`
-        group relative flex items-center justify-center
-        ${direction === 'vertical' ? 'h-1.5 cursor-row-resize' : 'w-1.5 cursor-col-resize'}
-        bg-[var(--color-border)] hover:bg-[var(--color-accent)] transition-colors
-      `}
-    >
-      <div
-        className={`
-          rounded-full bg-[var(--color-text-muted)] group-hover:bg-white transition-colors
-          ${direction === 'vertical' ? 'h-0.5 w-8' : 'w-0.5 h-8'}
-        `}
-      />
-    </Separator>
-  );
-}
-
 export function AppShell() {
   useProcessingPipeline();
 
-  const propsCollapsed = useAppStore((s) => !!s.collapsedPanels['props.conf']);
-  const transformsCollapsed = useAppStore((s) => !!s.collapsedPanels['transforms.conf']);
   const scaffoldOpen = useAppStore((s) => s.scaffoldOpen);
+  const activeView = useAppStore((s) => s.activeView);
   const isMobile = useMediaQuery('(max-width: 767px)');
 
-  // Build the resizable panel group key based on which panels are expanded
-  // This forces a clean re-mount when collapse state changes
-  const layoutKey = `${propsCollapsed ? 'pc' : 'pe'}-${transformsCollapsed ? 'tc' : 'te'}`;
+  // The dictionary is inert reference material, so don't pay for it until the
+  // user asks. Once mounted it stays mounted, for the same reason the simulator
+  // does.
+  //
+  // Latched during render rather than from an effect: an effect would mount the
+  // dictionary one paint after the switch, so the first visit would flash an
+  // empty pane. This is React's "adjust state during render" pattern — the
+  // extra render happens before the browser sees anything.
+  const [dictionaryMounted, setDictionaryMounted] = useState(false);
+  if (activeView === 'dictionary' && !dictionaryMounted) setDictionaryMounted(true);
 
   return (
     <div className="h-full flex flex-col">
@@ -55,69 +41,52 @@ export function AppShell() {
       <SettingsPanel />
       <CommandPalette />
       {scaffoldOpen && <ScaffoldModal />}
-      <main id="main-content" className="flex-1 min-h-0">
-        {isMobile ? (
-          <MobileShell />
-        ) : (
-        <Group orientation="horizontal" id="main-horizontal">
-          {/* Left side: Raw, Props, Transforms */}
-          <Panel defaultSize={38} minSize={20} id="left-inputs">
-            <div className="h-full flex flex-col">
-              {/* Resizable area for expanded panels */}
-              <div className="flex-1 min-h-0">
-                <Group orientation="vertical" id={`left-vertical-${layoutKey}`} key={layoutKey}>
-                  <Panel defaultSize={propsCollapsed && transformsCollapsed ? 100 : propsCollapsed || transformsCollapsed ? 50 : 30} minSize={10} id="raw-panel">
-                    <ErrorBoundary panelName="Raw Data">
-                      <RawPanel />
-                    </ErrorBoundary>
-                  </Panel>
-                  {!propsCollapsed && (
-                    <>
-                      <ResizeHandle direction="vertical" />
-                      <Panel defaultSize={38} minSize={10} id="props-editor">
-                        <ErrorBoundary panelName="props.conf Editor">
-                          <PropsConfEditor />
-                        </ErrorBoundary>
-                      </Panel>
-                    </>
-                  )}
-                  {!transformsCollapsed && (
-                    <>
-                      <ResizeHandle direction="vertical" />
-                      <Panel defaultSize={32} minSize={10} id="transforms-editor">
-                        <ErrorBoundary panelName="transforms.conf Editor">
-                          <TransformsConfEditor />
-                        </ErrorBoundary>
-                      </Panel>
-                    </>
-                  )}
-                </Group>
+      <div className="flex-1 min-h-0 flex">
+        {!isMobile && <ActivityRail />}
+        <main id="main-content" className="flex-1 min-w-0">
+          {isMobile ? (
+            <MobileShell />
+          ) : (
+            <>
+              {/*
+                Both views stay mounted and switch with `hidden`, rather than
+                rendering conditionally. Unmounting the simulator would throw
+                away Monaco's undo history, cursor and folding state along with
+                every preview filter held in PreviewPanel's local state, and
+                would pay full Monaco re-init on the way back. Monaco
+                (automaticLayout) and react-resizable-panels both observe their
+                container, so they re-measure correctly when shown again.
+
+                Keep display-setting classes off these two wrappers: any
+                `display` declaration outranks the UA stylesheet's `[hidden]`
+                rule and the hidden view would render on top of the visible one.
+              */}
+              <div
+                role="tabpanel"
+                id="view-panel-simulator"
+                aria-labelledby="view-tab-simulator"
+                hidden={activeView !== 'simulator'}
+                className="h-full"
+              >
+                <SimulatorView />
               </div>
-              {/* Collapsed panels render as fixed-height bars at the bottom */}
-              {propsCollapsed && (
-                <ErrorBoundary panelName="props.conf Editor">
-                  <PropsConfEditor />
-                </ErrorBoundary>
+              {dictionaryMounted && (
+                <div
+                  role="tabpanel"
+                  id="view-panel-dictionary"
+                  aria-labelledby="view-tab-dictionary"
+                  hidden={activeView !== 'dictionary'}
+                  className="h-full"
+                >
+                  <ErrorBoundary panelName="Dictionary">
+                    <DictionaryView />
+                  </ErrorBoundary>
+                </div>
               )}
-              {transformsCollapsed && (
-                <ErrorBoundary panelName="transforms.conf Editor">
-                  <TransformsConfEditor />
-                </ErrorBoundary>
-              )}
-            </div>
-          </Panel>
-
-          <ResizeHandle direction="horizontal" />
-
-          {/* Right side: Output (Preview + CIM + Fields + Transforms + Validation + Architecture) */}
-          <Panel defaultSize={62} minSize={30} id="output-panel">
-            <ErrorBoundary panelName="Output">
-              <PreviewPanel />
-            </ErrorBoundary>
-          </Panel>
-        </Group>
-        )}
-      </main>
+            </>
+          )}
+        </main>
+      </div>
       <StatusBar />
     </div>
   );
