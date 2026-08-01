@@ -20,25 +20,25 @@ function truncateDir(value: string): ConfDirective[] {
 
 describe('truncateEvents', () => {
   it('truncates events longer than the byte limit', () => {
-    const [e] = truncateEvents([event('abcdefghij')], truncateDir('5'));
+    const e = truncateEvents([event('abcdefghij')], truncateDir('5'))[0]!;
     expect(e._raw).toBe('abcde');
   });
 
   it('leaves shorter events untouched', () => {
-    const [e] = truncateEvents([event('abc')], truncateDir('100'));
+    const e = truncateEvents([event('abc')], truncateDir('100'))[0]!;
     expect(e._raw).toBe('abc');
   });
 
   it('TRUNCATE = 0 disables truncation', () => {
     const long = 'x'.repeat(50);
-    const [e] = truncateEvents([event(long)], truncateDir('0'));
+    const e = truncateEvents([event(long)], truncateDir('0'))[0]!;
     expect(e._raw).toBe(long);
   });
 
   // BUG-1: a non-numeric TRUNCATE used to slice every event to '' via NaN.
   it('ignores a non-numeric TRUNCATE instead of blanking every event', () => {
     const diags: ValidationDiagnostic[] = [];
-    const [e] = truncateEvents([event('keep me intact')], truncateDir('abc'), diags);
+    const e = truncateEvents([event('keep me intact')], truncateDir('abc'), diags)[0]!;
     expect(e._raw).toBe('keep me intact');
     expect(diags.some((d) => d.message.includes('not a valid byte count'))).toBe(true);
   });
@@ -48,13 +48,13 @@ describe('truncateEvents', () => {
     // 6 lines × 8 chars = 48 bytes total, well over TRUNCATE=20, but each line
     // is only 8 bytes. Splunk truncates per line, so nothing is cut.
     const raw = Array.from({ length: 6 }, (_, i) => `line-${i}0`).join('\n');
-    const [e] = truncateEvents([event(raw)], truncateDir('20'));
+    const e = truncateEvents([event(raw)], truncateDir('20'))[0]!;
     expect(e._raw).toBe(raw);
   });
 
   it('truncates only the individual lines that exceed the limit', () => {
     const raw = ['short', 'this-line-is-way-too-long', 'ok'].join('\n');
-    const [e] = truncateEvents([event(raw)], truncateDir('5'));
+    const e = truncateEvents([event(raw)], truncateDir('5'))[0]!;
     expect(e._raw).toBe(['short', 'this-', 'ok'].join('\n'));
   });
 
@@ -63,14 +63,14 @@ describe('truncateEvents', () => {
   it('rounds down to a UTF-8 character boundary instead of emitting U+FFFD', () => {
     // '€' is 3 bytes (E2 82 AC); "a€" is 4 bytes. A 2-byte cut must drop the
     // whole '€' and yield "a", not "a�".
-    const [e] = truncateEvents([event('a€')], truncateDir('2'));
+    const e = truncateEvents([event('a€')], truncateDir('2'))[0]!;
     expect(e._raw).toBe('a');
     expect(e._raw).not.toContain('�');
   });
 
   it('keeps a multi-byte character that fits exactly within the limit', () => {
     // "€€" is 6 bytes; a 3-byte cut keeps exactly one '€'.
-    const [e] = truncateEvents([event('€€')], truncateDir('3'));
+    const e = truncateEvents([event('€€')], truncateDir('3'))[0]!;
     expect(e._raw).toBe('€');
     expect(e._raw).not.toContain('�');
   });
@@ -82,7 +82,7 @@ describe('truncateEvents', () => {
     (bad) => {
       const diags: ValidationDiagnostic[] = [];
       const long = 'x'.repeat(50);
-      const [e] = truncateEvents([event(long)], truncateDir(bad), diags);
+      const e = truncateEvents([event(long)], truncateDir(bad), diags)[0]!;
       expect(e._raw).toBe(long); // unchanged
       expect(diags.some((d) => d.message.includes('not a valid byte count'))).toBe(true);
     },

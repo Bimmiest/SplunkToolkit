@@ -123,6 +123,7 @@ function EmptyState() {
 
   const loadExample = (idx: number) => {
     const sample = SAMPLE_CONFIGS[idx];
+    if (!sample) return;
     setRawData(sample.rawData);
     setPropsConf(sample.propsConf);
     setTransformsConf(sample.transformsConf);

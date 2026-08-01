@@ -41,7 +41,7 @@ export function buildFieldTree(
     const parts = path.split('.');
     const node: FieldNode = {
       name: path,
-      leafName: parts[parts.length - 1],
+      leafName: parts.at(-1) ?? path,
       color: SYNTHETIC_CONTAINER_COLOR,
       processor: fieldProcessorMap.get(path) ?? null,
       isContainer: true,
@@ -68,7 +68,7 @@ export function buildFieldTree(
     }
     const node: FieldNode = {
       name,
-      leafName: parts[parts.length - 1],
+      leafName: parts.at(-1) ?? name,
       color: fieldColorMap.get(name)!,
       processor: fieldProcessorMap.get(name) ?? null,
       isContainer: containerFields.has(name),
@@ -83,8 +83,9 @@ export function buildFieldTree(
   // values), so give each one the colour of its first descendant leaf — the group
   // header then reads as a visual set with the fields it contains.
   const resolveContainerColor = (node: FieldNode): string => {
-    if (node.children.length === 0) return node.color;
-    const childColor = resolveContainerColor(node.children[0]);
+    const firstChild = node.children[0];
+    if (firstChild === undefined) return node.color;
+    const childColor = resolveContainerColor(firstChild);
     if (synthesized.has(node.name)) node.color = childColor;
     return node.color;
   };

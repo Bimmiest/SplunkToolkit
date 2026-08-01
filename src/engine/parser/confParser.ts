@@ -237,8 +237,7 @@ function parseLayer(
     }
   }
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  for (const [i, line] of lines.entries()) {
     const lineNumber = i + 1; // 1-based
 
     // --- Comments ---
@@ -259,7 +258,7 @@ function parseLayer(
       // Flush the previous stanza (end on the line before this header).
       flushStanza(lineNumber - 1);
 
-      const rawName = stanzaMatch[1].trim();
+      const rawName = (stanzaMatch[1] ?? '').trim();
       const classification = classifyStanza(rawName);
 
       currentStanza = {
@@ -284,8 +283,8 @@ function parseLayer(
     // --- Directives (key = value) ---
     const directiveMatch = DIRECTIVE_RE.exec(line);
     if (directiveMatch) {
-      const rawKey = directiveMatch[1].trim();
-      const rawValue = directiveMatch[2];
+      const rawKey = (directiveMatch[1] ?? '').trim();
+      const rawValue = directiveMatch[2] ?? '';
 
       const { directiveType, className, miscasedPrefix } = parseDirectiveKey(rawKey);
 
@@ -412,8 +411,8 @@ function mergeDuplicateStanzas(stanzas: ConfStanza[]): ConfStanza[] {
     // within the layer already recorded last, or opens a higher one. Line ranges
     // from different files are never combined — that would invent a range that
     // exists in neither.
-    const last = existing.layers[existing.layers.length - 1];
-    if (last.layer === stanza.layer) {
+    const last = existing.layers.at(-1);
+    if (last !== undefined && last.layer === stanza.layer) {
       last.lineRange.end = Math.max(last.lineRange.end, stanza.lineRange.end);
     } else {
       existing.layers.push({ layer: stanza.layer, lineRange: { ...stanza.lineRange } });
@@ -421,7 +420,8 @@ function mergeDuplicateStanzas(stanzas: ConfStanza[]): ConfStanza[] {
     }
     // `lineRange`/`layer` track the highest-precedence definition: the file an
     // engineer editing this stanza would open.
-    existing.lineRange = { ...existing.layers[existing.layers.length - 1].lineRange };
+    const newest = existing.layers.at(-1);
+    if (newest !== undefined) existing.lineRange = { ...newest.lineRange };
   }
   return order;
 }
@@ -446,8 +446,8 @@ function annotateOverrides(stanza: ConfStanza): void {
   }
 
   for (const definitions of byKey.values()) {
-    if (definitions.length < 2) continue;
-    const winner = definitions[definitions.length - 1];
+    const winner = definitions.at(-1);
+    if (definitions.length < 2 || winner === undefined) continue;
     const shadowed = definitions.slice(0, -1);
     // Nearest first, so `overrides[0]` is what would apply if the winner went.
     winner.overrides = shadowed.map(directiveRef).reverse();

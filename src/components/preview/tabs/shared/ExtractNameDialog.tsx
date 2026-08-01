@@ -76,7 +76,7 @@ export function ExtractNameDialog({
     if (status !== 'ok') return { state: 'pending' };
     const info = results[0];
     if (!info) return { state: 'nomatch' };
-    const groups = Object.entries(info.groups) as [string, string][];
+    const groups = Object.entries(info.groups);
     if (groups.length === 0) return { state: 'nogroup', full: info.match };
     return { state: 'ok', groups };
   }, [pattern, status, results]);

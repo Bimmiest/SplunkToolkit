@@ -26,15 +26,15 @@ describe('extractFields — statelessness', () => {
     const events = [makeEvent('alice login'), makeEvent('bob logout')];
     const first = extractFields(events, directives);
     const second = extractFields(events, directives);
-    expect(first[0].fields).toEqual(second[0].fields);
-    expect(first[1].fields).toEqual(second[1].fields);
+    expect(first[0]!.fields).toEqual(second[0]!.fields);
+    expect(first[1]!.fields).toEqual(second[1]!.fields);
   });
 
   it('extracts fields from every event, not just the first', () => {
     const events = [makeEvent('alice login'), makeEvent('bob logout')];
     const result = extractFields(events, directives);
-    expect(result[0].fields['user']).toBe('alice');
-    expect(result[1].fields['user']).toBe('bob');
+    expect(result[0]!.fields['user']).toBe('alice');
+    expect(result[1]!.fields['user']).toBe('bob');
   });
 });
 
@@ -45,14 +45,14 @@ describe('applySedCommands — statelessness', () => {
     const events = [makeEvent('foo baz foo'), makeEvent('foo qux')];
     const first = applySedCommands(events, directives);
     const second = applySedCommands(events, directives);
-    expect(first[0]._raw).toBe(second[0]._raw);
-    expect(first[1]._raw).toBe(second[1]._raw);
+    expect(first[0]!._raw).toBe(second[0]!._raw);
+    expect(first[1]!._raw).toBe(second[1]!._raw);
   });
 
   it('replaces all occurrences in every event', () => {
     const events = [makeEvent('foo baz foo'), makeEvent('foo qux')];
     const result = applySedCommands(events, directives);
-    expect(result[0]._raw).toBe('bar baz bar');
-    expect(result[1]._raw).toBe('bar qux');
+    expect(result[0]!._raw).toBe('bar baz bar');
+    expect(result[1]!._raw).toBe('bar qux');
   });
 });

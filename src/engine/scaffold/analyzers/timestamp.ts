@@ -106,9 +106,9 @@ export function derivePrefix(before: string): string {
   if (!before) return '';
   // Trailing `"key":` / key= boundary (JSON or key=value), incl. the value's opening quote.
   const kv = /(["']?[\w.-]+["']?\s*[:=]\s*["']?)$/.exec(before);
-  if (kv) return kv[1];
+  if (kv) return kv[1] ?? '';
   // Otherwise a short trailing punctuation delimiter (e.g. "[").
   const punct = /([^\w\s]{1,4})$/.exec(before);
-  if (punct) return punct[1];
+  if (punct) return punct[1] ?? '';
   return '';
 }

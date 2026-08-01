@@ -36,7 +36,9 @@ export function MobileShell() {
     else if (e.key === 'End') next = VIEWS.length - 1;
     if (next < 0) return;
     e.preventDefault();
-    setView(VIEWS[next].id);
+    const target = VIEWS[next];
+    if (!target) return;
+    setView(target.id);
     tablistRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
   };
 

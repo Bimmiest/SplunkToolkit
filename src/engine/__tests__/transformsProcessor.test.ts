@@ -50,7 +50,7 @@ describe('applyTransforms — DEST_KEY=_raw data-loss warning', () => {
       FORMAT: '$1',
       DEST_KEY: '_raw',
     });
-    const [e] = applyTransforms([event('connect from 10.0.0.1 port 443 with details')], transformsDir('mask'), conf, 'index-time', diags);
+    const e = applyTransforms([event('connect from 10.0.0.1 port 443 with details')], transformsDir('mask'), conf, 'index-time', diags)[0]!;
     expect(e._raw).toBe('10.0.0.1'); // whole event replaced by the capture
     expect(diags.some(lossMsg)).toBe(true);
   });
@@ -62,7 +62,7 @@ describe('applyTransforms — DEST_KEY=_raw data-loss warning', () => {
       FORMAT: '$1REDACTED$3',
       DEST_KEY: '_raw',
     });
-    const [e] = applyTransforms([event('connect from 10.0.0.1 port 443')], transformsDir('mask'), conf, 'index-time', diags);
+    const e = applyTransforms([event('connect from 10.0.0.1 port 443')], transformsDir('mask'), conf, 'index-time', diags)[0]!;
     expect(e._raw).toBe('connect from REDACTED port 443');
     expect(diags.some(lossMsg)).toBe(false);
   });
@@ -115,12 +115,12 @@ describe('applyTransforms — queue routing is last-wins (SEM-1)', () => {
   const dir = transformsDir('setnull, setparsing');
 
   it('a later indexQueue overrides an earlier nullQueue for matching events', () => {
-    const [e] = applyTransforms([event('KEEP-ME please')], dir, conf, 'index-time');
+    const e = applyTransforms([event('KEEP-ME please')], dir, conf, 'index-time')[0]!;
     expect(e._meta._queue).toBe('indexQueue'); // survives — setparsing ran after setnull
   });
 
   it('events that do not match the later rule stay nullQueue', () => {
-    const [e] = applyTransforms([event('drop this line')], dir, conf, 'index-time');
+    const e = applyTransforms([event('drop this line')], dir, conf, 'index-time')[0]!;
     expect(e._meta._queue).toBe('nullQueue');
   });
 
@@ -139,7 +139,7 @@ describe('applyTransforms — classes applied in ASCII order (SEM-4)', () => {
     // File order puts class "z" before class "a"; ASCII order runs a then z, so
     // z's nullQueue is the last write and wins.
     const dirs = [classDir('z', 'setnull'), classDir('a', 'setindex')];
-    const [e] = applyTransforms([event('anything')], dirs, conf, 'index-time');
+    const e = applyTransforms([event('anything')], dirs, conf, 'index-time')[0]!;
     expect(e._meta._queue).toBe('nullQueue');
   });
 });
@@ -175,7 +175,7 @@ describe('applyTransforms — INGEST_EVAL interleaving (SEM-2)', () => {
       stanza('extract', { REGEX: '(?<word>HELLO)' }),
     );
     // List order: eval rewrites _raw, then the regex extracts from the new _raw.
-    const [e] = applyTransforms([event('original text')], transformsDir('rewrite, extract'), conf, 'index-time');
+    const e = applyTransforms([event('original text')], transformsDir('rewrite, extract'), conf, 'index-time')[0]!;
     expect(e._raw).toBe('HELLO');
     expect(e.fields.word).toBe('HELLO');
   });
@@ -183,7 +183,7 @@ describe('applyTransforms — INGEST_EVAL interleaving (SEM-2)', () => {
   it('does not run INGEST_EVAL on the search-time (REPORT) pass', () => {
     const conf = multiTransformsConf(stanza('rewrite', { INGEST_EVAL: '_raw="HELLO"' }));
     const reportDir: ConfDirective[] = [{ key: 'REPORT-x', value: 'rewrite', line: 1, directiveType: 'REPORT', className: 'x' }];
-    const [e] = applyTransforms([event('original text')], reportDir, conf, 'search-time');
+    const e = applyTransforms([event('original text')], reportDir, conf, 'search-time')[0]!;
     expect(e._raw).toBe('original text');
   });
 });
@@ -195,7 +195,7 @@ describe('applyTransforms — DEST_KEY is index-time only (#57)', () => {
 
   it('does not route a search-time REPORT to nullQueue', () => {
     const conf = transformsConf('drop', { REGEX: 'DEBUG', DEST_KEY: 'queue', FORMAT: 'nullQueue' });
-    const [out] = applyTransforms([event('DEBUG something')], reportDir('drop'), conf, 'search-time');
+    const out = applyTransforms([event('DEBUG something')], reportDir('drop'), conf, 'search-time')[0]!;
     expect(out._meta._queue).toBeUndefined();
   });
 
@@ -205,13 +205,13 @@ describe('applyTransforms — DEST_KEY is index-time only (#57)', () => {
       DEST_KEY: 'MetaData:Sourcetype',
       FORMAT: 'sourcetype::other',
     });
-    const [out] = applyTransforms([event('anything')], reportDir('force'), conf, 'search-time');
+    const out = applyTransforms([event('anything')], reportDir('force'), conf, 'search-time')[0]!;
     expect(out.metadata.sourcetype).toBe('st');
   });
 
   it('does not replace _raw from a search-time REPORT', () => {
     const conf = transformsConf('mask', { REGEX: '(\\w+)', DEST_KEY: '_raw', FORMAT: '$1' });
-    const [out] = applyTransforms([event('keep all of this')], reportDir('mask'), conf, 'search-time');
+    const out = applyTransforms([event('keep all of this')], reportDir('mask'), conf, 'search-time')[0]!;
     expect(out._raw).toBe('keep all of this');
   });
 
@@ -222,7 +222,7 @@ describe('applyTransforms — DEST_KEY is index-time only (#57)', () => {
       FORMAT: 'user::$1',
       DEST_KEY: 'queue',
     });
-    const [out] = applyTransforms([event('user=alice')], reportDir('r'), conf, 'search-time', diags);
+    const out = applyTransforms([event('user=alice')], reportDir('r'), conf, 'search-time', diags)[0]!;
     expect(out.fields.user).toBe('alice');
     expect(out._meta._queue).toBeUndefined();
     expect(diags.some((d) => d.message.includes('DEST_KEY is index-time only'))).toBe(true);
@@ -230,7 +230,7 @@ describe('applyTransforms — DEST_KEY is index-time only (#57)', () => {
 
   it('still routes at index time', () => {
     const conf = transformsConf('drop', { REGEX: 'DEBUG', DEST_KEY: 'queue', FORMAT: 'nullQueue' });
-    const [out] = applyTransforms([event('DEBUG something')], transformsDir('drop'), conf, 'index-time');
+    const out = applyTransforms([event('DEBUG something')], transformsDir('drop'), conf, 'index-time')[0]!;
     expect(out._meta._queue).toBe('nullQueue');
   });
 });
@@ -243,7 +243,7 @@ describe('applyTransforms — SOURCE_KEY reads pipeline metadata (#53)', () => {
       DEST_KEY: 'MetaData:Sourcetype',
       FORMAT: 'sourcetype::forced',
     });
-    const [out] = applyTransforms([event('anything')], transformsDir('force_sourcetype'), conf, 'index-time');
+    const out = applyTransforms([event('anything')], transformsDir('force_sourcetype'), conf, 'index-time')[0]!;
     expect(out.metadata.sourcetype).toBe('forced');
   });
 
@@ -254,7 +254,7 @@ describe('applyTransforms — SOURCE_KEY reads pipeline metadata (#53)', () => {
       FORMAT: 'captured_host::$1',
       WRITE_META: 'true',
     });
-    const [out] = applyTransforms([event('x')], transformsDir('t'), conf, 'index-time');
+    const out = applyTransforms([event('x')], transformsDir('t'), conf, 'index-time')[0]!;
     expect(out.fields.captured_host).toBe('h');
   });
 
@@ -265,7 +265,7 @@ describe('applyTransforms — SOURCE_KEY reads pipeline metadata (#53)', () => {
       FORMAT: 'q::$1',
       WRITE_META: 'true',
     });
-    const [out] = applyTransforms([event('x')], transformsDir('t'), conf, 'index-time');
+    const out = applyTransforms([event('x')], transformsDir('t'), conf, 'index-time')[0]!;
     expect(out.fields.q).toBe('indexQueue');
   });
 
@@ -277,7 +277,7 @@ describe('applyTransforms — SOURCE_KEY reads pipeline metadata (#53)', () => {
       FORMAT: 'tier_copy::$1',
       WRITE_META: 'true',
     });
-    const [out] = applyTransforms([ev], transformsDir('t'), conf, 'index-time');
+    const out = applyTransforms([ev], transformsDir('t'), conf, 'index-time')[0]!;
     expect(out.fields.tier_copy).toBe('gold');
   });
 });

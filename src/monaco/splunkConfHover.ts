@@ -15,7 +15,7 @@ export function createHoverProvider(fileType: 'props.conf' | 'transforms.conf'):
       // stricter than parsing and `[foo] ` got no hover at all.
       const stanzaMatch = line.trim().match(/^\[(.+)\]$/);
       if (stanzaMatch) {
-        const stanzaName = stanzaMatch[1];
+        const stanzaName = stanzaMatch[1] ?? '';
         return {
           contents: [{ value: getStanzaHoverContent(stanzaName) }],
           range: {

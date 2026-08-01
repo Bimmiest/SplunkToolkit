@@ -31,7 +31,7 @@ function buildReplacement(raw: string): string {
   for (let i = 0; i < raw.length; i++) {
     const c = raw[i];
     if (c === '\\' && i + 1 < raw.length) {
-      const next = raw[i + 1];
+      const next = raw.charAt(i + 1);
       if (next === '0') out += '$&';
       else if (next >= '1' && next <= '9') out += '$' + next;
       else if (next === '$') out += '$$';
@@ -137,7 +137,7 @@ function parseSedExpression(
     return null;
   }
 
-  const patternStr = parts[0];
+  const patternStr = parts[0] ?? '';
   const replacement = buildReplacement(parts[1] ?? '');
   const flags = parts[2] ?? '';
   const isGlobal = flags.includes('g');

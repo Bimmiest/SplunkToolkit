@@ -165,7 +165,8 @@ export function useOverlay<T extends HTMLElement = HTMLDivElement>({
         return;
       }
       const first = focusable[0];
-      const last = focusable[focusable.length - 1];
+      const last = focusable.at(-1);
+      if (!first || !last) return;
       const active = document.activeElement;
 
       // Wrap at the ends, and pull focus back in if it has drifted outside.

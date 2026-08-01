@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useAppStore } from '../../../store/useAppStore';
-import { copyToClipboard } from '../../../utils/clipboard';
+import { copyQuietly } from '../../../utils/clipboard';
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuLabel } from '../../ui/ContextMenu';
 import { buildParentIndex, isFieldVisible, reconcileCollapsed } from './shared/fieldCollapse';
 
@@ -143,7 +143,7 @@ export function FieldsTab() {
     }
 
     if (phaseFilter !== 'all') {
-      entries = entries.filter((f) => f.phases.has(phaseFilter as 'index-time' | 'search-time'));
+      entries = entries.filter((f) => f.phases.has(phaseFilter));
     }
 
     // Identify all parent fields: any field that has at least one child (another field prefixed with "field.")
@@ -323,7 +323,7 @@ export function FieldsTab() {
                 <ResizableHeader
                   key={col.key}
                   col={col}
-                  width={columnWidths[col.key]}
+                  width={columnWidths[col.key] ?? 0}
                   sortKey={sortKey}
                   sortDir={sortDir}
                   onSort={handleSort}
@@ -410,8 +410,8 @@ export function FieldsTab() {
               </ContextMenuTrigger>
               <ContextMenuContent>
                 <ContextMenuLabel>{field.name}</ContextMenuLabel>
-                <ContextMenuItem onSelect={() => copyToClipboard(field.name)}>Copy field name</ContextMenuItem>
-                <ContextMenuItem onSelect={() => copyToClipboard(Array.from(field.values).join(', '))}>Copy sample values</ContextMenuItem>
+                <ContextMenuItem onSelect={() => copyQuietly(field.name)}>Copy field name</ContextMenuItem>
+                <ContextMenuItem onSelect={() => copyQuietly(Array.from(field.values).join(', '))}>Copy sample values</ContextMenuItem>
               </ContextMenuContent>
               </ContextMenu>
                 );

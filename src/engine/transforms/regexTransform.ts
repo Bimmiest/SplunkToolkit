@@ -61,7 +61,8 @@ function getCompiledRegex(transformStanza: ConfStanza, jsPattern: string): Compi
 /** Last directive with the given key in a stanza (Splunk last-definition-wins), or undefined. */
 function lastDirective(stanza: ConfStanza, key: string): ConfDirective | undefined {
   for (let i = stanza.directives.length - 1; i >= 0; i--) {
-    if (stanza.directives[i].key === key) return stanza.directives[i];
+    const directive = stanza.directives[i];
+    if (directive?.key === key) return directive;
   }
   return undefined;
 }
@@ -86,13 +87,13 @@ function parseFormatPairs(format: string): FormatPair[] {
   let i = 0;
 
   while (i < format.length) {
-    while (i < format.length && /\s/.test(format[i])) i++;
+    while (i < format.length && /\s/.test(format.charAt(i))) i++;
     if (i >= format.length) break;
 
     // Keys never contain whitespace, so the `::` separator must appear in the
     // run that starts here. A run without one is stray text — skip it.
     let runEnd = i;
-    while (runEnd < format.length && !/\s/.test(format[runEnd])) runEnd++;
+    while (runEnd < format.length && !/\s/.test(format.charAt(runEnd))) runEnd++;
     const sep = format.indexOf('::', i);
     if (sep < 0) break;
     if (sep >= runEnd) {
@@ -104,7 +105,7 @@ function parseFormatPairs(format: string): FormatPair[] {
     i = sep + 2;
 
     let value: string;
-    if (format[i] === '"') {
+    if (format.charAt(i) === '"') {
       const end = format.indexOf('"', i + 1);
       if (end < 0) {
         value = format.slice(i + 1);
@@ -115,7 +116,7 @@ function parseFormatPairs(format: string): FormatPair[] {
       }
     } else {
       let end = i;
-      while (end < format.length && !/\s/.test(format[end])) end++;
+      while (end < format.length && !/\s/.test(format.charAt(end))) end++;
       value = format.slice(i, end);
       i = end;
     }
@@ -129,7 +130,7 @@ function parseFormatPairs(format: string): FormatPair[] {
 function expandFormat(format: string, match: RegExpExecArray, priorDestValue?: string): string {
   // match[0] is the whole match; match[1..maxIndex] are the capture groups.
   const maxIndex = match.length - 1;
-  let result = format.replace(CAPTURE_REF_PATTERN, (whole, digits) => {
+  let result = format.replace(CAPTURE_REF_PATTERN, (whole: string, digits: string) => {
     // The pattern greedily grabs every trailing digit, but a reference resolves
     // to at most `maxIndex`. Mirror PCRE/JS `$nn` fallback: take the LONGEST
     // leading digit-run that names an existing group; any remaining digits are
@@ -151,7 +152,7 @@ function expandFormat(format: string, match: RegExpExecArray, priorDestValue?: s
   });
   if (match.groups) {
     const groups = match.groups;
-    result = result.replace(NAMED_REF_PATTERN, (_, name) => groups[name] ?? '');
+    result = result.replace(NAMED_REF_PATTERN, (_: string, name: string) => groups[name] ?? '');
   }
   return result;
 }
@@ -199,7 +200,7 @@ function resolveSourceValue(event: SplunkEvent, sourceKeyDir?: ConfDirective): s
 
 /** Decode the escape sequences Splunk allows inside DELIMS/FIELDS quoted tokens. */
 function decodeDelimEscapes(s: string): string {
-  return s.replace(/\\([tnr"\\])/g, (_, c) =>
+  return s.replace(/\\([tnr"\\])/g, (_: string, c: string) =>
     c === 't' ? '\t' : c === 'n' ? '\n' : c === 'r' ? '\r' : c,
   );
 }
@@ -213,7 +214,7 @@ function parseDelimList(raw: string): string[] {
   const out: string[] = [];
   const re = /"((?:[^"\\]|\\.)*)"/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(raw)) !== null) out.push(decodeDelimEscapes(m[1]));
+  while ((m = re.exec(raw)) !== null) out.push(decodeDelimEscapes(m[1] ?? ''));
   if (out.length === 0) {
     for (const part of raw.split(',')) {
       const t = part.trim();
@@ -265,12 +266,12 @@ function applyDelimsExtraction(
   const cleanName = (raw: string) => (writeMeta ? stripLeadingUnderscoreForField(raw.trim()) : raw.trim());
 
   if (delimSets.length >= 2) {
-    const pairDelims = delimSets[0];
-    const kvDelims = new Set(delimSets[1]);
+    const [pairDelims = '', kvDelims = ''] = delimSets;
+    const kvDelimSet = new Set(kvDelims);
     for (const pair of splitOnAnyChar(sourceValue, pairDelims)) {
       let splitAt = -1;
       for (let i = 0; i < pair.length; i++) {
-        if (kvDelims.has(pair[i])) {
+        if (kvDelimSet.has(pair.charAt(i))) {
           splitAt = i;
           break;
         }
@@ -285,10 +286,10 @@ function applyDelimsExtraction(
     const fieldsDir = lastDirective(stanza, 'FIELDS');
     if (!fieldsDir) return result;
     const names = parseDelimList(fieldsDir.value);
-    const values = splitOnAnyChar(sourceValue, delimSets[0]);
+    const values = splitOnAnyChar(sourceValue, delimSets[0] ?? '');
     for (let i = 0; i < names.length && i < values.length; i++) {
-      const key = cleanName(names[i]);
-      const value = values[i].trim();
+      const key = cleanName(names[i] ?? '');
+      const value = (values[i] ?? '').trim();
       if (!key || !value) continue;
       addMultiValue(result.fields, key, value);
     }
@@ -456,7 +457,7 @@ export function applyRegexTransform(
       const dynamicSuffixes = new Set<string>();
       for (const gname of Object.keys(groups)) {
         const km = /^_KEY_(.+)$/.exec(gname);
-        if (km) dynamicSuffixes.add(km[1]);
+        if (km?.[1]) dynamicSuffixes.add(km[1]);
       }
       for (const suffix of dynamicSuffixes) {
         const keyText = groups[`_KEY_${suffix}`];

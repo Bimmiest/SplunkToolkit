@@ -78,7 +78,7 @@ describe('computeDiagnostics — best-practice checks are stanza-scoped (#125)',
     const markers = computeDiagnostics(fakeModel(text), 'props.conf');
     const warnings = linemergeWarning(markers) as unknown as { startLineNumber: number }[];
     expect(warnings).toHaveLength(1);
-    expect(warnings[0].startLineNumber).toBe(6); // stanza [b]'s LINE_BREAKER
+    expect(warnings[0]!.startLineNumber).toBe(6); // stanza [b]'s LINE_BREAKER
   });
 
   it('does not let another stanza satisfy TIME_FORMAT', () => {

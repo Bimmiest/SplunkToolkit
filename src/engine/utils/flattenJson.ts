@@ -47,6 +47,18 @@ function addValue(
   }
 }
 
+/**
+ * A JSON leaf that has a meaningful string form.
+ *
+ * Everything reaching the flatteners comes from `JSON.parse`, so once null,
+ * arrays and objects are ruled out only these remain. Saying so keeps `String()`
+ * off values whose default stringification is "[object Object]" — a field value
+ * that looks extracted but carries nothing.
+ */
+function isJsonScalar(value: unknown): value is string | number | boolean {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+}
+
 /** Dispatch a single JSON value to the right handler. Returns true if depth limit hit. */
 function flattenValue(
   value: unknown,
@@ -66,7 +78,9 @@ function flattenValue(
   if (typeof value === 'object') {
     return flattenJson(value as Record<string, unknown>, fields, added, name, depth + 1, options);
   }
-  addValue(fields, added, name, String(value));
+  if (isJsonScalar(value)) {
+    addValue(fields, added, name, String(value));
+  }
   return false;
 }
 
@@ -93,7 +107,7 @@ export function flattenArray(
       if (flattenJson(item as Record<string, unknown>, fields, added, arrayName, depth + 1, options)) {
         return true;
       }
-    } else {
+    } else if (isJsonScalar(item)) {
       addValue(fields, added, arrayName, String(item));
     }
   }

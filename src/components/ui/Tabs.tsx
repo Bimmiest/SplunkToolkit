@@ -36,9 +36,10 @@ export function Tabs({ tabs, activeTab, onTabChange, ariaLabel, size = 'md', var
         nextIndex = tabs.length - 1;
       }
 
-      if (nextIndex >= 0) {
+      const nextTab = tabs[nextIndex];
+      if (nextIndex >= 0 && nextTab) {
         e.preventDefault();
-        onTabChange(tabs[nextIndex].id);
+        onTabChange(nextTab.id);
         const buttons = tablistRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
         buttons?.[nextIndex]?.focus();
       }

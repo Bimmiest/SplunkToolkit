@@ -202,15 +202,15 @@ function tokeniseUncached(format: string): TokenisedFormat {
       }
 
       // Unknown directive -- treat the percent as literal
-      regexStr += escapeRegex(expanded[i]);
+      regexStr += escapeRegex(expanded.charAt(i));
       i += 1;
     } else {
       // Literal character -- allow flexible whitespace matching when the
       // format contains a space (Splunk is lenient).
-      if (expanded[i] === ' ') {
+      if (expanded.charAt(i) === ' ') {
         regexStr += '\\s+';
       } else {
-        regexStr += escapeRegex(expanded[i]);
+        regexStr += escapeRegex(expanded.charAt(i));
       }
       i += 1;
     }
@@ -267,8 +267,9 @@ function resolveTzOffsetMinutes(tz: string): number | null {
   const upper = tz.toUpperCase();
   // ISO-8601 "Z" (Zulu) designates UTC.
   if (upper === 'Z') return 0;
-  if (upper in TZ_OFFSETS) {
-    return TZ_OFFSETS[upper];
+  const known = TZ_OFFSETS[upper];
+  if (known !== undefined) {
+    return known;
   }
 
   // Try parsing as +HHMM / -HH:MM / +HH:MM:SS / +HH (minutes and seconds
@@ -276,7 +277,7 @@ function resolveTzOffsetMinutes(tz: string): number | null {
   const m = /^([+-])(\d{2})(?::?(\d{2}))?(?::?(\d{2}))?$/.exec(tz);
   if (m) {
     const sign = m[1] === '+' ? 1 : -1;
-    const minutes = parseInt(m[2], 10) * 60
+    const minutes = parseInt(m[2] ?? '0', 10) * 60
       + (m[3] ? parseInt(m[3], 10) : 0)
       + (m[4] ? parseInt(m[4], 10) / 60 : 0);
     return sign * minutes;
@@ -335,8 +336,7 @@ export function parseTimestamp(
 
   // Build a bag of parsed components.
   const bag: Record<string, string> = {};
-  for (let i = 0; i < captures.length; i++) {
-    const captureName = captures[i];
+  for (const [i, captureName] of captures.entries()) {
     const value = match[i + 1];
     if (value !== undefined) {
       bag[captureName] = value.trim();
@@ -402,7 +402,11 @@ export function parseTimestamp(
     const doy = Math.max(1, Math.min(parseInt(bag.dayOfYear, 10), maxDoy));
     let rem = doy;
     let m = 0;
-    while (m < 12 && rem > months[m]) rem -= months[m++];
+    for (const monthLength of months) {
+      if (rem <= monthLength) break;
+      rem -= monthLength;
+      m++;
+    }
     month = m;
     day = rem;
   } else {
@@ -435,7 +439,7 @@ export function parseTimestamp(
   const daysInMonth = [31, isLeapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   if (
     month < 0 || month > 11 ||
-    day < 1 || day > daysInMonth[month] ||
+    day < 1 || day > (daysInMonth[month] ?? 0) ||
     hour < 0 || hour > 23 ||
     minute < 0 || minute > 59 ||
     second < 0 || second > 60 // allow a leap second

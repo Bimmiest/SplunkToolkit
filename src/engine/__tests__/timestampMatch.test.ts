@@ -102,15 +102,15 @@ describe('probeTimestamps — batch', () => {
       config({ timeFormat: '%Y-%m-%d %H:%M:%S' }),
     );
     expect(probes).toHaveLength(3);
-    expect(probes[0].match?.matchedText).toBe('2026-04-21 10:00:00');
-    expect(probes[1].match).toBeNull();
-    expect(probes[2].match?.matchedText).toBe('2026-04-22 11:00:00');
+    expect(probes[0]!.match?.matchedText).toBe('2026-04-21 10:00:00');
+    expect(probes[1]!.match).toBeNull();
+    expect(probes[2]!.match?.matchedText).toBe('2026-04-22 11:00:00');
   });
 
   it('carries parsedTimeMs as a primitive, so it survives a structured clone', () => {
     // The worker boundary is why this is a number and not a Date. Asserting the
     // type keeps a future refactor from quietly putting a Date back on the wire.
-    const [probe] = probeTimestamps(['2026-04-21 10:00:00'], config({ timeFormat: '%Y-%m-%d %H:%M:%S' }));
+    const probe = probeTimestamps(['2026-04-21 10:00:00'], config({ timeFormat: '%Y-%m-%d %H:%M:%S' }))[0]!;
     expect(typeof probe.match!.parsedTimeMs).toBe('number');
     expect(new Date(probe.match!.parsedTimeMs!).toISOString()).toContain('2026-04-21');
   });

@@ -50,7 +50,7 @@ export function upsertDirectiveInStanza(propsText: string, stanzaName: string, k
 
   // Extent of this stanza: up to the next stanza header (or end of file).
   let end = headerIdx + 1;
-  while (end < lines.length && !/^\s*\[.+\]\s*$/.test(lines[end])) end++;
+  while (end < lines.length && !/^\s*\[.+\]\s*$/.test(lines[end] ?? '')) end++;
 
   const keyRe = new RegExp(`^\\s*${escapeRegex(key)}\\s*=`);
   const within = lines.slice(headerIdx + 1, end).findIndex((l) => keyRe.test(l));
@@ -60,7 +60,7 @@ export function upsertDirectiveInStanza(propsText: string, stanzaName: string, k
     // Append after the last non-blank line of the stanza, so it lands at the bottom
     // of the block rather than detached after a blank-line gap.
     let insertAt = end;
-    while (insertAt > headerIdx + 1 && lines[insertAt - 1].trim() === '') insertAt--;
+    while (insertAt > headerIdx + 1 && (lines[insertAt - 1] ?? '').trim() === '') insertAt--;
     lines.splice(insertAt, 0, directiveLine);
   }
   return lines.join('\n');

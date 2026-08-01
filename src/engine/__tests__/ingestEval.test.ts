@@ -20,12 +20,12 @@ function ingestDir(value: string): ConfDirective[] {
 
 describe('applyIngestEval', () => {
   it('assigns a literal value to a field', () => {
-    const [e] = applyIngestEval([event('x')], ingestDir('tag="prod"'));
+    const e = applyIngestEval([event('x')], ingestDir('tag="prod"'))[0]!;
     expect(e.fields.tag).toBe('prod');
   });
 
   it('splits multiple top-level assignments on commas', () => {
-    const [e] = applyIngestEval([event('x')], ingestDir('a="1", b="2"'));
+    const e = applyIngestEval([event('x')], ingestDir('a="1", b="2"'))[0]!;
     expect(e.fields.a).toBe('1');
     expect(e.fields.b).toBe('2');
   });
@@ -36,18 +36,18 @@ describe('applyIngestEval', () => {
       { key: 'INGEST_EVAL', value: 'tag="first"', line: 1, directiveType: 'INGEST_EVAL' },
       { key: 'INGEST_EVAL', value: 'tag="second"', line: 2, directiveType: 'INGEST_EVAL' },
     ];
-    const [e] = applyIngestEval([event('x')], dirs);
+    const e = applyIngestEval([event('x')], dirs)[0]!;
     expect(e.fields.tag).toBe('second');
   });
 
   // BUG-3: a comma inside a string literal must not split the assignment.
   it('does not split on a comma inside a quoted string', () => {
-    const [e] = applyIngestEval([event('x')], ingestDir('msg="a,b"'));
+    const e = applyIngestEval([event('x')], ingestDir('msg="a,b"'))[0]!;
     expect(e.fields.msg).toBe('a,b');
   });
 
   it('does not split on a comma inside parentheses', () => {
-    const [e] = applyIngestEval([event('x')], ingestDir('n=if(1==1,"yes","no")'));
+    const e = applyIngestEval([event('x')], ingestDir('n=if(1==1,"yes","no")'))[0]!;
     expect(e.fields.n).toBe('yes');
   });
 
@@ -55,7 +55,7 @@ describe('applyIngestEval', () => {
   // following top-level comma must still split, not be swallowed.
   it('closes a literal ending in an escaped backslash and splits the next assignment', () => {
     // a = the Windows path `c:\` (written `c:\\` in the config), then b=2.
-    const [e] = applyIngestEval([event('x')], ingestDir('a="c:\\\\", b=2'));
+    const e = applyIngestEval([event('x')], ingestDir('a="c:\\\\", b=2'))[0]!;
     expect(e.fields.a).toBe('c:\\');
     expect(e.fields.b).toBe('2');
   });
@@ -63,19 +63,19 @@ describe('applyIngestEval', () => {
 
 describe('applyIngestEval — queue assignment routes the event (#58)', () => {
   it('routes to nullQueue rather than writing a plain field', () => {
-    const [out] = applyIngestEval(
+    const out = applyIngestEval(
       [event('DEBUG connection retry')],
       ingestDir('queue=if(match(_raw,"DEBUG"), "nullQueue", "indexQueue")'),
-    );
+    )[0]!;
     expect(out._meta._queue).toBe('nullQueue');
     expect(out.fields.queue).toBeUndefined();
   });
 
   it('routes a non-matching event to indexQueue', () => {
-    const [out] = applyIngestEval(
+    const out = applyIngestEval(
       [event('INFO all good')],
       ingestDir('queue=if(match(_raw,"DEBUG"), "nullQueue", "indexQueue")'),
-    );
+    )[0]!;
     expect(out._meta._queue).toBe('indexQueue');
     expect(out.fields.queue).toBeUndefined();
   });

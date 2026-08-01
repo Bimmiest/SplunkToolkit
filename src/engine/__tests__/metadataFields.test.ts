@@ -24,20 +24,20 @@ const dir = (key: string, value: string, directiveType: string, className?: stri
 // extraction. Before this, each silently no-opped with no diagnostic.
 describe('metadata as search-time default fields (#56)', () => {
   it('EXTRACT ... in source reads the event source', () => {
-    const [out] = extractFields(
+    const out = extractFields(
       [event()],
       [dir('EXTRACT-app', '/var/log/(?<app>\\w+)/ in source', 'EXTRACT', 'app')],
-    );
+    )[0]!;
     expect(out.fields.app).toBe('app');
   });
 
   it('FIELDALIAS host AS dvc aliases the metadata host', () => {
-    const [out] = applyFieldAliases([event()], [dir('FIELDALIAS-cim', 'host AS dvc', 'FIELDALIAS', 'cim')]);
+    const out = applyFieldAliases([event()], [dir('FIELDALIAS-cim', 'host AS dvc', 'FIELDALIAS', 'cim')])[0]!;
     expect(out.fields.dvc).toBe('web01');
   });
 
   it('EVAL can read source, host, sourcetype and index', () => {
-    const [out] = applyEvalExpressions(
+    const out = applyEvalExpressions(
       [event()],
       [
         dir('EVAL-s', 'source', 'EVAL', 's'),
@@ -45,7 +45,7 @@ describe('metadata as search-time default fields (#56)', () => {
         dir('EVAL-st', 'sourcetype', 'EVAL', 'st'),
         dir('EVAL-i', 'index', 'EVAL', 'i'),
       ],
-    );
+    )[0]!;
     expect(out.fields.s).toBe('/var/log/app/api.log');
     expect(out.fields.h).toBe('web01');
     expect(out.fields.st).toBe('app:api');
@@ -54,12 +54,12 @@ describe('metadata as search-time default fields (#56)', () => {
 
   it('an extracted field of the same name still wins', () => {
     const ev = { ...event(), fields: { host: 'from-payload' } };
-    const [out] = applyFieldAliases([ev], [dir('FIELDALIAS-x', 'host AS dvc', 'FIELDALIAS', 'x')]);
+    const out = applyFieldAliases([ev], [dir('FIELDALIAS-x', 'host AS dvc', 'FIELDALIAS', 'x')])[0]!;
     expect(out.fields.dvc).toBe('from-payload');
   });
 
   it('leaves an unrelated missing field unresolved', () => {
-    const [out] = applyEvalExpressions([event()], [dir('EVAL-x', 'nosuchfield', 'EVAL', 'x')]);
+    const out = applyEvalExpressions([event()], [dir('EVAL-x', 'nosuchfield', 'EVAL', 'x')])[0]!;
     expect(out.fields.x).toBeUndefined();
   });
 });
