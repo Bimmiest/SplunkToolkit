@@ -26,9 +26,11 @@ updates:
     # Majors are deliberately left out of both groups, so they arrive one PR at
     # a time. react 19→20 or vite 7→8 is a change to read, not to batch.
 
-  # Actions are pinned by tag, so a stale pin is invisible until something
-  # breaks. This also carries any SHA pins forward, which is what makes pinning
-  # to a SHA sustainable rather than a thing that rots.
+  # Actions are pinned to commit SHAs (#138), which is what stops a mutable tag
+  # from moving an unreviewed change into a job holding the deploy credentials.
+  # A SHA cannot move on its own, so without something raising the pin forward
+  # it rots into a permanently stale action; these updates are that something.
+  # Dependabot rewrites the SHA and the trailing `# vN` comment together.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
