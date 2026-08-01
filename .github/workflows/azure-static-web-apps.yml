@@ -68,7 +68,7 @@ jobs:
         # credential rather than the credential *type*. Both halves have to agree:
         # pass an id token only if the app is configured for federated identity.
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_THANKFUL_HILL_0778AB003 }}
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           action: "upload"
           # With skip_app_build, app_location is the built output to upload
           # rather than the source to build, and output_location goes unused.
