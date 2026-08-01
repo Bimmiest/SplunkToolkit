@@ -52,12 +52,7 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   TIME_PREFIX: { support: 'simulated' },
   TIME_FORMAT: { support: 'simulated' },
   MAX_TIMESTAMP_LOOKAHEAD: { support: 'simulated' },
-  TZ: {
-    support: 'simulated',
-    note:
-      'Numeric offsets and a small table of zone abbreviations resolve; an IANA zone name ' +
-      'such as America/New_York is treated as UTC and warned about (#159).',
-  },
+  TZ: { support: 'simulated' },
   DATETIME_CONFIG: {
     support: 'ignored',
     issue: 85,

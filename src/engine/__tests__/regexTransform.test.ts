@@ -547,3 +547,57 @@ describe('applyRegexTransform — CLEAN_KEYS', () => {
     expect(searchTime(event('user=alice'), s).fields).toEqual({ user: 'alice' });
   });
 });
+
+describe('#175 — $0 in a FORMAT pair names nothing', () => {
+  it('creates no field for a pair whose value is $0', () => {
+    const r = applyRegexTransform(
+      event('2026-01-15T10:00:00Z code=503'),
+      stanza('t', { REGEX: 'code=(\\d+)', FORMAT: 'whole::$0 first::$1' }),
+      undefined,
+      'search-time',
+    );
+    expect(r.fields.whole).toBeUndefined();
+    expect(r.fields.first).toBe('503');
+  });
+
+  it('does not mistake $01 or $10 for a $0 reference', () => {
+    const r = applyRegexTransform(
+      event('code=503'),
+      stanza('t', { REGEX: 'code=(\\d+)', FORMAT: 'a::$10' }),
+      undefined,
+      'search-time',
+    );
+    // $10 is group 1 followed by a literal 0, and must survive the $0 filter.
+    expect(r.fields.a).toBe('5030');
+  });
+});
+
+describe('#174 — MV_ADD in the FORMAT-pairs path', () => {
+  it('keeps only the first match at search time by default', () => {
+    const r = applyRegexTransform(
+      event('label=a label=b label=c'),
+      stanza('t', { REGEX: 'label=(\\w+)', FORMAT: 'label::$1', REPEAT_MATCH: 'true' }),
+      undefined,
+      'search-time',
+    );
+    expect(r.fields.label).toBe('a');
+  });
+
+  it('accumulates when MV_ADD is true', () => {
+    const r = applyRegexTransform(
+      event('label=a label=b'),
+      stanza('t', { REGEX: 'label=(\\w+)', FORMAT: 'label::$1', MV_ADD: 'true' }),
+      undefined,
+      'search-time',
+    );
+    expect(r.fields.label).toEqual(['a', 'b']);
+  });
+
+  it('still accumulates at index time, where MV_ADD is inert', () => {
+    const r = applyRegexTransform(
+      event('label=a label=b'),
+      stanza('t', { REGEX: 'label=(\\w+)', FORMAT: 'label::$1', MV_ADD: 'false' }),
+    );
+    expect(r.fields.label).toEqual(['a', 'b']);
+  });
+});
