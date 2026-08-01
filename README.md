@@ -29,6 +29,8 @@ First e2e run on a clean checkout needs the browser: `npx playwright install chr
 
 Input (raw log + metadata + props.conf + transforms.conf) flows through a single Zustand store. `useProcessingPipeline` debounces changes 300 ms, posts a request to a Web Worker running the full simulation, and writes the result back. A 5 s watchdog kills hung workers and replays the last in-flight request on restart. Each processor is wrapped in `safeProcessor()` — failures record a diagnostic and return the events unchanged rather than crashing the pipeline.
 
+Contributor-facing internals — store layout, Monaco bundling, accessibility patterns — are in [docs/architecture.md](docs/architecture.md).
+
 ### Processing order
 
 Runs in Splunk's actual order.
@@ -52,37 +54,7 @@ Runs in Splunk's actual order.
 
 `[source::<pattern>]` > `[host::<pattern>]` > `[<sourcetype>]` > `[default]`. Within a type, more specific patterns win. Directives from all matching stanzas merge in precedence order.
 
-### Conf layers (`default/` vs `local/`) — engine API, not a UI feature
-
-> **This one is for callers of the engine, not users of the hosted app.** The
-> app's editors hold a single flat props.conf and a single flat transforms.conf,
-> and there is no control that splits them into layers — so nothing described in
-> this section is reachable from the browser UI. It is here because `runPipeline`
-> is consumed directly (see [Using the engine directly](#using-the-engine-directly)),
-> and a caller reading an app off disk needs it. Surfacing it in the UI is
-> tracked in [#132](https://github.com/Bimmiest/propslab/issues/132) and
-> would arrive alongside [#86](https://github.com/Bimmiest/propslab/issues/86).
-
-`parseConf`, and therefore `runPipeline`, accept either the text of one flat conf or an ordered list of layers, **lowest precedence first** — which is how a caller reading an app off disk (or out of a Git worktree) hands over `$APP/default/props.conf` and `$APP/local/props.conf`:
-
-```ts
-runPipeline(raw, metadata,
-  [{ layer: 'default', text: defaultProps }, { layer: 'local', text: localProps }],
-  [{ layer: 'default', text: defaultTransforms }, { layer: 'local', text: localTransforms }]);
-```
-
-`layer` is a free-form label the engine only carries through as provenance (`app/local`, `system/local`, … are all fine); precedence comes from list order, since only the caller knows how its layers rank. Merging is per *attribute* within a stanza, not per file: a `local` stanza replaces only the attributes it names and the rest of the `default` stanza survives. That falls straight out of concatenating the layers in precedence order, because a repeated key in a stanza already resolves last-definition-wins.
-
-What layered input adds to the result is provenance that parsing would otherwise destroy:
-
-- every `ConfDirective` carries the `layer` it was read from — including the ones `mergeDirectives` returns, so "which file won this attribute" is answerable after resolution;
-- the winner of a contested key carries `overrides` (nearest first, so `overrides[0]` is the value that would apply if that line were deleted) and each loser carries `overriddenBy`;
-- every `ConfStanza` carries `layers` (all files defining it, lowest first) with `layer`/`lineRange` naming the highest-precedence one;
-- every diagnostic derived from a directive or stanza carries `layer` alongside `line`, since both files have a line 7.
-
-Passing a plain string produces exactly what it always did, with no provenance fields; passing one layer makes the merge a no-op. Together with stanza precedence above, these are the two halves of what `btool … --debug` prints: which stanza won, and from which file.
-
-This is within-stanza only — a directive that wins its stanza can still lose to a higher-precedence *stanza*, which `matchStanzas`/`mergeDirectives` resolve separately.
+The engine also accepts layered conf input (`default/` + `local/`) and returns full override provenance — the two halves of what `btool … --debug` prints. That is engine API only, not reachable from the app's UI; see [docs/engine.md](docs/engine.md).
 
 ### Layout
 
@@ -101,40 +73,7 @@ Below 768px the rail is replaced by `MobileShell`'s labelled tab strip — the r
 
 ## Using the engine directly
 
-`src/engine/**` is pure logic with no React imports and no runtime dependencies, and it runs unchanged in the browser, in a Web Worker, and under Node. `runPipeline` is the entry point:
-
-```ts
-runPipeline(rawData, metadata, propsConfInput, transformsConfInput, options?)
-```
-
-`options` is `PipelineOptions`:
-
-| Option | Default | What it does |
-|---|---|---|
-| `perEventPipeline` | — | Resolve stanzas per event rather than once for the batch, so metadata rewritten mid-pipeline takes effect downstream. |
-| `captureOffsets` | `true` | Record capture spans for positional EXTRACTs into `fieldOffsets`. |
-
-### Running the engine under Node
-
-**Set `captureOffsets: false` if you are not rendering highlights.** It is not a micro-optimisation. V8 can abandon backtracking mid-match and finish on its linear-time engine:
-
-```
-node --enable-experimental-regexp-engine-on-excessive-backtracks \
-     --regexp-backtracks-before-fallback=1000 your-script.mjs
-```
-
-but **that engine cannot compile a regex carrying `d`, `i` or `u`**. `captureOffsets` is what decides whether every `EXTRACT` gets `d`. Measured on `^(a|a)*(?<f>b)$` against 30 characters, with those flags set:
-
-| | elapsed |
-|---|---|
-| compiled bare | 8.3 ms |
-| compiled with `d` | 91,696 ms |
-
-The flags must be set **before the first regex they protect is compiled** — in ESM, before the first import of the entry point.
-
-**This narrows the unbounded surface; it does not remove it.** A pattern still declines the fallback if it uses a lookahead or a backreference, and both are ordinary in Splunk regexes — the `rfc5424` pattern in this repo's own sample data uses `(?=\s|$)`. The `safeRegex` ReDoS heuristic is likewise structural and documents what it cannot see, notably alternation-overlap forms like `(a|aa)+`.
-
-**So a consumer that executes patterns it did not write needs a thread it can terminate**, with a wall-clock budget — which is what the browser app does, and what the flags are not a substitute for. Treat the flags as a second layer that lowers how often the watchdog fires.
+`src/engine/**` is pure logic with no React imports and no runtime dependencies, and it runs unchanged in the browser, in a Web Worker, and under Node. `runPipeline` is the entry point. [docs/engine.md](docs/engine.md) covers the API: `PipelineOptions`, layered conf input with override provenance, and the caveats that matter when running user-supplied regexes under Node.
 
 ## Project structure
 
@@ -144,7 +83,7 @@ src/
 │   ├── types.ts               # SplunkEvent, ProcessingResult, ConfDirective
 │   ├── pipeline.ts            # runPipeline() — sole entry point
 │   ├── pipelineWorker.ts      # Web Worker wrapper
-│   ├── directiveRegistry.ts   # 78 directive entries — drives completion,
+│   ├── directiveRegistry.ts   # Directive entries — drives completion,
 │   │                          #   hover, linting AND the dictionary
 │   ├── stanzaRegistry.ts      # The four stanza header kinds + precedence
 │   ├── pipelineStages.ts      # The 11 stages, and key → stage lookup
@@ -224,9 +163,7 @@ Custom `splunk-conf` language:
 - Linting via `setModelMarkers` — unknown directives, invalid regex, type mismatches, duplicate stanzas, missing brackets, best-practice warnings.
 - Light / dark themes (`splunk-light`, `splunk-dark`) tracking the app's zinc/indigo palette.
 
-`directiveRegistry.ts` drives all three features. Add a `DirectiveInfo` entry and autocomplete, hover, and linting pick it up automatically — as does the dictionary.
-
-Monaco's widgets (hover, suggest, folding, find, multi-cursor) are *contributions*, imported separately from the API surface in `MonacoEditor.tsx` via `editor.all`. `editor.api` alone registers providers that nothing ever renders. `vite.config.ts` names both entries in `manualChunks`.
+`directiveRegistry.ts` drives all three features. Add a `DirectiveInfo` entry and autocomplete, hover, and linting pick it up automatically — as does the dictionary. How Monaco is bundled (the `editor.api` / `editor.all` split and `manualChunks`) is covered in [docs/architecture.md](docs/architecture.md).
 
 ## Dictionary
 
@@ -281,9 +218,11 @@ One note if you extend it: the app runs the pipeline once on mount with an empty
 
 `ci.yml` runs lint → build (`tsc -b && vite build`) → tests → e2e smoke → `npm audit` on every PR and on pushes to main. The Azure SWA deploy workflow is separate and has no test job of its own: it triggers on push to main and runs its own build, so it is gated by CI only in the sense that both run on the same commit. Node is pinned once, in `.nvmrc`, which `ci.yml` and `package.json`'s `engines` both follow.
 
-## Simulation support
+## Simulation fidelity
 
-A simulator's correctness oracle is "matches real Splunk", which is a closed-source, versioned, partly undocumented target — so fidelity can never be *proven* complete. It can be bounded. Every directive the registry knows about carries one of three support levels, declared in [`src/engine/directiveSupport.ts`](src/engine/directiveSupport.ts):
+A simulator's correctness oracle is "matches real Splunk", which is a closed-source, versioned, partly undocumented target — so fidelity can never be *proven* complete. It can be bounded. This section is that boundary in one place: what is simulated, what is deliberately not, and where the simulation knowingly diverges. Verify anything suspicious against a real indexer before relying on the output.
+
+Every directive the registry knows about carries one of three support levels, declared in [`src/engine/directiveSupport.ts`](src/engine/directiveSupport.ts):
 
 | Level | Count | Meaning |
 |---|---|---|
@@ -291,41 +230,30 @@ A simulator's correctness oracle is "matches real Splunk", which is a closed-sou
 | **documented** | 25 | Recognised on purpose, outside the simulation for a reason that is not going to change — it belongs to a layer a browser has no access to, or it has no observable effect on output. |
 | **ignored** | 18 | Should be simulated, is not yet, and names the issue tracking it. Every one of these is a known wrong answer. |
 
+The counts are asserted by a test against the table itself, so they cannot go stale.
+
 Writing a directive that is not `simulated` produces a diagnostic under its editor — a warning for `ignored`, an informational note for `documented`. The dictionary and the editor hover say the same thing on the entry itself. The point is that the tool never silently renders output as though a line you wrote were absent.
 
 One `simulated` entry carries a caveat rather than a clean bill of health: `INDEXED_EXTRACTIONS` simulates every format it names — csv, tsv, psv, w3c and json — but the attributes that customise the delimited ones are `ignored` ([#184](https://github.com/Bimmiest/propslab/issues/184)).
 
 ### Not simulated yet (`ignored`)
 
-Each of these is a directive the preview accepts and then does not honour.
-
-| Directive | What is missing | Issue |
-|---|---|---|
-| `DATETIME_CONFIG`, `MAX_DAYS_AGO`, `MAX_DAYS_HENCE`, `MAX_DIFF_SECS_AGO`, `MAX_DIFF_SECS_HENCE` | The timestamp fallback chain and its sanity bounds | [#85](https://github.com/Bimmiest/propslab/issues/85) |
-| `CLONE_SOURCETYPE` | The cloned event is never produced | [#87](https://github.com/Bimmiest/propslab/issues/87) |
-| `TZ_ALIAS` | Zone-abbreviation aliasing; lands with the rest of the `TZ` work | [#159](https://github.com/Bimmiest/propslab/issues/159) |
-| `DEFAULT_VALUE`, `LOOKAHEAD` | Read by nothing in the transforms path | [#183](https://github.com/Bimmiest/propslab/issues/183) |
-| `FIELD_DELIMITER`, `FIELD_QUOTE`, `FIELD_NAMES`, `HEADER_FIELD_LINE_NUMBER`, `PREAMBLE_REGEX`, `TIMESTAMP_FIELDS` | Every override to delimited `INDEXED_EXTRACTIONS` | [#184](https://github.com/Bimmiest/propslab/issues/184) |
-| `ANNOTATE_PUNCT` | The `punct` field is never generated | [#185](https://github.com/Bimmiest/propslab/issues/185) |
-| `MUST_NOT_BREAK_BEFORE`, `MUST_NOT_BREAK_AFTER` | The negative line-merging rules — a line they protect can still be broken on | [#190](https://github.com/Bimmiest/propslab/issues/190) |
+Each of these is a directive the preview accepts and then does not honour. The roster lives in [`src/engine/directiveSupport.ts`](src/engine/directiveSupport.ts) — every `ignored` entry states what is missing and names its tracking issue, and the same text appears verbatim on the directive's hover, its editor warning, and its dictionary entry. Highlights of what is currently missing: the timestamp fallback chain and its sanity bounds, `CLONE_SOURCETYPE`, the overrides to delimited `INDEXED_EXTRACTIONS`, the `punct` field, and the negative line-merging rules.
 
 ### Deliberately out of scope (`documented`)
 
-Lookups (`LOOKUP` and all thirteen `transforms.conf` lookup attributes) need a lookup table, and a browser tool with no backend has nowhere to get one. `EVENT_BREAKER`, `EVENT_BREAKER_ENABLE`, `CHARSET`, `NO_BINARY_CHECK` and `LEARN_SOURCETYPE` belong to the forwarder and input layers, upstream of everything simulated here. `SEGMENTATION` changes how the indexer segments terms for search rather than the event or its fields. `MATCH_LIMIT`, `DEPTH_LIMIT` and `CAN_OPTIMIZE` bound how hard a match tries, not what a successful match produces. `LINE_BREAKER_LOOKBEHIND` governs how far Splunk looks back across an internal chunk boundary, and the simulator holds the whole input in memory with no chunk boundaries to look across. `CHECK_FOR_HEADER` is deprecated by Splunk in favour of `INDEXED_EXTRACTIONS`, which is simulated.
+Lookups (`LOOKUP` and all thirteen `transforms.conf` lookup attributes) need a lookup table, and a browser tool with no backend has nowhere to get one — `LOOKUP-*` directives are parsed and warn, but fields sourced from lookups will not appear. `EVENT_BREAKER`, `EVENT_BREAKER_ENABLE`, `CHARSET`, `NO_BINARY_CHECK` and `LEARN_SOURCETYPE` belong to the forwarder and input layers, upstream of everything simulated here. `SEGMENTATION` changes how the indexer segments terms for search rather than the event or its fields. `MATCH_LIMIT`, `DEPTH_LIMIT` and `CAN_OPTIMIZE` bound how hard a match tries, not what a successful match produces. `LINE_BREAKER_LOOKBEHIND` governs how far Splunk looks back across an internal chunk boundary, and the simulator holds the whole input in memory with no chunk boundaries to look across. `CHECK_FOR_HEADER` is deprecated by Splunk in favour of `INDEXED_EXTRACTIONS`, which is simulated.
 
-## Known issues / inconsistencies vs Splunk
+### Stubbed eval functions
 
-Places where the simulator diverges from real Splunk. Verify anything suspicious against a real indexer before relying on the output.
+The directive levels above do not cover eval *functions*, which have their own boundary:
 
-### Not simulated
-
-- **Lookups.** `LOOKUP-*` directives are parsed and a warning is emitted, but lookup tables are not evaluated; fields sourced from lookups will not appear.
 - **Crypto functions.** `md5()`, `sha1()`, `sha256()`, `sha512()` return a placeholder string (e.g. `[md5() not simulated]`) and emit a warning.
 - **Partial stubs.** `cidrmatch()`, `searchmatch()`, `relative_time()`, `strptime()`, `mvfilter()` (returns its input unfiltered), and `sigfig()` / `exact()` (return the value unrounded) have simplified implementations; results may not match Splunk on edge cases. Every one of them emits a warning when evaluated, so a stubbed result is never mistaken for a computed one.
-- **`SEDCMD` occurrence flag.** The `s/` substitute and `y/` transliterate forms are both simulated. The numeric occurrence flag (`s/…/…/2`), a value that is not a sed expression at all, a `y///` whose two character sets differ in length, and a pattern that will not compile each emit a warning rather than being dropped in silence.
 
 ### Simplified
 
+- **`SEDCMD` occurrence flag.** The `s/` substitute and `y/` transliterate forms are both simulated. The numeric occurrence flag (`s/…/…/2`), a value that is not a sed expression at all, a `y///` whose two character sets differ in length, and a pattern that will not compile each emit a warning rather than being dropped in silence.
 - **Delimited `INDEXED_EXTRACTIONS` overrides not honoured.** For `csv`/`tsv`/`psv`/`w3c`, the header is taken from line 1 and the delimiter is fixed per format. `FIELD_NAMES`, `FIELD_HEADER_REGEX`, `FIELD_QUOTE`, `KEEP_EMPTY_VALS`, and `CLEAN_KEYS` are parsed but ignored. This is the `INDEXED_EXTRACTIONS` context only — transforms.conf's own `CLEAN_KEYS` **is** simulated, pinned to a Splunk 10.4.0 capture.
 - **Stanza specificity is a heuristic.** Ranked by literal character count. Splunk's real tie-breaking for equal-score `source::` patterns is alphabetical; ordering can diverge for tied patterns.
 - **`priority` rules are taken from the documentation, not from a capture.** `priority` orders stanzas *within* a kind and cannot reach across kinds: `source` > `host` > `sourcetype` > `default` holds regardless of what any stanza declares, which is what `props.conf.spec` says explicitly. A stanza that declares nothing defaults by how it matches rather than by its kind — 100 when the stanza matches literally (`[my_sourcetype]`, `[source::/var/log/app.log]`), 0 when it contains a wildcard (`[source::...app...]`, `[host::web*]`) — so a wildcard stanza needs `priority` above 100 to beat a literal sibling. No fidelity fixture pins any of this, so it is the one part of stanza resolution asserted only against our reading of the docs, and the docs contradict themselves once on the cross-kind question ([#198](https://github.com/Bimmiest/propslab/issues/198)). `sourcetype` and `rename` are in the same position, though their rules are less ambiguous.
@@ -347,87 +275,8 @@ See [CHANGELOG.md](CHANGELOG.md) for fix history
 
 ## Tech stack
 
-- React 19, 
-- Vite 7, 
-- TypeScript 5.9, 
-- Tailwind CSS 4 (CSS-first config), 
-- Monaco Editor 0.55, mounted directly by `MonacoEditor.tsx`, 
-- Zustand 5, 
-- react-resizable-panels 4.6, 
-- `diff` 8, 
-- `cmdk` (command palette), 
-- `@radix-ui/react-tooltip`.
+React 19, Vite 7, TypeScript 5.9, Tailwind CSS 4 (CSS-first config), Monaco Editor 0.55 (mounted directly by `MonacoEditor.tsx`), Zustand 5, react-resizable-panels 4.6, `diff` 8, `cmdk` (command palette), `@radix-ui/react-tooltip`.
 
-## State management
+## Contributing
 
-Single Zustand store (`useAppStore.ts`). The store is flat — components subscribe to individual slices rather than reading the whole store.
-
-```
-rawData / metadata / propsConf / transformsConf     User inputs (ephemeral)
-processingResult / validationDiagnostics            Pipeline output
-lastProcessingMs / workerStatus                     StatusBar telemetry
-theme / activeOutputTab / collapsedPanels / ...     UI state
-activeView / dictionarySelection                    Rail view + dictionary deep link
-settings                                            Simulator options (e.g. perEventPipeline)
-```
-
-localStorage is limited to UI layout state (split-pane sizes, seen-intro flag, theme), read inside try/catch with typed fallbacks. Raw logs and configuration are not persisted — a refresh clears them.
-
-Monaco editor instances live in a module-level `Map` in `editorRegistry.ts`, not in the Zustand store.
-
-## Accessibility
-
-- Skip-to-content link (visible on focus).
-- Semantic HTML (`<main>`, `<header>`, proper heading hierarchy).
-- WAI-ARIA tablist: `role="tablist"` / `role="tab"` / `role="tabpanel"`, `aria-selected`, `aria-controls`, `aria-labelledby`.
-- Arrow keys navigate tabs; Home/End jump to first/last. The activity rail is vertical and declares `aria-orientation`.
-- The rail's buttons carry `aria-label`, not just a tooltip: they have no visible text, and a Radix tooltip contributes `aria-describedby`, which supplements an accessible name rather than supplying one.
-- The dictionary list is a `role="listbox"` driven by `aria-activedescendant`, so one Tab stop covers 80-odd rows.
-- All inputs have associated `<label>` via `htmlFor`/`id`.
-- `focus-visible:ring-2` on all interactive elements.
-- Panel-level `ErrorBoundary` with "Try Again" recovery.
-
-## Extending
-
-### Add a directive
-1. Add a `DirectiveInfo` entry to `DIRECTIVES` in `src/monaco/directiveRegistry.ts`. Autocomplete, hover, and linting pick it up.
-2. If it needs processing logic: create or edit a processor in `src/engine/processors/` and wire it into `src/engine/pipeline.ts` at the correct position, wrapped in `safeProcessor()`.
-
-### Add or update a CIM model
-`CIM_MODELS` in `src/engine/cim/cimModelsData.ts` is generated, not hand-maintained.
-To refresh it, download the CIM add-on from
-[Splunkbase](https://splunkbase.splunk.com/app/1621), extract it, and run:
-
-```bash
-node scripts/generate-cim-models.js /path/to/Splunk_SA_CIM
-```
-
-The script reads `default/data/models/*.json` (the model definitions Splunk itself
-runs) and takes `CIM_VERSION` from the add-on's `app.conf`. Which datasets are
-presented, and their labels, live in the `INCLUDE` table at the top of the script;
-everything else — fields, the required/recommended split, constraint tags — is read
-out of the add-on, and a dataset that Splunk has renamed or removed fails the run
-rather than disappearing quietly. Nothing here runs at build or install time, and
-the add-on is not vendored.
-
-To add a dataset by hand instead, read the derivation rules in the generated file's
-header first — the fields must come from the model JSON, not from memory or docs prose:
-
-```typescript
-{
-  name: 'Your_Model',          // or 'Your_Model.Dataset' for a second root dataset
-  displayName: 'Your Model',
-  description: 'Description',
-  requiredFields: ['field1', 'field2'],
-  recommendedFields: ['field3'],
-  tags: ['your_tag'],          // ALL tags must be present for the dataset to populate
-}
-```
-
-### Add an eval function
-Add a `case` to the `callFunction` switch in `src/engine/processors/evalProcessor.ts`.
-
-### Add a preview sub-tab
-1. Create the component in `src/components/preview/tabs/`.
-2. Add the ID to `PreviewSubTabId` in `src/engine/types.ts`.
-3. Add the entry to `PREVIEW_SUB_TABS` and render it in `PreviewPanel.tsx`.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the CI checks, where a change goes, and the recipes for adding directives, eval functions, CIM models, and preview tabs. Contributor-facing internals are in [docs/architecture.md](docs/architecture.md).

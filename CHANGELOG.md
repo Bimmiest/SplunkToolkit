@@ -4,6 +4,14 @@ All notable changes to Propslab are documented here, newest first.
 
 ---
 
+## Unreleased
+
+### Changed
+
+- **The docs are restructured by audience.** The README had grown into four documents interleaved — app tour, engine-library manual, contributor handbook, and fidelity statement. The engine-as-a-library material (conf layers and provenance, `PipelineOptions`, the Node regex caveats) now lives in [docs/engine.md](docs/engine.md); contributor internals (store layout, Monaco bundling, accessibility patterns) in [docs/architecture.md](docs/architecture.md); and the extension recipes in [CONTRIBUTING.md](CONTRIBUTING.md), which fixes their stale `src/monaco/directiveRegistry.ts` path along the way. The two overlapping fidelity sections (*Simulation support* and *Known issues / inconsistencies vs Splunk*) are merged into one *Simulation fidelity* section, with the hand-maintained table of `ignored` directives replaced by a pointer to [src/engine/directiveSupport.ts](src/engine/directiveSupport.ts) — the file already carries every entry's reason and tracking issue, and unlike the table it cannot drift. The support-level counts stay in the README because a test asserts them. No behaviour changes.
+
+---
+
 ## 1.1.0 — 2026-08-01
 
 ### Fixed
