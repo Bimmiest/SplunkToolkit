@@ -24,15 +24,15 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
-    "@radix-ui/react-context-menu": "^2.2.16",
-    "@radix-ui/react-tooltip": "^1.2.8",
+    "@radix-ui/react-context-menu": "^2.3.7",
+    "@radix-ui/react-tooltip": "^1.2.16",
     "cmdk": "^1.1.1",
     "diff": "^9.0.0",
-    "monaco-editor": "^0.55.1",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "react-resizable-panels": "^4.6.4",
-    "zustand": "^5.0.11"
+    "monaco-editor": "^0.56.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-resizable-panels": "^4.12.2",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
@@ -43,7 +43,7 @@
     "@testing-library/react": "^16.3.2",
     "@types/diff": "^7.0.2",
     "@types/node": "^24.10.1",
-    "@types/react": "^19.2.7",
+    "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
     "eslint": "^10.6.0",
