@@ -10,24 +10,59 @@ const STANZA_PRIORITY: Record<ConfStanza['type'], number> = {
 };
 
 /**
- * Splunk's documented default `priority` per stanza kind: 100 for the
- * pattern-matched `[host::…]` and `[source::…]` stanzas, 0 for `[<sourcetype>]`.
+ * Splunk's documented default `priority`, which splits on whether the stanza
+ * matches LITERALLY or by PATTERN — not on the stanza's kind (#198):
  *
- * These exist so that an explicit `priority` is measured on the same scale
- * Splunk measures it on — a `priority = 50` on a sourcetype stanza is meant to
- * lose to an undeclared `source::` stanza, and would beat it if undeclared
- * stanzas were treated as 0 across the board.
+ *   * 0 for pattern-matching stanzas.
+ *   * 100 for literal-matching stanzas.
  *
- * With no stanza declaring a priority this changes nothing: source and host tie
- * at 100 and are separated by STANZA_PRIORITY exactly as before, and sourcetype
- * ties with default and is separated the same way.
+ * So `[my_sourcetype]` and `[source::/var/log/app.log]` both default to 100,
+ * while `[source::...foo...]` and `[host::web*]` default to 0. The spec's own
+ * corollary is what pins the direction: setting a priority above 100 is what
+ * lets a pattern-matched stanza override a literal-matching one, which only
+ * follows if literal is the side sitting at 100.
+ *
+ * This was previously keyed on stanza type with the values the other way round,
+ * which inverted both halves — it put `[<sourcetype>]` at 0 and every
+ * `source::`/`host::` stanza at 100 regardless of whether it contained a
+ * wildcard at all.
  */
-const DEFAULT_PRIORITY: Record<ConfStanza['type'], number> = {
-  default: 0,
-  sourcetype: 0,
-  host: 100,
-  source: 100,
-};
+const LITERAL_DEFAULT_PRIORITY = 100;
+const PATTERN_DEFAULT_PRIORITY = 0;
+
+/**
+ * Whether a `source::`/`host::` pattern matches literally.
+ *
+ * Splunk's stanza pattern syntax is `...`, `*` and `?` for wildcards plus `|`
+ * for alternation and `()` to scope it. A pattern carrying none of those matches
+ * one exact string. Note a lone `.` is a literal dot in this syntax rather than
+ * a regex any-char, which is why it is absent here — see getPatternSpecificity.
+ */
+function isLiteralPattern(pattern: string): boolean {
+  return !/[*?|()]/.test(pattern) && !pattern.includes('...');
+}
+
+/** The default `priority` a stanza carries when it declares none. */
+function defaultPriority(stanza: ConfStanza): number {
+  switch (stanza.type) {
+    // A sourcetype stanza names one sourcetype exactly; there is no pattern form.
+    case 'sourcetype':
+      return LITERAL_DEFAULT_PRIORITY;
+    case 'host':
+      return isLiteralPattern(stanza.hostPattern ?? stanza.name)
+        ? LITERAL_DEFAULT_PRIORITY
+        : PATTERN_DEFAULT_PRIORITY;
+    case 'source':
+      return isLiteralPattern(stanza.sourcePattern ?? stanza.name)
+        ? LITERAL_DEFAULT_PRIORITY
+        : PATTERN_DEFAULT_PRIORITY;
+    // `[default]` is the global fallback rather than a match of either kind. It
+    // is last by stanza type regardless, so this value only orders it against
+    // other `[default]` stanzas, of which a conf should have at most one.
+    case 'default':
+      return PATTERN_DEFAULT_PRIORITY;
+  }
+}
 
 /** Splunk's boolean spellings. Anything unrecognised reads as false, as it does there. */
 function isTruthy(value: string): boolean {
@@ -52,10 +87,10 @@ function stanzaPriority(stanza: ConfStanza): number {
   if (declared) {
     const parsed = Number.parseInt(declared.value.trim(), 10);
     // A malformed priority is ignored rather than treated as 0, which would
-    // silently demote a source:: stanza below every sourcetype stanza.
+    // silently demote a literal-matching stanza below every pattern-matched one.
     if (Number.isFinite(parsed)) return parsed;
   }
-  return DEFAULT_PRIORITY[stanza.type];
+  return defaultPriority(stanza);
 }
 
 export function matchStanzas(stanzas: ConfStanza[], metadata: EventMetadata): ConfStanza[] {
@@ -117,13 +152,25 @@ export function matchStanzas(stanzas: ConfStanza[], metadata: EventMetadata): Co
     }
   }
 
-  // `priority` outranks the stanza-kind ordering, which is what makes it useful:
-  // it exists precisely so a config can invert the usual source > host >
-  // sourcetype ranking. Kind and specificity then break ties among stanzas that
-  // share a priority, which is every stanza until one declares otherwise.
+  // Stanza kind first, and `priority` cannot reach across it (#198). The spec is
+  // explicit: "the priority key does *not* affect precedence across <spec>
+  // types … [source::<source>] patterns take priority over stanzas with
+  // [host::<host>] and [<sourcetype>] patterns, regardless of their respective
+  // priority key values."
+  //
+  // So `priority` orders stanzas WITHIN a kind — which is where it earns its
+  // keep, deciding between two `source::` stanzas that both match, or letting a
+  // wildcard stanza beat a literal one by declaring above 100. Specificity then
+  // breaks ties among stanzas sharing a priority.
+  //
+  // One caveat, recorded because the spec argues with itself: a paragraph
+  // earlier it says priority "can also be used to resolve collisions between
+  // [<sourcetype>] patterns and [host::<host>] patterns", which is a cross-type
+  // claim. The statement implemented here is the explicit one, and the one
+  // carrying a worked example.
   matched.sort((a, b) => {
-    if (a.explicitPriority !== b.explicitPriority) return b.explicitPriority - a.explicitPriority;
     if (a.priority !== b.priority) return b.priority - a.priority;
+    if (a.explicitPriority !== b.explicitPriority) return b.explicitPriority - a.explicitPriority;
     return b.specificity - a.specificity;
   });
 

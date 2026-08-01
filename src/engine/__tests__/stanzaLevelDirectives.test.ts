@@ -70,7 +70,7 @@ describe('disabled — a stanza switched off takes no part in resolution', () =>
   });
 });
 
-describe('priority — an explicit precedence overrides the stanza-kind ranking', () => {
+describe('priority — orders stanzas within a kind, and cannot reach across kinds (#198)', () => {
   it('leaves the usual ranking alone when nothing declares a priority', () => {
     const names = matchedNames(
       '[original]\nEVAL-a = 1\n\n[host::web01]\nEVAL-b = 1\n\n[source::/var/log/app.log]\nEVAL-c = 1\n',
@@ -78,36 +78,59 @@ describe('priority — an explicit precedence overrides the stanza-kind ranking'
     expect(names).toEqual(['source::/var/log/app.log', 'host::web01', 'original']);
   });
 
-  it('lets a sourcetype stanza outrank a source stanza when it declares a higher priority', () => {
+  it('does not let any priority lift a sourcetype stanza above a source stanza', () => {
+    // "the priority key does *not* affect precedence across <spec> types …
+    // [source::<source>] patterns take priority over stanzas with [host::<host>]
+    // and [<sourcetype>] patterns, regardless of their respective priority key
+    // values." 200 is far above every default and still loses.
     const { result } = run(
       '[source::/var/log/app.log]\nEVAL-who = "source"\n\n' +
         '[original]\npriority = 200\nEVAL-who = "sourcetype"\n',
     );
-    expect(result.events[0]!.fields['who']).toBe('sourcetype');
-  });
-
-  it('does not let a priority below the pattern-stanza default win', () => {
-    // source:: defaults to 100, so a priority of 50 on a sourcetype stanza is
-    // still a demotion — this is the case a naive "explicit beats implicit"
-    // reading gets wrong.
-    const { result } = run(
-      '[source::/var/log/app.log]\nEVAL-who = "source"\n\n' +
-        '[original]\npriority = 50\nEVAL-who = "sourcetype"\n',
-    );
     expect(result.events[0]!.fields['who']).toBe('source');
   });
 
-  it('lets one pattern stanza outrank another of the same kind', () => {
+  it('does not let a priority lift a host stanza above a source stanza either', () => {
     const names = matchedNames(
       '[host::web01]\npriority = 500\nEVAL-a = 1\n\n[source::/var/log/app.log]\nEVAL-b = 1\n',
     );
-    expect(names[0]).toBe('host::web01');
+    expect(names[0]).toBe('source::/var/log/app.log');
+  });
+
+  it('orders two stanzas of the same kind by priority', () => {
+    // Both are source:: stanzas, so priority is free to decide. Without it the
+    // more specific pattern would win, which makes this a real inversion.
+    const names = matchedNames(
+      '[source::/var/log/app.log]\nEVAL-a = 1\n\n[source::...log...]\npriority = 500\nEVAL-b = 1\n',
+    );
+    expect(names[0]).toBe('source::...log...');
+  });
+
+  it('defaults a literal stanza to 100 and a wildcard stanza of the same kind to 0', () => {
+    // Nothing declares a priority, and both patterns match. The literal one wins
+    // on its default alone — the wildcard would need to declare above 100.
+    const names = matchedNames(
+      '[source::...app...]\nEVAL-a = 1\n\n[source::/var/log/app.log]\nEVAL-b = 1\n',
+    );
+    expect(names[0]).toBe('source::/var/log/app.log');
+  });
+
+  it('lets a wildcard stanza declare its way past a literal one of the same kind', () => {
+    // The spec's own corollary: "Setting the priority key to a value greater
+    // than 100 causes the pattern-matched stanzas to override the values of the
+    // literal-matching stanzas." 101 is enough; 99 would not be.
+    const names = matchedNames(
+      '[source::...app...]\npriority = 101\nEVAL-a = 1\n\n[source::/var/log/app.log]\nEVAL-b = 1\n',
+    );
+    expect(names[0]).toBe('source::...app...');
   });
 
   it('ignores a malformed priority rather than reading it as zero', () => {
-    // Zero would silently demote the stanza below every sourcetype stanza.
+    // Zero would demote this literal stanza below any wildcard sibling that
+    // declared one, when the intent was plainly to leave the default in place.
     const names = matchedNames(
-      '[source::/var/log/app.log]\npriority = urgent\nEVAL-a = 1\n\n[original]\nEVAL-b = 1\n',
+      '[source::/var/log/app.log]\npriority = urgent\nEVAL-a = 1\n\n' +
+        '[source::...log...]\npriority = 50\nEVAL-b = 1\n',
     );
     expect(names[0]).toBe('source::/var/log/app.log');
   });
