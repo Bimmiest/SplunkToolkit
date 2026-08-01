@@ -5,10 +5,36 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # The audit job gates on advisories, and advisories appear against
+  # dependencies nobody has touched. With only push/pull_request triggers it
+  # runs when someone happens to commit, so a critical advisory can sit
+  # unreported for as long as main is quiet. The weekly run is also the only
+  # thing that re-exercises the suite against a current runner image, which is
+  # where toolchain drift shows up first.
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+# Read-only unless a job asks for more. Nothing here needs the token: the
+# Playwright `github` reporter writes its annotations through workflow
+# commands on stdout, not the API.
+permissions:
+  contents: read
+
+# Three pushes to a PR currently grade the same final commit three times, and
+# only the last verdict is ever read. Superseded runs are cancelled — except on
+# main, where each push is a distinct commit whose status stands on its own
+# (and whose green run is what the deploy is judged against).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   ci:
     runs-on: ubuntu-latest
+    # The webServer has its own 180s timeout, but nothing bounds a wedged
+    # browser or a hung install; without this the ceiling is six hours.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -41,28 +67,80 @@ jobs:
       # Chromium only — the e2e suite covers browser-level wiring (CSP, worker
       # bundling, Monaco's chunk split), not cross-browser rendering, so the
       # other engines would cost minutes to re-assert the same facts.
+      #
+      # The download is ~130MB and `--with-deps` shells out to apt, every run,
+      # for a browser that only changes when @playwright/test does. Keying the
+      # cache on the resolved version means a bump invalidates it on its own;
+      # the apt packages live outside ~/.cache so they are reinstalled either
+      # way.
+      - name: Resolve Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browser
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright.outputs.version }}
+
       - name: Install Playwright browser
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
 
+      - name: Install Playwright system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
       - name: End-to-end smoke tests
-        # Runs against a production build (the config rebuilds before serving,
-        # so a stale dist/ can never be what gets tested). Guards the things
-        # vitest cannot reach: the Content-Security-Policy, the pipeline Web
-        # Worker round-trip, and that Monaco actually mounts.
+        id: e2e
+        # Runs against a production build. Guards the things vitest cannot
+        # reach: the Content-Security-Policy, the pipeline Web Worker
+        # round-trip, and that Monaco actually mounts.
+        #
+        # E2E_SKIP_BUILD suppresses the rebuild the Playwright webServer does by
+        # default. That rebuild exists so a stale dist/ can never be what gets
+        # tested, which is the right default — but here the Build step above ran
+        # against this same commit minutes ago, so it would rebuild identical
+        # output. Setting the flag is the caller asserting the artifact is
+        # fresh; anywhere that assertion does not hold, leave it unset.
+        env:
+          E2E_SKIP_BUILD: '1'
         run: npm run test:e2e
 
       - name: Upload Playwright report
-        if: ${{ failure() }}
+        # Scoped to the e2e step rather than the job. A bare `failure()` also
+        # fires when lint failed, where no report was ever written — that upload
+        # finds nothing, warns, and leaves a misleading empty artifact link.
+        if: ${{ failure() && steps.e2e.outcome == 'failure' }}
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
 
-      - name: Audit dependencies
-        # Fails the build on a high/critical advisory. Production deps are what
-        # ship to the browser, so they gate; dev-only advisories are reported
-        # without failing (`|| true`) so a tooling CVE cannot block a fix.
-        run: |
-          npm audit --omit=dev --audit-level=high
-          npm audit --audit-level=high || true
+  # Split out of the main job on purpose. Sequentially, a new advisory turned
+  # the whole run red after five minutes of tests, and the tests' own verdict
+  # was lost behind it — the two ask unrelated questions and should be able to
+  # fail independently. It also means a fresh advisory is reported in seconds
+  # rather than behind the e2e suite.
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          # No `cache: npm` and no `npm ci`: npm audit resolves the tree from
+          # package-lock.json, so installing would only buy a slower job.
+
+      - name: Audit production dependencies
+        # Production deps are what ship to the browser, so they gate the build.
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Report dev-only advisories
+        # Reported, never fatal: a CVE in a build tool must not be able to block
+        # a fix for something users are actually hitting.
+        run: npm audit --audit-level=high || true

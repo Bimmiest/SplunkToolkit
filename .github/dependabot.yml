@@ -1,0 +1,39 @@
+version: 2
+
+updates:
+  # The audit job in ci.yml fails the build on a high/critical advisory in a
+  # production dependency. A gate with nothing keeping dependencies current
+  # eventually fires on an unrelated PR, and its author's only way forward is an
+  # upgrade they never signed up for. These updates are the way forward,
+  # arriving on their own schedule instead of on someone else's deadline.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 5
+    groups:
+      # Minor and patch bumps land as one PR per group. Individually they rarely
+      # merit a review, and a single CI run across ten of them carries the same
+      # signal as ten runs across one — at a tenth of the review cost.
+      production-dependencies:
+        dependency-type: production
+        update-types: [minor, patch]
+      development-dependencies:
+        dependency-type: development
+        update-types: [minor, patch]
+    # Majors are deliberately left out of both groups, so they arrive one PR at
+    # a time. react 19→20 or vite 7→8 is a change to read, not to batch.
+
+  # Actions are pinned by tag, so a stale pin is invisible until something
+  # breaks. This also carries any SHA pins forward, which is what makes pinning
+  # to a SHA sustainable rather than a thing that rots.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      github-actions:
+        patterns: ["*"]
