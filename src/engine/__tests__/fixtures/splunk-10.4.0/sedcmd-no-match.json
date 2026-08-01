@@ -1,0 +1,23 @@
+{
+  "id": "sedcmd-no-match",
+  "splunk": {
+    "version": "10.4.0",
+    "build": "f798d4d49089"
+  },
+  "capturedAt": "2026-08-01T16:03:42.108Z",
+  "directives": [
+    "SEDCMD"
+  ],
+  "phase": "index-time",
+  "props": "SHOULD_LINEMERGE = false\nTZ = UTC\nSEDCMD-nope = s/nonexistent/replacement/g\n",
+  "ingestHost": "fixture-capture",
+  "ingestSource": "fixture-capture",
+  "input": "2026-01-15T10:00:00Z untouched content\n",
+  "events": [
+    {
+      "_raw": "2026-01-15T10:00:00Z untouched content",
+      "_time": 1768471200000,
+      "fields": {}
+    }
+  ]
+}
