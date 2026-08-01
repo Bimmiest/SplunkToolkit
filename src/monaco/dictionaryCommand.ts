@@ -6,7 +6,7 @@
  * imports the hover provider, so the hover provider referencing the id from
  * there would close the cycle.
  */
-export const OPEN_DICTIONARY_COMMAND_ID = 'splunkToolkit.openDictionary';
+export const OPEN_DICTIONARY_COMMAND_ID = 'propslab.openDictionary';
 
 /**
  * Build a `command:` URI for a Markdown link.

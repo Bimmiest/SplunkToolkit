@@ -117,7 +117,7 @@ export function StatusBar() {
         )}
         {/* Last, and muted: a bug report needs to be able to name the build it
             came from, but the version is not something a user is looking for. */}
-        <span style={{ color: 'var(--color-text-muted)' }} title={`Splunk Toolkit ${__APP_VERSION__}`}>
+        <span style={{ color: 'var(--color-text-muted)' }} title={`Propslab ${__APP_VERSION__}`}>
           v{__APP_VERSION__}
         </span>
       </div>

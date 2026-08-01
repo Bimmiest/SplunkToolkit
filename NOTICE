@@ -1,0 +1,67 @@
+Propslab
+Copyright (c) 2026 Bimmiest
+
+This project is licensed under the MIT License (see LICENSE). That license
+covers this project's own source code. It does not, and cannot, extend to the
+third-party material described below, which remains under its owner's terms.
+
+--------------------------------------------------------------------------
+Trademarks
+--------------------------------------------------------------------------
+
+Splunk, Splunk Enterprise, and Splunkbase are trademarks or registered
+trademarks of Splunk Inc. in the United States and other countries. Cisco is a
+trademark of Cisco Systems, Inc.
+
+Propslab is an independent project and is not affiliated with, endorsed by, or
+sponsored by Splunk Inc. or Cisco Systems, Inc. These marks appear in this
+repository only to identify the software whose behaviour is being simulated and
+the configuration file formats being parsed, which is descriptive use. No claim
+of ownership or association is made or implied.
+
+--------------------------------------------------------------------------
+Splunk Common Information Model (CIM) add-on
+--------------------------------------------------------------------------
+
+src/engine/cim/cimModelsData.ts contains CIM dataset names, field names, and
+tag constraints derived from the Splunk Common Information Model add-on
+(Splunk_SA_CIM), distributed by Splunk Inc. on Splunkbase under Splunk's own
+licence terms:
+
+    https://splunkbase.splunk.com/app/1621
+
+The add-on is not vendored, redistributed, or fetched by this repository. It is
+not required to build, test, or run Propslab. Generation from it
+(scripts/generate-cim-models.js) is a manual, occasional step run by a
+maintainer against their own separately obtained copy, and nothing in the build
+or install path invokes it.
+
+The generated file is committed so that the build is reproducible without the
+add-on. The material it carries — dataset and field identifiers, and which tags
+a dataset constraint requires — is factual naming needed to check whether an
+extraction is CIM-compliant. It is used here for interoperability, and it is
+not offered under this project's MIT licence. Rights in the CIM add-on and its
+data models remain with Splunk Inc.
+
+--------------------------------------------------------------------------
+Configuration directive documentation
+--------------------------------------------------------------------------
+
+src/engine/directiveRegistry.ts describes the props.conf and transforms.conf
+attributes this simulator recognises. Those descriptions are written for this
+project. Where they restate what an attribute does, they describe documented,
+observable behaviour of the software; they are not copied from Splunk's
+documentation or from the .spec files that ship with Splunk Enterprise, and
+those files are not reproduced here.
+
+--------------------------------------------------------------------------
+Fidelity fixtures
+--------------------------------------------------------------------------
+
+src/engine/__tests__/fixtures/splunk-<version>/ holds recorded outputs of a
+Splunk Enterprise instance processing small synthetic inputs, used to assert
+that this simulator's behaviour matches the real one. They record functional
+results only. No performance measurement, benchmark, or comparative evaluation
+of Splunk software is conducted or published by this project. Capture is a
+manual step performed against an instance the operator supplies and licenses
+themselves; see scripts/capture-fixtures.md.

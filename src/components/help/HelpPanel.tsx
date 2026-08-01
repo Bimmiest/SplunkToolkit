@@ -107,7 +107,16 @@ export function HelpPanel() {
           className="px-5 py-3 shrink-0 border-t text-xs text-[var(--color-text-muted)]"
           style={{ borderColor: 'var(--color-border-subtle)', backgroundColor: 'var(--color-bg-secondary)' }}
         >
-          Select a directive to look it up in the dictionary, or hover any key in the editor.
+          <p>Select a directive to look it up in the dictionary, or hover any key in the editor.</p>
+          {/* The one place in the UI that states the obvious out loud: this is
+              a simulator someone wrote, not something Splunk publishes. It sits
+              here rather than in the header because it needs room for a
+              sentence, and this drawer is where a user goes to ask what the
+              tool is. */}
+          <p className="mt-2 pt-2 border-t" style={{ borderColor: 'var(--color-border-subtle)' }}>
+            Propslab is an independent project, not affiliated with or endorsed by Splunk Inc.
+            Splunk is a registered trademark of Splunk Inc.
+          </p>
         </div>
       </div>
     </>

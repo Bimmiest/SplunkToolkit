@@ -51,7 +51,7 @@ export function Header() {
             className="text-sm font-bold tracking-wide"
             style={{ color: 'var(--color-text-primary)' }}
           >
-            Splunk Toolkit
+            Propslab
           </h1>
         </div>
         <div className="flex items-center gap-2">

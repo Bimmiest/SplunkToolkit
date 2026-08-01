@@ -2,13 +2,13 @@
 
 ## Reporting a vulnerability
 
-Report privately through GitHub's [private vulnerability reporting](https://github.com/Bimmiest/SplunkToolkit/security/advisories/new) — the **Security** tab, then **Report a vulnerability**. Please do not open a public issue for a security problem.
+Report privately through GitHub's [private vulnerability reporting](https://github.com/Bimmiest/propslab/security/advisories/new) — the **Security** tab, then **Report a vulnerability**. Please do not open a public issue for a security problem.
 
 Expect an acknowledgement within a week. If a report is valid, the fix and the advisory go out together.
 
 ## What this application is
 
-Splunk Toolkit is a static, client-side app. It has no backend, makes no network calls, and persists no user data anywhere but the browser's own `localStorage` (panel sizes and a handful of UI preferences). Config and log text typed into it stays in the tab; it is never transmitted.
+Propslab is a static, client-side app. It has no backend, makes no network calls, and persists no user data anywhere but the browser's own `localStorage` (panel sizes and a handful of UI preferences). Config and log text typed into it stays in the tab; it is never transmitted.
 
 That shape rules out most of what a security policy usually covers — there is no server to compromise, no session to steal, no database to exfiltrate — and it means the real attack surface is narrow and specific.
 

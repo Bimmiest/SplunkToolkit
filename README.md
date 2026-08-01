@@ -1,6 +1,12 @@
-# Splunk Toolkit
+# Propslab
 
 Browser-based simulator for Splunk's `props.conf` and `transforms.conf` processing pipeline. All simulation runs in the browser; no backend, no network calls, no persisted user data.
+
+> **Not a Splunk product.** Propslab is an independent project. It is not
+> affiliated with, endorsed by, or sponsored by Splunk Inc. or Cisco Systems,
+> Inc. Splunk is a registered trademark of Splunk Inc.; the name is used here
+> only to describe what this simulator models. See [NOTICE](NOTICE) for
+> attribution of the third-party material this project derives data from.
 
 ## Build
 
@@ -54,8 +60,8 @@ Runs in Splunk's actual order.
 > this section is reachable from the browser UI. It is here because `runPipeline`
 > is consumed directly (see [Using the engine directly](#using-the-engine-directly)),
 > and a caller reading an app off disk needs it. Surfacing it in the UI is
-> tracked in [#132](https://github.com/Bimmiest/SplunkToolkit/issues/132) and
-> would arrive alongside [#86](https://github.com/Bimmiest/SplunkToolkit/issues/86).
+> tracked in [#132](https://github.com/Bimmiest/propslab/issues/132) and
+> would arrive alongside [#86](https://github.com/Bimmiest/propslab/issues/86).
 
 `parseConf`, and therefore `runPipeline`, accept either the text of one flat conf or an ordered list of layers, **lowest precedence first** — which is how a caller reading an app off disk (or out of a Git worktree) hands over `$APP/default/props.conf` and `$APP/local/props.conf`:
 
@@ -287,7 +293,7 @@ A simulator's correctness oracle is "matches real Splunk", which is a closed-sou
 
 Writing a directive that is not `simulated` produces a diagnostic under its editor — a warning for `ignored`, an informational note for `documented`. The dictionary and the editor hover say the same thing on the entry itself. The point is that the tool never silently renders output as though a line you wrote were absent.
 
-One `simulated` entry carries a caveat rather than a clean bill of health: `INDEXED_EXTRACTIONS` simulates every format it names — csv, tsv, psv, w3c and json — but the attributes that customise the delimited ones are `ignored` ([#184](https://github.com/Bimmiest/SplunkToolkit/issues/184)).
+One `simulated` entry carries a caveat rather than a clean bill of health: `INDEXED_EXTRACTIONS` simulates every format it names — csv, tsv, psv, w3c and json — but the attributes that customise the delimited ones are `ignored` ([#184](https://github.com/Bimmiest/propslab/issues/184)).
 
 ### Not simulated yet (`ignored`)
 
@@ -295,13 +301,13 @@ Each of these is a directive the preview accepts and then does not honour.
 
 | Directive | What is missing | Issue |
 |---|---|---|
-| `DATETIME_CONFIG`, `MAX_DAYS_AGO`, `MAX_DAYS_HENCE`, `MAX_DIFF_SECS_AGO`, `MAX_DIFF_SECS_HENCE` | The timestamp fallback chain and its sanity bounds | [#85](https://github.com/Bimmiest/SplunkToolkit/issues/85) |
-| `CLONE_SOURCETYPE` | The cloned event is never produced | [#87](https://github.com/Bimmiest/SplunkToolkit/issues/87) |
-| `TZ_ALIAS` | Zone-abbreviation aliasing; lands with the rest of the `TZ` work | [#159](https://github.com/Bimmiest/SplunkToolkit/issues/159) |
-| `DEFAULT_VALUE`, `LOOKAHEAD` | Read by nothing in the transforms path | [#183](https://github.com/Bimmiest/SplunkToolkit/issues/183) |
-| `FIELD_DELIMITER`, `FIELD_QUOTE`, `FIELD_NAMES`, `HEADER_FIELD_LINE_NUMBER`, `PREAMBLE_REGEX`, `TIMESTAMP_FIELDS` | Every override to delimited `INDEXED_EXTRACTIONS` | [#184](https://github.com/Bimmiest/SplunkToolkit/issues/184) |
-| `ANNOTATE_PUNCT` | The `punct` field is never generated | [#185](https://github.com/Bimmiest/SplunkToolkit/issues/185) |
-| `MUST_NOT_BREAK_BEFORE`, `MUST_NOT_BREAK_AFTER` | The negative line-merging rules — a line they protect can still be broken on | [#190](https://github.com/Bimmiest/SplunkToolkit/issues/190) |
+| `DATETIME_CONFIG`, `MAX_DAYS_AGO`, `MAX_DAYS_HENCE`, `MAX_DIFF_SECS_AGO`, `MAX_DIFF_SECS_HENCE` | The timestamp fallback chain and its sanity bounds | [#85](https://github.com/Bimmiest/propslab/issues/85) |
+| `CLONE_SOURCETYPE` | The cloned event is never produced | [#87](https://github.com/Bimmiest/propslab/issues/87) |
+| `TZ_ALIAS` | Zone-abbreviation aliasing; lands with the rest of the `TZ` work | [#159](https://github.com/Bimmiest/propslab/issues/159) |
+| `DEFAULT_VALUE`, `LOOKAHEAD` | Read by nothing in the transforms path | [#183](https://github.com/Bimmiest/propslab/issues/183) |
+| `FIELD_DELIMITER`, `FIELD_QUOTE`, `FIELD_NAMES`, `HEADER_FIELD_LINE_NUMBER`, `PREAMBLE_REGEX`, `TIMESTAMP_FIELDS` | Every override to delimited `INDEXED_EXTRACTIONS` | [#184](https://github.com/Bimmiest/propslab/issues/184) |
+| `ANNOTATE_PUNCT` | The `punct` field is never generated | [#185](https://github.com/Bimmiest/propslab/issues/185) |
+| `MUST_NOT_BREAK_BEFORE`, `MUST_NOT_BREAK_AFTER` | The negative line-merging rules — a line they protect can still be broken on | [#190](https://github.com/Bimmiest/propslab/issues/190) |
 
 ### Deliberately out of scope (`documented`)
 
