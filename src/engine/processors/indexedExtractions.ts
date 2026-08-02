@@ -1,8 +1,15 @@
-import type { SplunkEvent, ConfDirective } from '../types';
+import type { ConfDirective, SplunkEvent, ValidationDiagnostic } from '../types';
 import { flattenJson, flattenArray } from '../utils/flattenJson';
-import { setField } from '../utils/fieldBag';
+import { getField, setField } from '../utils/fieldBag';
+import { safeRegex } from '../../utils/splunkRegex';
+import { atDirective } from '../parser/provenance';
+import { extractTimestamps } from './timestampExtractor';
 
-export function applyIndexedExtractions(events: SplunkEvent[], directives: ConfDirective[]): SplunkEvent[] {
+export function applyIndexedExtractions(
+  events: SplunkEvent[],
+  directives: ConfDirective[],
+  diagnostics?: ValidationDiagnostic[],
+): SplunkEvent[] {
   const extractionDir = directives.find((d) => d.key === 'INDEXED_EXTRACTIONS');
   if (!extractionDir) return events;
 
@@ -12,11 +19,11 @@ export function applyIndexedExtractions(events: SplunkEvent[], directives: ConfD
     case 'json':
       return extractJsonFields(events);
     case 'csv':
-      return extractDelimited(events, ',', 'csv');
+      return extractDelimited(events, directives, ',', 'csv', diagnostics);
     case 'tsv':
-      return extractDelimited(events, '\t', 'tsv');
+      return extractDelimited(events, directives, '\t', 'tsv', diagnostics);
     case 'psv':
-      return extractDelimited(events, '|', 'psv');
+      return extractDelimited(events, directives, '|', 'psv', diagnostics);
     case 'w3c':
       return extractW3c(events);
     default:
@@ -58,25 +65,236 @@ function extractJsonFields(events: SplunkEvent[]): SplunkEvent[] {
   });
 }
 
-function extractDelimited(events: SplunkEvent[], delimiter: string, mode: string): SplunkEvent[] {
+/**
+ * How one delimited (csv/tsv/psv) source is read, after the format's defaults
+ * have been overridden by the structured-data attributes (#184).
+ */
+interface DelimitedOptions {
+  /** Field separator. Ignored when `whitespaceDelimiter` is set. */
+  delimiter: string;
+  /** FIELD_DELIMITER = whitespace/ws: any run of spaces and tabs separates fields. */
+  whitespaceDelimiter: boolean;
+  /** Quote character, or null when quoting is disabled (FIELD_QUOTE = none). */
+  quote: string | null;
+  /** FIELD_NAMES: explicit header, for data with no header line. */
+  fieldNames: string[] | null;
+  /** HEADER_FIELD_LINE_NUMBER: 1-based header line; 0 locates it automatically. */
+  headerLineNumber: number;
+  /** PREAMBLE_REGEX: leading lines matching this are not data. */
+  preambleRegex: RegExp | null;
+  /** TIMESTAMP_FIELDS: extracted fields that together hold the timestamp. */
+  timestampFields: string[] | null;
+}
+
+/**
+ * Decode the single-character tokens the structured-header settings accept:
+ * a literal character (optionally double-quoted), `\t`/`tab`, `space`, the
+ * ASCII separator names (`fs`/`gs`/`rs`/`us`), `\xHH`, `whitespace`/`ws`
+ * (FIELD_DELIMITER only) and `none` (FIELD_QUOTE only).
+ */
+function decodeDelimiterChar(raw: string): { char?: string; whitespace?: true; none?: true } | null {
+  const v = raw.trim();
+  switch (v.toLowerCase()) {
+    case 'space':
+      return { char: ' ' };
+    case 'tab':
+    case '\\t':
+      return { char: '\t' };
+    case 'fs':
+      return { char: '\x1c' };
+    case 'gs':
+      return { char: '\x1d' };
+    case 'rs':
+      return { char: '\x1e' };
+    case 'us':
+      return { char: '\x1f' };
+    case 'none':
+      return { none: true };
+    case 'whitespace':
+    case 'ws':
+      return { whitespace: true };
+  }
+  const hex = /^\\x([0-9a-f]{2})$/i.exec(v);
+  if (hex) return { char: String.fromCharCode(parseInt(hex[1]!, 16)) };
+  const unquoted = v.length >= 2 && v.startsWith('"') && v.endsWith('"') ? v.slice(1, -1) : v;
+  return unquoted.length > 0 ? { char: unquoted.charAt(0) } : null;
+}
+
+/** A comma-separated list of names, each optionally double-quoted. */
+function parseNameList(raw: string): string[] {
+  const out: string[] = [];
+  for (const part of raw.split(',')) {
+    const name = part.trim().replace(/^"(.*)"$/, '$1').trim();
+    if (name) out.push(name);
+  }
+  return out;
+}
+
+function delimitedOptions(
+  directives: ConfDirective[],
+  defaultDelimiter: string,
+  diagnostics?: ValidationDiagnostic[],
+): DelimitedOptions {
+  const find = (key: string) => directives.find((d) => d.key === key);
+
+  const opts: DelimitedOptions = {
+    delimiter: defaultDelimiter,
+    whitespaceDelimiter: false,
+    quote: '"',
+    fieldNames: null,
+    headerLineNumber: 0,
+    preambleRegex: null,
+    timestampFields: null,
+  };
+
+  const delimiterDir = find('FIELD_DELIMITER');
+  if (delimiterDir) {
+    const decoded = decodeDelimiterChar(delimiterDir.value);
+    if (decoded?.whitespace) opts.whitespaceDelimiter = true;
+    else if (decoded?.char !== undefined) opts.delimiter = decoded.char;
+  }
+
+  const quoteDir = find('FIELD_QUOTE');
+  if (quoteDir) {
+    const decoded = decodeDelimiterChar(quoteDir.value);
+    if (decoded?.none) opts.quote = null;
+    else if (decoded?.char !== undefined) opts.quote = decoded.char;
+  }
+
+  const namesDir = find('FIELD_NAMES');
+  if (namesDir) {
+    const names = parseNameList(namesDir.value);
+    if (names.length > 0) opts.fieldNames = names;
+  }
+
+  const headerLineDir = find('HEADER_FIELD_LINE_NUMBER');
+  if (headerLineDir) {
+    const n = parseInt(headerLineDir.value.trim(), 10);
+    if (Number.isFinite(n) && n > 0) opts.headerLineNumber = n;
+  }
+
+  const preambleDir = find('PREAMBLE_REGEX');
+  if (preambleDir) {
+    const compiled = safeRegex(preambleDir.value.trim());
+    if (compiled) {
+      opts.preambleRegex = compiled;
+    } else if (diagnostics) {
+      diagnostics.push({
+        level: 'warning',
+        message: `PREAMBLE_REGEX (${preambleDir.value.trim()}) could not be compiled safely (invalid regex or rejected as ReDoS-prone). No preamble lines were skipped.`,
+        file: 'props.conf',
+        ...atDirective(preambleDir),
+        directiveKey: 'PREAMBLE_REGEX',
+      });
+    }
+  }
+
+  const timestampDir = find('TIMESTAMP_FIELDS');
+  if (timestampDir) {
+    const names = parseNameList(timestampDir.value);
+    if (names.length > 0) opts.timestampFields = names;
+  }
+
+  return opts;
+}
+
+/**
+ * Compose `_time` from TIMESTAMP_FIELDS: the named fields' values, joined with
+ * spaces in the declared order, parsed with the stanza's TIME_FORMAT/TZ. The
+ * composed value starts at offset 0, so TIME_PREFIX and the lookahead — which
+ * position a timestamp inside a raw event — do not apply to it.
+ */
+function applyTimestampFields(
+  event: SplunkEvent,
+  timestampFields: string[] | null,
+  directives: ConfDirective[],
+): SplunkEvent {
+  if (!timestampFields) return event;
+
+  const parts: string[] = [];
+  for (const name of timestampFields) {
+    const value = getField(event.fields, name);
+    const first = Array.isArray(value) ? value[0] : value;
+    if (first !== undefined && first !== '') parts.push(first);
+  }
+  if (parts.length === 0) return event;
+  const composed = parts.join(' ');
+
+  const probe: SplunkEvent = { ...event, _raw: composed, _time: null, processingTrace: [] };
+  const probeDirectives = directives.filter(
+    (d) => d.key !== 'TIME_PREFIX' && d.key !== 'MAX_TIMESTAMP_LOOKAHEAD',
+  );
+  const parsed = extractTimestamps([probe], probeDirectives)[0]?._time ?? null;
+  if (!parsed) return event;
+
+  return {
+    ...event,
+    _time: parsed,
+    processingTrace: [
+      ...event.processingTrace,
+      {
+        processor: 'INDEXED_EXTRACTIONS(TIMESTAMP_FIELDS)',
+        phase: 'index-time' as const,
+        description: `_time parsed from ${timestampFields.join(', ')} ("${composed}")`,
+        fieldsAdded: [],
+        fieldsModified: ['_time'],
+      },
+    ],
+  };
+}
+
+function extractDelimited(
+  events: SplunkEvent[],
+  directives: ConfDirective[],
+  defaultDelimiter: string,
+  mode: string,
+  diagnostics?: ValidationDiagnostic[],
+): SplunkEvent[] {
   if (events.length === 0) return events;
 
-  // Splunk reads the header from the first *content* line of the file, so a
-  // leading blank or comment line that became its own event must be skipped —
-  // assuming `events[0]` is the header made every field name garbage whenever
-  // the file opened with one.
-  const headerIndex = events.findIndex((e) => isContentLine(e._raw));
-  const headerEvent = events[headerIndex];
-  if (headerEvent === undefined) return events;
+  const opts = delimitedOptions(directives, defaultDelimiter, diagnostics);
 
-  const headers = parseDelimitedLine(headerEvent._raw, delimiter).map(sanitizeHeaderName);
+  // PREAMBLE_REGEX: a leading run of matching lines is not data. Only the
+  // leading run — the attribute exists for banners before the header, and
+  // dropping matching lines from the middle of the data would silently lose
+  // records.
+  let working = events;
+  if (opts.preambleRegex) {
+    let skip = 0;
+    while (skip < working.length && opts.preambleRegex.test(working[skip]!._raw)) skip++;
+    working = working.slice(skip);
+  }
+
+  // Where the field names come from decides how much of the input is data:
+  // FIELD_NAMES names them directly and consumes nothing;
+  // HEADER_FIELD_LINE_NUMBER names the exact header line; otherwise the first
+  // content line is the header — a leading blank or comment line that became
+  // its own event must be skipped, since assuming `events[0]` is the header
+  // makes every field name garbage whenever the file opens with one.
+  let headers: string[];
+  let dataStart: number;
+  if (opts.fieldNames) {
+    headers = opts.fieldNames.map(sanitizeHeaderName);
+    dataStart = 0;
+  } else if (opts.headerLineNumber > 0) {
+    const headerEvent = working[opts.headerLineNumber - 1];
+    if (headerEvent === undefined) return events;
+    headers = parseDelimitedLine(headerEvent._raw, opts).map(sanitizeHeaderName);
+    dataStart = opts.headerLineNumber;
+  } else {
+    const headerIndex = working.findIndex((e) => isContentLine(e._raw));
+    const headerEvent = working[headerIndex];
+    if (headerEvent === undefined) return events;
+    headers = parseDelimitedLine(headerEvent._raw, opts).map(sanitizeHeaderName);
+    dataStart = headerIndex + 1;
+  }
 
   if (headers.length === 0) return events;
 
-  // The header row is consumed as metadata — Splunk does not index it as an
-  // event. Anything before it is preamble and is dropped with it.
-  return events.slice(headerIndex + 1).map((event) => {
-    const values = parseDelimitedLine(event._raw, delimiter);
+  // The header row (and any preamble before it) is consumed as metadata —
+  // Splunk does not index it as an event.
+  return working.slice(dataStart).map((event) => {
+    const values = parseDelimitedLine(event._raw, opts);
 
     const fields = { ...event.fields };
     const added: string[] = [];
@@ -89,7 +307,7 @@ function extractDelimited(events: SplunkEvent[], delimiter: string, mode: string
       }
     }
 
-    return {
+    const extracted: SplunkEvent = {
       ...event,
       fields,
       processingTrace: [
@@ -102,6 +320,8 @@ function extractDelimited(events: SplunkEvent[], delimiter: string, mode: string
         },
       ],
     };
+
+    return applyTimestampFields(extracted, opts.timestampFields, directives);
   });
 }
 
@@ -192,7 +412,7 @@ function parseW3cLine(line: string): string[] {
   return tokens;
 }
 
-function parseDelimitedLine(line: string, delimiter: string): string[] {
+function parseDelimitedLine(line: string, opts: DelimitedOptions): string[] {
   const fields: string[] = [];
   let current = '';
   let inQuotes = false;
@@ -205,24 +425,29 @@ function parseDelimitedLine(line: string, delimiter: string): string[] {
     fieldQuoted = false;
   };
 
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
+  const isDelimiter = (ch: string) =>
+    opts.whitespaceDelimiter ? ch === ' ' || ch === '\t' : ch === opts.delimiter;
 
-    if (ch === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"';
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]!;
+
+    if (opts.quote !== null && ch === opts.quote) {
+      if (inQuotes && line[i + 1] === opts.quote) {
+        current += opts.quote;
         i++;
       } else {
         inQuotes = !inQuotes;
         if (inQuotes) fieldQuoted = true;
       }
-    } else if (ch === delimiter && !inQuotes) {
-      pushField();
+    } else if (isDelimiter(ch) && !inQuotes) {
+      // A whitespace delimiter separates on the RUN: consecutive delimiter
+      // characters (and a leading run) do not produce empty fields.
+      if (!opts.whitespaceDelimiter || current.length > 0 || fieldQuoted) pushField();
     } else {
       current += ch;
     }
   }
 
-  pushField();
+  if (!opts.whitespaceDelimiter || current.length > 0 || fieldQuoted) pushField();
   return fields;
 }

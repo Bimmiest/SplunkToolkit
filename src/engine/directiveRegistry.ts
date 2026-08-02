@@ -935,9 +935,9 @@ const DIRECTIVE_DEFINITIONS: DirectiveDefinition[] = [
   {
     key: 'HEADER_FIELD_LINE_NUMBER',
     description:
-      'For structured data types (INDEXED_EXTRACTIONS), specifies which line number contains the field/header names. ' +
-      'The first line is line number 0.',
-    example: 'HEADER_FIELD_LINE_NUMBER = 0',
+      'For structured data types (INDEXED_EXTRACTIONS), the 1-based line number of the line that ' +
+      'holds the header field names. At 0, the default, the header line is located automatically.',
+    example: 'HEADER_FIELD_LINE_NUMBER = 2',
     defaultValue: '0',
     category: 'Structured Data',
     appliesTo: 'props.conf',
