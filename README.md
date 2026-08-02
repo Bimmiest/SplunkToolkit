@@ -75,6 +75,8 @@ Below 768px the rail is replaced by `MobileShell`'s labelled tab strip — the r
 
 `src/engine/**` is pure logic with no React imports and no runtime dependencies, and it runs unchanged in the browser, in a Web Worker, and under Node. `runPipeline` is the entry point. [docs/engine.md](docs/engine.md) covers the API: `PipelineOptions`, layered conf input with override provenance, and the caveats that matter when running user-supplied regexes under Node.
 
+[`packages/mcp-server`](packages/mcp-server) is the Node consumer of that API: an MCP server exposing `simulate`, `validate`, `explain_precedence` and `lookup_directive` tools, so an LLM agent can run a config against real sample data instead of guessing about it. It implements the untrusted-regex discipline engine.md prescribes — every engine run happens in a terminatable worker thread under a wall-clock budget. See its [README](packages/mcp-server/README.md).
+
 ## Project structure
 
 ```
