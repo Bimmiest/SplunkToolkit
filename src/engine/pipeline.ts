@@ -6,6 +6,7 @@ import { breakLines } from './processors/lineBreaker';
 import { extractTimestamps } from './processors/timestampExtractor';
 import { truncateEvents } from './processors/truncator';
 import { applyIndexedExtractions } from './processors/indexedExtractions';
+import { annotatePunct } from './processors/punctAnnotator';
 import { applySedCommands } from './processors/sedCmd';
 import { applyTransforms } from './processors/transformsProcessor';
 import { extractFields } from './processors/fieldExtractor';
@@ -360,6 +361,11 @@ export function runPipeline(
   // INGEST_EVAL stanzas are all applied here, interleaved in TRANSFORMS-<class>
   // list order (only when a props.conf stanza references them).
   events = safeProcessor('TRANSFORMS', events, () => applyTransforms(events, directives, transformsConf, 'index-time', diagnostics), diagnostics, 'transforms.conf');
+
+  // Step 8: ANNOTATE_PUNCT — the annotation processor runs after regex
+  // replacement, so the punct signature reflects _raw as indexed (post-SEDCMD,
+  // post-transforms), not as ingested.
+  events = safeProcessor('ANNOTATE_PUNCT', events, () => annotatePunct(events, directives), diagnostics);
 
   // ── Search-time processing ────────────────────────────
 

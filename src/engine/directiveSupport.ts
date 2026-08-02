@@ -171,9 +171,10 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
     note: 'Controls how the indexer segments terms for search; it does not change event text or fields.',
   },
   ANNOTATE_PUNCT: {
-    support: 'ignored',
-    issue: 185,
-    note: 'The punct field is never generated.',
+    support: 'simulated',
+    note:
+      'The signature format follows the documented example and community-established behaviour; ' +
+      'no capture pins it yet, since captures exclude punct (#185).',
   },
   // The stanza-level four (#186). All change which stanza applies rather than
   // what one directive does, so getting one wrong moves every downstream result.

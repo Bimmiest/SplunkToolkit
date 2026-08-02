@@ -46,7 +46,10 @@ describe('KV_MODE = xml', () => {
   });
 
   it('extracts nothing from text that is not XML', () => {
-    expect(fieldsOf('plain text, no markup here')).toEqual({});
+    // `punct` is generated for every event by the annotation processor (#185),
+    // so "nothing" means "nothing beyond it".
+    const { punct: _punct, ...rest } = fieldsOf('plain text, no markup here');
+    expect(rest).toEqual({});
   });
 
   it('keeps the WinEventLog Name-attribute convention unprefixed', () => {

@@ -95,11 +95,18 @@ function runCase(fixture: Fixture): ReturnType<typeof runPipeline> {
 /** Engine output reduced to the shape the fixture records. */
 function engineEvents(fixture: Fixture): CapturedEvent[] {
   const { result } = runCase(fixture);
-  return result.events.map((e) => ({
-    _raw: e._raw,
-    _time: e._time ? e._time.getTime() : null,
-    fields: e.fields,
-  }));
+  return result.events.map((e) => {
+    // The capture excludes `punct` from every fixture (EXCLUDED_FIELDS in
+    // scripts/capture-fixtures.ts). The engine now generates it (#185), so the
+    // comparison mirrors the exclusion; pinning the signature itself means
+    // removing that exclusion and re-capturing.
+    const { punct: _punct, ...fields } = e.fields;
+    return {
+      _raw: e._raw,
+      _time: e._time ? e._time.getTime() : null,
+      fields,
+    };
+  });
 }
 
 /** Human-readable diff summary; `expect` alone buries which event diverged. */
