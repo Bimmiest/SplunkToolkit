@@ -7,26 +7,23 @@
  * the signature reflects the event as indexed — after SEDCMD and index-time
  * transforms have rewritten `_raw`.
  *
- * The signature itself is under-documented. What is implemented here follows
- * the worked example in Splunk's search documentation plus well-established
- * community observations:
- *  - letters and digits are dropped, every other character survives in order;
- *  - a space becomes `_`;
- *  - tab and newline become the two-character sequences `\t` and `\n`, which
- *    is what makes `punct="*\\t*"` a working idiom for finding tab-indented
- *    stack traces;
- *  - the signature is capped at 30 characters.
+ * The signature rules are pinned by the `punct-*` captures from Splunk 10.4.0:
+ *  - letters and digits are dropped, every other character survives in order
+ *    (`punct-basic`);
+ *  - a space becomes `_` (`punct-basic`);
+ *  - a tab becomes the literal letter `t`, and a newline is dropped entirely
+ *    (`punct-whitespace-and-multiline`) — measured, and not what the
+ *    widely-repeated `\t`/`\n` escape-sequence folklore says;
+ *  - the signature caps at exactly 50 characters (`punct-cap`).
  *
- * The cap and the carriage-return handling (dropped here) are inferred rather
- * than measured. No fidelity capture pins any of this yet: the capture script
- * currently excludes `punct` from every fixture, so pinning it means removing
- * that exclusion and re-capturing (#185).
+ * Carriage returns are dropped like newlines; that half is inferred from the
+ * newline measurement rather than pinned by a capture of its own.
  */
 
 import type { ConfDirective, SplunkEvent } from '../types';
 import { setField } from '../utils/fieldBag';
 
-const PUNCT_MAX_LENGTH = 30;
+const PUNCT_MAX_LENGTH = 50;
 
 /** Build the punctuation signature for one event's `_raw`. */
 export function buildPunct(raw: string): string {
@@ -35,12 +32,11 @@ export function buildPunct(raw: string): string {
     if (out.length >= PUNCT_MAX_LENGTH) break;
     if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) continue;
     if (ch === ' ') out += '_';
-    else if (ch === '\t') out += '\\t';
-    else if (ch === '\n') out += '\\n';
-    else if (ch === '\r') continue;
+    else if (ch === '\t') out += 't';
+    else if (ch === '\n' || ch === '\r') continue;
     else out += ch;
   }
-  return out.slice(0, PUNCT_MAX_LENGTH);
+  return out;
 }
 
 export function annotatePunct(events: SplunkEvent[], directives: ConfDirective[]): SplunkEvent[] {

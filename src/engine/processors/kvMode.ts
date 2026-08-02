@@ -1,6 +1,7 @@
 import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
 import { flattenJson, flattenArray } from '../utils/flattenJson';
 import { hasField, setField, addFieldValue } from '../utils/fieldBag';
+import { cleanFieldKey } from '../transforms/regexTransform';
 
 export function applyKvMode(
   events: SplunkEvent[],
@@ -296,17 +297,21 @@ function extractKeyValue(
   // settles it by position — the quote that opens first consumes through its own
   // close, so whatever is nested inside is never a candidate.
   //
-  // Key character class includes hyphen, dot, colon (e.g. x-forwarded-for=...).
-  // In auto_escaped mode the quoted branches allow backslash escapes inside the
-  // value (e.g. key="say \"hi\""), which Splunk's auto_escaped KV_MODE honours.
+  // Key character class includes hyphen and dot (x-forwarded-for=..., both are
+  // rewritten to underscores by key cleaning) but NOT colon: a colon re-anchors
+  // the key, so `ip:port=1.2.3.4` names the field `port` — pinned by the
+  // autokv-key-punctuation capture, and why `:` sits in the boundary class
+  // instead. In auto_escaped mode the quoted branches allow backslash escapes
+  // inside the value (e.g. key="say \"hi\""), which Splunk's auto_escaped
+  // KV_MODE honours.
   const quoted = escaped
-    ? /(?:^|[\s,;])([\w.\-:]+)=(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')/g
-    : /(?:^|[\s,;])([\w.\-:]+)=(?:"([^"]*)"|'([^']*)')/g;
+    ? /(?:^|[\s,;:])([\w.-]+)=(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')/g
+    : /(?:^|[\s,;:])([\w.-]+)=(?:"([^"]*)"|'([^']*)')/g;
   // `=` is in the VALUE class: Splunk splits a bare pair on the first `=` and
   // takes the rest of the token, so `query=x=y=z` is one field worth `x=y=z`.
   // Excluding it truncated at the second `=` instead, which silently corrupts
   // query strings, base64 and filter expressions -- all routine in log data.
-  const bare = /(?:^|[\s,;])([\w.\-:]+)=([\w.:\-/\\@#+=]+)/g;
+  const bare = /(?:^|[\s,;:])([\w.-]+)=([\w.:\-/\\@#+=]+)/g;
 
   // Working copy for the bare pass. Quoted key=value spans are blanked out here
   // so that a `key=value` substring *inside* a quoted value (e.g.
@@ -325,19 +330,15 @@ function extractKeyValue(
   // field that INDEXED_EXTRACTIONS or a REPORT already produced.
   const seenHere = new Set<string>();
   const record = (rawKey: string, value: string): void => {
-    // Auto-KV rewrites punctuation in the key to underscores (#207): observed
-    // directly against Splunk 10.4.0, `zone-found=dmz` in _raw yields the
-    // field `zone_found`. Deliberately ONLY that half of transforms-style key
-    // cleaning — the leading digits/underscores that CLEAN_KEYS would strip
-    // survive here, since auto-KV measurably keeps `1st=first` as `1st`
-    // (#166). A key with no alphanumerics left is discarded.
-    const key = rawKey.replace(/[^A-Za-z0-9_]/g, '_');
-    if (!/[A-Za-z0-9]/.test(key)) return;
-    // Splunk discards a purely numeric field name from auto-KV. Reachable from
-    // ordinary data via a SEDCMD that rewrites pairs, and the engine extracting
-    // `1 = "a"` where Splunk extracts nothing is a field that can never exist
-    // in the user's real deployment.
-    if (/^\d+$/.test(key)) return;
+    // Auto-KV names the field through the same key cleaning transforms use:
+    // punctuation to underscores, then leading digits and underscores
+    // stripped. Pinned by the autokv-key captures from 10.4.0 (#207):
+    // `zone-found` becomes `zone_found`, `2fa` becomes `fa`, and a key that
+    // cleans to nothing — including a purely numeric one — is discarded.
+    // (An earlier reading, encoded in a #166 test, had leading digits
+    // surviving; the capture disproved it.)
+    const key = cleanFieldKey(rawKey);
+    if (!key) return;
     if (seenHere.has(key)) return; // first occurrence wins
     if (hasField(fields, key)) return; // produced by an earlier processor — leave it alone
     setField(fields, key, value);

@@ -286,10 +286,14 @@ describe('applyKvMode — purely numeric field names are rejected (#166)', () =>
     expect(out.fields['2']).toBeUndefined();
   });
 
-  it('keeps a name that merely starts with a digit', () => {
+  it('strips the leading digits from a name that merely starts with them', () => {
+    // Corrected by the autokv-key-edge-names capture (2fa=on is indexed as
+    // `fa`): auto-KV applies the same leading-digit strip as transforms key
+    // cleaning. This test previously asserted the digits survived.
     const out = applyKvMode([event('1st=first 2nd=second')], [dir('auto')])[0]!;
-    expect(out.fields['1st']).toBe('first');
-    expect(out.fields['2nd']).toBe('second');
+    expect(out.fields['st']).toBe('first');
+    expect(out.fields['nd']).toBe('second');
+    expect(out.fields['1st']).toBeUndefined();
   });
 });
 
@@ -314,21 +318,21 @@ describe('applyKvMode — extraction never mutates the input event (#63)', () =>
 });
 
 describe('applyKvMode — auto-KV key cleaning (#207)', () => {
-  // Observed directly against Splunk 10.4.0 while capturing
-  // transforms-default-value: _raw "zone-found=dmz" yields the search-time
-  // field zone_found. Only the punctuation-to-underscore half of key cleaning
-  // applies here — leading digits survive (see the #166 tests above), unlike
-  // under transforms CLEAN_KEYS.
+  // Pinned by the autokv-key-punctuation and autokv-key-edge-names captures
+  // from Splunk 10.4.0: keys go through full transforms-style cleaning
+  // (punctuation to underscores, leading digits/underscores stripped), except
+  // that a colon is not cleaned — it re-anchors the key.
   it('sanitizes a hyphenated key the way Splunk indexes it', () => {
     const r = applyKvMode([event('2026-01-15T10:00:00Z zone-found=dmz')], [dir('auto')])[0]!;
     expect(r.fields['zone_found']).toBe('dmz');
     expect(r.fields['zone-found']).toBeUndefined();
   });
 
-  it('sanitizes dotted and colon-separated keys', () => {
+  it('sanitizes a dotted key, and re-anchors at a colon rather than cleaning it', () => {
     const r = applyKvMode([event('user.name=alice ip:port=1.2.3.4')], [dir('auto')])[0]!;
     expect(r.fields['user_name']).toBe('alice');
-    expect(r.fields['ip_port']).toBe('1.2.3.4');
+    expect(r.fields['port']).toBe('1.2.3.4');
+    expect(r.fields['ip_port']).toBeUndefined();
   });
 
   it('cleans quoted-pair keys through the same rule', () => {
@@ -336,10 +340,12 @@ describe('applyKvMode — auto-KV key cleaning (#207)', () => {
     expect(r.fields['x_forwarded_for']).toBe('1.2.3.4, 5.6.7.8');
   });
 
-  it('keeps a leading-digit key while dropping one with no alphanumerics', () => {
-    const r = applyKvMode([event('2fa=on --=x')], [dir('auto')])[0]!;
-    expect(r.fields['2fa']).toBe('on');
+  it('strips leading digits, and drops a key that cleans to nothing', () => {
+    const r = applyKvMode([event('2fa=on --=x 7=lucky')], [dir('auto')])[0]!;
+    expect(r.fields['fa']).toBe('on');
+    expect(r.fields['2fa']).toBeUndefined();
     expect(Object.keys(r.fields)).not.toContain('__');
+    expect(Object.values(r.fields)).not.toContain('lucky');
   });
 
   it('applies first-occurrence-wins on the CLEANED name', () => {

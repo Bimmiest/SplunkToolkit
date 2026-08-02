@@ -2,9 +2,10 @@
 // annotatePunct.test.ts
 // ANNOTATE_PUNCT and the punct signature (#185).
 //
-// The signature rules asserted here come from the documented example and
-// long-established community behaviour, not from a capture — the capture
-// script excludes punct from every fixture, so no fixture can pin it yet.
+// The signature rules asserted here are pinned by the punct-* captures from
+// Splunk 10.4.0 (which corrected two pieces of folklore: tab encodes as the
+// letter `t` rather than `\t`, newlines are dropped, and the cap is 50
+// characters, not 30).
 // ---------------------------------------------------------------------------
 
 import { describe, it, expect } from 'vitest';
@@ -31,17 +32,17 @@ describe('buildPunct', () => {
     );
   });
 
-  it('maps a tab to the two-character sequence \\t', () => {
-    expect(buildPunct('\tat com.example.Main(Main.java:1)')).toBe('\\t_..(.:)');
+  it('maps a tab to the literal letter t (punct-whitespace-and-multiline)', () => {
+    expect(buildPunct('\tat com.example.Main(Main.java:1)')).toBe('t_..(.:)');
   });
 
-  it('maps a newline to the two-character sequence \\n', () => {
-    expect(buildPunct('a=1\nb=2')).toBe('=\\n=');
+  it('drops newlines entirely (punct-whitespace-and-multiline)', () => {
+    expect(buildPunct('a=1\nb=2')).toBe('==');
   });
 
-  it('caps the signature at 30 characters', () => {
+  it('caps the signature at 50 characters (punct-cap)', () => {
     const punct = buildPunct('.'.repeat(100));
-    expect(punct).toBe('.'.repeat(30));
+    expect(punct).toBe('.'.repeat(50));
   });
 
   it('is empty for a purely alphanumeric event', () => {

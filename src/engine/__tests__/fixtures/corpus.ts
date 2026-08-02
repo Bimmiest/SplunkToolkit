@@ -63,6 +63,13 @@ export interface FixtureCase {
    * fixed, prompting removal. Value is the tracking issue.
    */
   knownMismatch?: string;
+  /**
+   * Record and compare the `punct` field for this case. punct is excluded from
+   * every fixture by default (ANNOTATE_PUNCT is on everywhere, so recording it
+   * globally would make every case a punct assertion); the cases that exist to
+   * pin the signature opt back in with this.
+   */
+  comparePunct?: boolean;
   /** Why this case exists, when that isn't obvious from the directives alone. */
   note?: string;
 }
@@ -1096,6 +1103,196 @@ export const CORPUS: FixtureCase[] = [
       'A timestamp split across two columns, composed via TIMESTAMP_FIELDS. The TIME_FORMAT ' +
       'carries a space between the date and time halves, which pins the join delimiter Splunk ' +
       'uses when concatenating the named fields.',
+  },
+  // -------------------------------------------------------------------------
+  // Full-capture round two (#209 and the behaviours the Tier 1 round left
+  // unpinned): auto-KV key sanitization, the punct signature, the remaining
+  // delimited overrides, the LOOKAHEAD default, the unterminated no-break
+  // span, priority, and the previous-event _time fallback.
+  // -------------------------------------------------------------------------
+  {
+    id: 'autokv-key-punctuation',
+    directives: ['KV_MODE'],
+    phase: 'search-time',
+    props: 'SHOULD_LINEMERGE = false\nTZ = UTC\nKV_MODE = auto\n',
+    input:
+      '2026-01-15T10:00:00Z zone-found=dmz user.name=alice ip:port=1.2.3.4 ' +
+      'x-forwarded-for="1.2.3.4, 5.6.7.8"\n',
+    note:
+      'Punctuated keys through both the bare and quoted auto-KV passes. The hyphen case was ' +
+      'observed once during the transforms-default-value capture (zone-found became zone_found); ' +
+      'this pins it properly along with dot, colon and a quoted key.',
+  },
+  {
+    id: 'autokv-key-edge-names',
+    directives: ['KV_MODE'],
+    phase: 'search-time',
+    props: 'SHOULD_LINEMERGE = false\nTZ = UTC\nKV_MODE = auto\n',
+    input: '2026-01-15T10:00:00Z 2fa=on --=x a-b=1 a_b=2 7=lucky\n',
+    note:
+      'The edges of key sanitization: a digit-leading key (kept, per #166), a key with no ' +
+      'alphanumerics, two raw spellings that sanitize to one name (which value wins?), and a ' +
+      'purely numeric key (dropped, per #166).',
+  },
+  {
+    id: 'punct-basic',
+    directives: ['ANNOTATE_PUNCT'],
+    phase: 'index-time',
+    comparePunct: true,
+    props:
+      'SHOULD_LINEMERGE = false\nTZ = UTC\nKV_MODE = none\nANNOTATE_PUNCT = true\n' +
+      'TIME_PREFIX = \\[\nTIME_FORMAT = %d/%b/%Y:%H:%M:%S %z\n',
+    input: '10.0.0.1 - - [15/Jan/2026:10:00:00 +0000] "GET /index.html HTTP/1.1" 200 2326\n',
+    note:
+      'The punct signature for the access-log shape: which characters survive, that letters and ' +
+      'digits are dropped, and how spaces are rewritten. The event is deliberately shorter than ' +
+      'any plausible signature cap so this pins only the character rules.',
+  },
+  {
+    id: 'punct-whitespace-and-multiline',
+    directives: ['ANNOTATE_PUNCT', 'SHOULD_LINEMERGE'],
+    phase: 'index-time',
+    comparePunct: true,
+    props:
+      'SHOULD_LINEMERGE = true\nBREAK_ONLY_BEFORE_DATE = true\nTZ = UTC\nKV_MODE = none\n' +
+      'ANNOTATE_PUNCT = true\n',
+    input:
+      '2026-01-15T10:00:00Z error!\n' +
+      '\tat com.example.Main(Main.java:42)\n' +
+      '2026-01-15T10:00:01Z ok\n',
+    note:
+      'A merged two-line event whose continuation starts with a tab. Pins how punct encodes the ' +
+      'newline and the tab — the community idiom punct="*\\\\t*" for finding stack traces implies ' +
+      'two-character escape sequences rather than literal whitespace.',
+  },
+  {
+    id: 'punct-cap',
+    directives: ['ANNOTATE_PUNCT'],
+    phase: 'index-time',
+    comparePunct: true,
+    props: 'SHOULD_LINEMERGE = false\nTZ = UTC\nKV_MODE = none\nANNOTATE_PUNCT = true\n',
+    input: '2026-01-15T10:00:00Z ' + '.'.repeat(60) + '\n',
+    note:
+      'Sixty dots after the timestamp. The signature is widely held to cap at 30 characters; ' +
+      'this measures the cap (and where it cuts) rather than trusting the folklore.',
+  },
+  {
+    id: 'punct-disabled',
+    directives: ['ANNOTATE_PUNCT'],
+    phase: 'index-time',
+    comparePunct: true,
+    props: 'SHOULD_LINEMERGE = false\nTZ = UTC\nKV_MODE = none\nANNOTATE_PUNCT = false\n',
+    input: '2026-01-15T10:00:00Z some punctuation: yes!\n',
+    note: 'ANNOTATE_PUNCT = false must suppress the field entirely, not record an empty one.',
+  },
+  {
+    id: 'indexed-extractions-field-quote',
+    directives: ['INDEXED_EXTRACTIONS', 'FIELD_QUOTE'],
+    phase: 'index-time',
+    props: "INDEXED_EXTRACTIONS = CSV\nFIELD_QUOTE = '\nKV_MODE = none\nTZ = UTC\n",
+    input:
+      'ts,user,note\n' +
+      "2026-01-15T10:00:00Z,alice,'hello, world'\n",
+    note:
+      'A single-quote FIELD_QUOTE protecting a comma inside a value — the quote override the ' +
+      'Tier 1 round implemented but did not capture.',
+  },
+  {
+    id: 'indexed-extractions-header-line-number',
+    directives: ['INDEXED_EXTRACTIONS', 'HEADER_FIELD_LINE_NUMBER'],
+    phase: 'index-time',
+    props: 'INDEXED_EXTRACTIONS = CSV\nHEADER_FIELD_LINE_NUMBER = 2\nKV_MODE = none\nTZ = UTC\n',
+    input:
+      'Report generated 2026-01-15\n' +
+      'ts,user,status\n' +
+      '2026-01-15T10:00:00Z,alice,200\n',
+    note:
+      'The header on line 2 behind a banner line. Pins the 1-based interpretation and that the ' +
+      'banner is consumed rather than indexed.',
+  },
+  {
+    id: 'transforms-lookahead-default',
+    directives: ['TRANSFORMS-', 'LOOKAHEAD', 'REGEX', 'FORMAT', 'DEST_KEY'],
+    phase: 'index-time',
+    props: 'SHOULD_LINEMERGE = false\nTZ = UTC\nTRANSFORMS-lad = fx_lookahead_default\n',
+    transforms:
+      '[fx_lookahead_default]\nREGEX = marker=(\\w+)\nDEST_KEY = _raw\nFORMAT = found=$1\n',
+    input:
+      '2026-01-15T10:00:00Z ' + 'x'.repeat(4090) + ' marker=deep\n' +
+      '2026-01-15T10:00:01Z marker=near\n',
+    note:
+      'No LOOKAHEAD declared: the documented default window is 4096 characters, and the first ' +
+      "event's match sits just beyond it. transforms-lookahead-bound pins the explicit attribute; " +
+      'this pins the default.',
+  },
+  {
+    id: 'linebreak-must-not-break-after-unterminated',
+    directives: ['SHOULD_LINEMERGE', 'MUST_NOT_BREAK_AFTER'],
+    phase: 'index-time',
+    props:
+      'SHOULD_LINEMERGE = true\nBREAK_ONLY_BEFORE_DATE = true\n' +
+      'MUST_NOT_BREAK_AFTER = BEGIN$\nTZ = UTC\n',
+    input:
+      '2026-01-15T10:00:00Z BEGIN\n' +
+      '2026-01-15T10:00:01Z a\n' +
+      '2026-01-15T10:00:02Z b\n',
+    note:
+      'The no-break span with no MUST_BREAK_AFTER to end it. The engine reads the span as running ' +
+      'to end of input; nothing had measured what Splunk does without a terminator.',
+  },
+  {
+    id: 'precedence-wildcard-priority-beats-exact',
+    directives: ['SEDCMD', 'priority'],
+    phase: 'index-time',
+    ingestSource: 'fx_prio_wild_exact',
+    props: 'SHOULD_LINEMERGE = false\nTZ = UTC\n',
+    extraProps: [
+      { stanza: 'source::fx_prio_wild_exact', body: 'SEDCMD-who = s/MARKER/from_exact/\n' },
+      {
+        stanza: 'source::fx_prio_wild_*',
+        body: 'priority = 200\nSEDCMD-who = s/MARKER/from_wildcard/\n',
+      },
+    ],
+    input: '2026-01-15T10:00:00Z MARKER\n',
+    note:
+      'The README calls priority the one part of stanza resolution asserted only against our ' +
+      'reading of the docs. Per that reading, a wildcard stanza defaults to 0 and needs priority ' +
+      'above the literal\'s implicit 100 to win — so 200 should flip the ' +
+      'precedence-wildcard-vs-exact-source outcome.',
+  },
+  {
+    id: 'precedence-priority-cannot-cross-kinds',
+    directives: ['SEDCMD', 'priority'],
+    phase: 'index-time',
+    ingestSource: 'fx_prio_cross_src',
+    ingestHost: 'fx_prio_cross_host',
+    props: 'SHOULD_LINEMERGE = false\nTZ = UTC\n',
+    extraProps: [
+      { stanza: 'source::fx_prio_cross_src', body: 'SEDCMD-who = s/MARKER/from_source/\n' },
+      {
+        stanza: 'host::fx_prio_cross_host',
+        body: 'priority = 1000\nSEDCMD-who = s/MARKER/from_host/\n',
+      },
+    ],
+    input: '2026-01-15T10:00:00Z MARKER\n',
+    note:
+      'props.conf.spec is read as saying priority orders stanzas within a kind and cannot reach ' +
+      'across kinds — source beats host regardless of any declared number. A host:: stanza with ' +
+      'priority = 1000 losing to a plain source:: stanza is that claim, measured.',
+  },
+  {
+    id: 'timestamp-fallback-previous-event',
+    directives: ['SHOULD_LINEMERGE'],
+    phase: 'index-time',
+    props: 'SHOULD_LINEMERGE = false\nTZ = UTC\n',
+    input:
+      '2026-01-15T10:00:00Z first\n' +
+      'no date at all here\n' +
+      '2026-01-15T10:00:02Z third\n',
+    note:
+      'A dateless standalone event between two dated ones. Splunk\'s documented fallback gives it ' +
+      'the previous event\'s _time — the one step of the #85 fallback chain that is deterministic ' +
+      'enough to be a fixture (the later steps depend on ingest wall-clock and cannot reproduce).',
   },
   {
     id: 'fieldalias-and-eval',
