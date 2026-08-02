@@ -130,10 +130,10 @@ function diagnosticsFor(props: string, transforms = '') {
 
 describe('unsimulated directives are reported rather than ignored (#153)', () => {
   it('warns, and names the tracking issue, for an ignored directive', () => {
-    const d = diagnosticsFor('ANNOTATE_PUNCT = true\n').find((x) => x.directiveKey === 'ANNOTATE_PUNCT');
+    const d = diagnosticsFor('DATETIME_CONFIG = NONE\n').find((x) => x.directiveKey === 'DATETIME_CONFIG');
     expect(d?.level).toBe('warning');
     expect(d?.message).toContain('not simulated');
-    expect(d?.message).toContain('#185');
+    expect(d?.message).toContain('#85');
   });
 
   it('informs, without an issue, for a directive that is out of scope on purpose', () => {
@@ -144,9 +144,9 @@ describe('unsimulated directives are reported rather than ignored (#153)', () =>
   });
 
   it('locates the diagnostic on the line the directive is written on', () => {
-    // Line 1 is the stanza header, so TRUNCATE is 2 and ANNOTATE_PUNCT is 3.
-    const d = diagnosticsFor('TRUNCATE = 500\nANNOTATE_PUNCT = true\n').find(
-      (x) => x.directiveKey === 'ANNOTATE_PUNCT',
+    // Line 1 is the stanza header, so TRUNCATE is 2 and DATETIME_CONFIG is 3.
+    const d = diagnosticsFor('TRUNCATE = 500\nDATETIME_CONFIG = NONE\n').find(
+      (x) => x.directiveKey === 'DATETIME_CONFIG',
     );
     expect(d?.line).toBe(3);
     expect(d?.file).toBe('props.conf');
