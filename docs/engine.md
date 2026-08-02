@@ -63,3 +63,5 @@ The flags must be set **before the first regex they protect is compiled** — in
 **This narrows the unbounded surface; it does not remove it.** A pattern still declines the fallback if it uses a lookahead or a backreference, and both are ordinary in Splunk regexes — the `rfc5424` pattern in this repo's own sample data uses `(?=\s|$)`. The `safeRegex` ReDoS heuristic is likewise structural and documents what it cannot see, notably alternation-overlap forms like `(a|aa)+`.
 
 **So a consumer that executes patterns it did not write needs a thread it can terminate**, with a wall-clock budget — which is what the browser app does, and what the flags are not a substitute for. Treat the flags as a second layer that lowers how often the watchdog fires.
+
+[`packages/mcp-server`](../packages/mcp-server) is the Node consumer this section describes: every engine run it performs happens in a `worker_threads` worker under a wall-clock budget with hard termination, `captureOffsets` defaults to `false`, and its launcher re-execs node with the flags above before the first engine import.

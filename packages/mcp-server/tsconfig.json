@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    // Type-check only — esbuild does the emit (see package.json "build").
+    // `bundler` resolution matches how the app compiles the engine sources,
+    // which keeps this package from imposing extension rules on them.
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    // DOM is for type-checking only: kvMode.ts references DOMParser for
+    // KV_MODE=xml and guards its absence at runtime — under Node the XML
+    // branch is a no-op, not a crash.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["src"]
+}

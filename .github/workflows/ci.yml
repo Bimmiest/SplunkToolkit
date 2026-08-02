@@ -46,9 +46,21 @@ jobs:
           # other, nor what the deploy runs.
           node-version-file: .nvmrc
           cache: npm
+          # Both lockfiles: this job installs the MCP server's deps too (see
+          # the lint step), so its lockfile belongs in the cache key.
+          cache-dependency-path: |
+            package-lock.json
+            packages/mcp-server/package-lock.json
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Install MCP server dependencies
+        # Lint below is type-aware over the whole repo (projectService), and
+        # packages/mcp-server resolves @modelcontextprotocol/sdk and zod from
+        # its own node_modules. Without this install those types don't
+        # resolve, and every use reports as an unsafe `any`.
+        run: npm ci --prefix packages/mcp-server
 
       - name: Lint
         run: npm run lint
@@ -121,6 +133,32 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+  # The MCP server is a separate package with its own lockfile and toolchain
+  # (esbuild, no browser), so it gets its own job rather than riding the app's:
+  # its verdict should not be buried under an e2e failure, nor the app's under
+  # a worker-thread one. `npm test` builds first (pretest), so this covers
+  # typecheck + bundle + the sandbox-timeout tests in one step.
+  mcp-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: packages/mcp-server
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: packages/mcp-server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
 
   # Split out of the main job on purpose. Sequentially, a new advisory turned
   # the whole run red after five minutes of tests, and the tests' own verdict

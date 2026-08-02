@@ -1,0 +1,30 @@
+{
+  "name": "propslab-mcp",
+  "private": true,
+  "version": "0.1.0",
+  "description": "MCP server over the propslab simulation engine: simulate, validate, explain_precedence, lookup_directive.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "bin": {
+    "propslab-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "npm run typecheck && esbuild src/index.ts src/simulateWorker.ts --bundle --platform=node --target=node22 --format=cjs --outdir=dist --sourcemap",
+    "start": "node dist/index.js",
+    "pretest": "npm run build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.21.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "esbuild": "^0.25.0",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

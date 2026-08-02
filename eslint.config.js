@@ -6,8 +6,9 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  // All generated: build output, and the reports the test suites write.
-  globalIgnores(['dist', 'playwright-report', 'test-results', 'coverage']),
+  // All generated: build output (the app's and any package's), and the
+  // reports the test suites write.
+  globalIgnores(['**/dist', 'playwright-report', 'test-results', 'coverage']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -49,6 +50,20 @@ export default defineConfig([
       // restore it after a spy), and the rule guards against accidental `this`
       // rebinding in shipped code, which is where it stays enabled.
       '@typescript-eslint/unbound-method': 'off',
+    },
+  },
+  {
+    // The MCP server's tests assert over JSON.parse'd tool output, which is
+    // `any` by construction — every access would need a hand-written type
+    // guard that restates the expect() right next to it. The unsafe-* family
+    // stays on for the package's shipped code.
+    files: ['packages/mcp-server/src/**/*.test.ts'],
+    rules: {
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
     },
   },
   {
