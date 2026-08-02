@@ -167,8 +167,8 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   ANNOTATE_PUNCT: {
     support: 'simulated',
     note:
-      'The signature format follows the documented example and community-established behaviour; ' +
-      'no capture pins it yet, since captures exclude punct (#185).',
+      'The signature is pinned by the punct-* captures: alphanumerics dropped, space to _, tab ' +
+      'to the letter t, newlines removed, capped at 50 characters.',
   },
   // The stanza-level four (#186). All change which stanza applies rather than
   // what one directive does, so getting one wrong moves every downstream result.

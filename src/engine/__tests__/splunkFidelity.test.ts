@@ -37,6 +37,7 @@ interface Fixture {
   splunk: { version: string; build: string };
   capturedAt: string;
   phase: FixtureCase['phase'];
+  comparePunct?: boolean;
   props: string;
   transforms?: string;
   extraProps?: Array<{ stanza: string; body: string }>;
@@ -97,14 +98,14 @@ function engineEvents(fixture: Fixture): CapturedEvent[] {
   const { result } = runCase(fixture);
   return result.events.map((e) => {
     // The capture excludes `punct` from every fixture (EXCLUDED_FIELDS in
-    // scripts/capture-fixtures.ts). The engine now generates it (#185), so the
-    // comparison mirrors the exclusion; pinning the signature itself means
-    // removing that exclusion and re-capturing.
-    const { punct: _punct, ...fields } = e.fields;
+    // scripts/capture-fixtures.ts) unless the case opts back in with
+    // `comparePunct` — the punct-signature cases do, and for them the engine's
+    // punct is compared like any other field.
+    const { punct: _punct, ...withoutPunct } = e.fields;
     return {
       _raw: e._raw,
       _time: e._time ? e._time.getTime() : null,
-      fields,
+      fields: fixture.comparePunct ? e.fields : withoutPunct,
     };
   });
 }

@@ -424,7 +424,11 @@ async function countFor(sourcetype: string): Promise<number> {
   return 0;
 }
 
-async function search(sourcetype: string, expected: number): Promise<CapturedEvent[]> {
+async function search(
+  sourcetype: string,
+  expected: number,
+  keepFields?: ReadonlySet<string>,
+): Promise<CapturedEvent[]> {
   // Two non-obvious requirements, both of which fail silently rather than error:
   //
   // `epochCapture` must NOT begin with an underscore. Splunk treats leading-
@@ -470,7 +474,10 @@ async function search(sourcetype: string, expected: number): Promise<CapturedEve
     const events: CapturedEvent[] = rows.map((r) => {
       const fields: Record<string, string | string[]> = {};
       for (const [k, v] of Object.entries(r)) {
-        if (!isRecordedField(k)) continue;
+        // A case can opt an otherwise-excluded field back in (`comparePunct`),
+        // which is how the punct signature gets pinned without every other
+        // fixture in the corpus growing a punct expectation.
+        if (!isRecordedField(k) && !keepFields?.has(k)) continue;
         fields[k] = v as string | string[];
       }
       const epoch = r.epochCapture ? Number(str(r.epochCapture)) : NaN;
@@ -565,13 +572,14 @@ const captured: Array<{ id: string; events: number }> = [];
 for (const c of cases) {
   const st = stanzaFor(c);
   await ingest(st, c.input, c.ingestHost, c.ingestSource);
-  const events = await search(st, 1);
+  const events = await search(st, 1, c.comparePunct ? new Set(['punct']) : undefined);
   const fixture = {
     id: c.id,
     splunk: info,
     capturedAt: new Date().toISOString(),
     directives: c.directives,
     phase: c.phase,
+    ...(c.comparePunct ? { comparePunct: true } : {}),
     props: c.props,
     ...(c.transforms ? { transforms: c.transforms } : {}),
     ...(c.extraProps ? { extraProps: c.extraProps } : {}),
