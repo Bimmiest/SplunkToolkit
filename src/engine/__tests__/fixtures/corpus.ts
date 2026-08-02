@@ -940,6 +940,163 @@ export const CORPUS: FixtureCase[] = [
       'This input is not table-formatted, so extracting nothing is the correct documented ' +
       'outcome. Kept as a guard against an implementation that guesses from the name.',
   },
+  // -------------------------------------------------------------------------
+  // Tier 1 engine fixes (#183, #184, #190): the behaviours implemented from
+  // the spec rather than from a capture, pinned here so "matches our reading"
+  // becomes "matches Splunk".
+  // -------------------------------------------------------------------------
+  {
+    id: 'transforms-lookahead-bound',
+    directives: ['TRANSFORMS-', 'LOOKAHEAD', 'REGEX', 'FORMAT', 'DEST_KEY'],
+    phase: 'index-time',
+    props: 'SHOULD_LINEMERGE = false\nTZ = UTC\nTRANSFORMS-la = fx_lookahead_bound\n',
+    transforms:
+      '[fx_lookahead_bound]\nREGEX = marker=(\\w+)\nDEST_KEY = _raw\nFORMAT = found=$1\nLOOKAHEAD = 30\n',
+    input:
+      '2026-01-15T10:00:00Z xxxxxxxxxxxxxxx marker=deep\n' +
+      '2026-01-15T10:00:01Z marker=near msg=ok\n',
+    note:
+      'The first event holds its match beyond the 30-character window, the second inside it. Pins ' +
+      'that LOOKAHEAD bounds where an index-time REGEX may match: the first event must pass ' +
+      'through untouched, the second is rewritten.',
+  },
+  {
+    id: 'transforms-default-value',
+    directives: ['TRANSFORMS-', 'DEFAULT_VALUE', 'REGEX', 'FORMAT', 'DEST_KEY'],
+    phase: 'index-time',
+    props: 'SHOULD_LINEMERGE = false\nTZ = UTC\nTRANSFORMS-dv = fx_default_value\n',
+    transforms:
+      '[fx_default_value]\nREGEX = zone=(\\w+)\nDEST_KEY = _raw\nFORMAT = zone_found=$1\nDEFAULT_VALUE = zone_missing\n',
+    input:
+      '2026-01-15T10:00:00Z zone=dmz\n' +
+      '2026-01-15T10:00:01Z nothing here\n',
+    note:
+      'Per transforms.conf.spec, a failed REGEX makes the transform write its DEFAULT_VALUE into ' +
+      'DEST_KEY. The second event does not match, so its _raw should become the default ' +
+      'wholesale — the assertion that pins whether DEFAULT_VALUE really writes on failure ' +
+      'rather than never.',
+  },
+  {
+    id: 'linebreak-must-not-break-before-explicit',
+    directives: ['SHOULD_LINEMERGE', 'BREAK_ONLY_BEFORE', 'MUST_NOT_BREAK_BEFORE'],
+    phase: 'index-time',
+    props:
+      'SHOULD_LINEMERGE = true\nBREAK_ONLY_BEFORE = ^EVENT\nBREAK_ONLY_BEFORE_DATE = false\n' +
+      'MUST_NOT_BREAK_BEFORE = protected\nTZ = UTC\n',
+    input:
+      'EVENT 2026-01-15T10:00:00Z one\n  detail\n' +
+      'EVENT 2026-01-15T10:00:01Z protected\n' +
+      'EVENT 2026-01-15T10:00:02Z two\n',
+    note:
+      'The companion to linebreak-must-not-break-before, which measured that the veto does NOT ' +
+      'defeat a BREAK_ONLY_BEFORE_DATE break. Measured, it does not defeat an explicit ' +
+      'BREAK_ONLY_BEFORE break either: all three EVENT lines start events.',
+  },
+  {
+    id: 'linebreak-must-not-break-before-forced',
+    directives: ['SHOULD_LINEMERGE', 'MUST_BREAK_AFTER', 'MUST_NOT_BREAK_BEFORE'],
+    phase: 'index-time',
+    props:
+      'SHOULD_LINEMERGE = true\nBREAK_ONLY_BEFORE_DATE = false\n' +
+      'MUST_BREAK_AFTER = END$\nMUST_NOT_BREAK_BEFORE = protected\nTZ = UTC\n',
+    input:
+      '2026-01-15T10:00:00Z alpha\nEND\n' +
+      '2026-01-15T10:00:01Z protected\n' +
+      '2026-01-15T10:00:02Z omega\nEND\n',
+    note:
+      'The third veto probe: with date and BREAK_ONLY_BEFORE breaks both measured as immune to ' +
+      'MUST_NOT_BREAK_BEFORE, this one puts it against a MUST_BREAK_AFTER-forced break (and the ' +
+      'break-every-line fallback that config implies). Measured, the protected line still starts ' +
+      'its own event — the setting defeats nothing observable in 10.4.0, and the engine treats ' +
+      'it as inert on the strength of all three captures.',
+  },
+  {
+    id: 'linebreak-must-not-break-after-span',
+    directives: ['SHOULD_LINEMERGE', 'MUST_NOT_BREAK_AFTER', 'MUST_BREAK_AFTER'],
+    phase: 'index-time',
+    props:
+      'SHOULD_LINEMERGE = true\nBREAK_ONLY_BEFORE_DATE = true\n' +
+      'MUST_NOT_BREAK_AFTER = BEGIN$\nMUST_BREAK_AFTER = END$\nTZ = UTC\n',
+    input:
+      '2026-01-15T10:00:00Z BEGIN\n' +
+      '2026-01-15T10:00:01Z inside\n' +
+      '2026-01-15T10:00:02Z END\n' +
+      '2026-01-15T10:00:03Z after\n',
+    note:
+      'props.conf.spec reads MUST_NOT_BREAK_AFTER as stateful: after a matching line, no break ' +
+      'until MUST_BREAK_AFTER matches. Every line is dated, so with the suppression honoured the ' +
+      'first three lines form one event despite BREAK_ONLY_BEFORE_DATE wanting to break each.',
+  },
+  {
+    id: 'linebreak-max-events-defeats-veto',
+    directives: ['SHOULD_LINEMERGE', 'MAX_EVENTS', 'MUST_NOT_BREAK_BEFORE'],
+    phase: 'index-time',
+    props:
+      'SHOULD_LINEMERGE = true\nBREAK_ONLY_BEFORE_DATE = true\nMAX_EVENTS = 3\n' +
+      'MUST_NOT_BREAK_BEFORE = .\nTZ = UTC\n',
+    input:
+      '2026-01-15T10:00:00Z start\n' +
+      'cont one\ncont two\ncont three\ncont four\ncont five\n',
+    note:
+      'The precedence #190 flags as unmeasured: a MUST_NOT_BREAK_BEFORE that matches every line ' +
+      'against the MAX_EVENTS cap. Identical input to linebreak-max-events, so if the cap wins ' +
+      'the two fixtures record the same events, and if the veto wins this one collapses to a ' +
+      'single event.',
+  },
+  {
+    id: 'indexed-extractions-field-delimiter',
+    directives: ['INDEXED_EXTRACTIONS', 'FIELD_DELIMITER'],
+    phase: 'index-time',
+    props: 'INDEXED_EXTRACTIONS = CSV\nFIELD_DELIMITER = |\nKV_MODE = none\nTZ = UTC\n',
+    input:
+      'ts|user|status\n' +
+      '2026-01-15T10:00:00Z|alice|200\n' +
+      '2026-01-15T10:00:01Z|bob|404\n',
+    note:
+      'A pipe-delimited file declared CSV with the delimiter overridden — the common shape #184 ' +
+      'calls out. Pins that FIELD_DELIMITER, not the format name, decides the split.',
+  },
+  {
+    id: 'indexed-extractions-field-names',
+    directives: ['INDEXED_EXTRACTIONS', 'FIELD_NAMES'],
+    phase: 'index-time',
+    props: 'INDEXED_EXTRACTIONS = CSV\nFIELD_NAMES = ts, user, status\nKV_MODE = none\nTZ = UTC\n',
+    input:
+      '2026-01-15T10:00:00Z,alice,200\n' +
+      '2026-01-15T10:00:01Z,bob,404\n',
+    note:
+      'Headerless CSV, the common case for FIELD_NAMES. Both lines are data: nothing may be ' +
+      'consumed as a header, and the names come from the config.',
+  },
+  {
+    id: 'indexed-extractions-preamble',
+    directives: ['INDEXED_EXTRACTIONS', 'PREAMBLE_REGEX'],
+    phase: 'index-time',
+    props: 'INDEXED_EXTRACTIONS = CSV\nPREAMBLE_REGEX = ^;\nKV_MODE = none\nTZ = UTC\n',
+    input:
+      ';exported by tool\n' +
+      'ts,user,status\n' +
+      '2026-01-15T10:00:00Z,alice,200\n',
+    note:
+      'A `;` preamble deliberately, not `#`: comment-style lines are skipped by header location ' +
+      'anyway, so a `#` preamble would pass with PREAMBLE_REGEX ignored and prove nothing.',
+  },
+  {
+    id: 'indexed-extractions-timestamp-fields',
+    directives: ['INDEXED_EXTRACTIONS', 'TIMESTAMP_FIELDS', 'TIME_FORMAT'],
+    phase: 'index-time',
+    props:
+      'INDEXED_EXTRACTIONS = CSV\nTIMESTAMP_FIELDS = date, time\n' +
+      'TIME_FORMAT = %Y-%m-%d %H:%M:%S\nKV_MODE = none\nTZ = UTC\n',
+    input:
+      'date,time,user\n' +
+      '2026-01-15,10:00:00,alice\n' +
+      '2026-01-15,11:30:45,bob\n',
+    note:
+      'A timestamp split across two columns, composed via TIMESTAMP_FIELDS. The TIME_FORMAT ' +
+      'carries a space between the date and time halves, which pins the join delimiter Splunk ' +
+      'uses when concatenating the named fields.',
+  },
   {
     id: 'fieldalias-and-eval',
     directives: ['FIELDALIAS-', 'EVAL-'],

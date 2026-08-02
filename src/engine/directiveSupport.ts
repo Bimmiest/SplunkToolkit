@@ -76,14 +76,15 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   MUST_NOT_BREAK_BEFORE: {
     support: 'simulated',
     note:
-      'Vetoes BREAK_ONLY_BEFORE and MUST_BREAK_AFTER breaks before a matching line. A ' +
-      'BREAK_ONLY_BEFORE_DATE break stands (pinned by capture) and MAX_EVENTS still caps the merge.',
+      'Measured inert: three 10.4.0 captures show the documented suppression never happening — ' +
+      'date, BREAK_ONLY_BEFORE and MUST_BREAK_AFTER breaks all stand — so the faithful ' +
+      'simulation is no effect.',
   },
   MUST_NOT_BREAK_AFTER: {
     support: 'simulated',
     note:
-      'After a matching line, rule-driven breaks are suppressed until MUST_BREAK_AFTER matches; ' +
-      'MAX_EVENTS still caps the merge. No capture pins this half yet (#190).',
+      'After a matching line, rule-driven breaks are suppressed until MUST_BREAK_AFTER matches ' +
+      '(pinned by capture); MAX_EVENTS still caps the merge.',
   },
   LINE_BREAKER_LOOKBEHIND: {
     support: 'documented',

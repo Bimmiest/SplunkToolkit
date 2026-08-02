@@ -193,7 +193,9 @@ describe('#161 — MUST_BREAK_AFTER does not license merging', () => {
 });
 
 describe('breakLines — MUST_NOT_BREAK_BEFORE / MUST_NOT_BREAK_AFTER (#190)', () => {
-  it('MUST_NOT_BREAK_BEFORE vetoes a BREAK_ONLY_BEFORE break', () => {
+  it('MUST_NOT_BREAK_BEFORE is inert: a BREAK_ONLY_BEFORE break still stands', () => {
+    // Pinned by the capture `linebreak-must-not-break-before-explicit`: the
+    // spec sentence describes a suppression measured Splunk does not perform.
     const events = breakLines(
       'EVENT one\ndetail\nEVENT protected\nEVENT two',
       [
@@ -204,14 +206,14 @@ describe('breakLines — MUST_NOT_BREAK_BEFORE / MUST_NOT_BREAK_AFTER (#190)', (
       META,
     );
     expect(events.map((e) => e._raw)).toEqual([
-      'EVENT one\ndetail\nEVENT protected',
+      'EVENT one\ndetail',
+      'EVENT protected',
       'EVENT two',
     ]);
   });
 
-  it('does NOT veto a BREAK_ONLY_BEFORE_DATE break — pinned by the 10.4.0 capture', () => {
-    // Mirrors the fixture `linebreak-must-not-break-before`: the spec sentence
-    // says the break should be suppressed, and measured Splunk breaks anyway.
+  it('MUST_NOT_BREAK_BEFORE is inert against a BREAK_ONLY_BEFORE_DATE break too', () => {
+    // Mirrors the fixture `linebreak-must-not-break-before`.
     const events = breakLines(
       '2026-01-15T10:00:00Z first\n2026-01-15T10:00:01Z suppressed break\n2026-01-15T10:00:02Z second',
       [
@@ -272,14 +274,14 @@ describe('breakLines — MUST_NOT_BREAK_BEFORE / MUST_NOT_BREAK_AFTER (#190)', (
     expect(events).toHaveLength(1);
   });
 
-  it('warns when a veto pattern cannot be compiled', () => {
+  it('warns when a MUST_NOT_BREAK_AFTER pattern cannot be compiled', () => {
     const diagnostics: ValidationDiagnostic[] = [];
     breakLines(
       'a\nb',
-      [dir('SHOULD_LINEMERGE', 'true'), dir('MUST_NOT_BREAK_BEFORE', '(')],
+      [dir('SHOULD_LINEMERGE', 'true'), dir('MUST_NOT_BREAK_AFTER', '(')],
       META,
       diagnostics,
     );
-    expect(diagnostics.some((d) => d.message.includes('MUST_NOT_BREAK_BEFORE'))).toBe(true);
+    expect(diagnostics.some((d) => d.message.includes('MUST_NOT_BREAK_AFTER'))).toBe(true);
   });
 });

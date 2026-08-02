@@ -229,11 +229,11 @@ const DIRECTIVE_DEFINITIONS: DirectiveDefinition[] = [
   {
     key: 'MUST_NOT_BREAK_BEFORE',
     description:
-      'A regex that identifies a line which must NOT begin a new event: a break requested by ' +
-      'BREAK_ONLY_BEFORE or MUST_BREAK_AFTER before a matching line is suppressed and the line ' +
-      'merges into the event before it. Requires SHOULD_LINEMERGE = true. Measured against a real ' +
-      'indexer, it does NOT suppress a BREAK_ONLY_BEFORE_DATE break, and MAX_EVENTS still caps ' +
-      'the merge.',
+      'Documented as preventing an event break before a line matching the regex. Measured against ' +
+      'Splunk 10.4.0, the suppression never happens: breaks driven by BREAK_ONLY_BEFORE_DATE, ' +
+      'BREAK_ONLY_BEFORE and MUST_BREAK_AFTER all stand with this set (three captures). The ' +
+      'simulator mirrors the measured behaviour, so the setting has no effect here either. For a ' +
+      'no-break span that does work, see MUST_NOT_BREAK_AFTER.',
     example: 'MUST_NOT_BREAK_BEFORE = ^\\s+at ',
     defaultValue: '',
     category: 'Event Breaking',
@@ -935,8 +935,8 @@ const DIRECTIVE_DEFINITIONS: DirectiveDefinition[] = [
   {
     key: 'HEADER_FIELD_LINE_NUMBER',
     description:
-      'For structured data types (INDEXED_EXTRACTIONS), the 1-based line number of the line that ' +
-      'holds the header field names. At 0, the default, the header line is located automatically.',
+      'For structured data types (INDEXED_EXTRACTIONS), names which line carries the header — ' +
+      'counting from 1. At 0, the default, the header is located automatically.',
     example: 'HEADER_FIELD_LINE_NUMBER = 2',
     defaultValue: '0',
     category: 'Structured Data',
