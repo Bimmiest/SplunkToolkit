@@ -161,12 +161,12 @@ describe('unsimulated directives are reported rather than ignored (#153)', () =>
 
   it('reports transforms.conf attributes against the transforms editor', () => {
     const d = diagnosticsFor(
-      'REPORT-x = t1\n',
-      '[t1]\nREGEX = (?<a>\\w+)\nDEFAULT_VALUE = none\n',
-    ).find((x) => x.directiveKey === 'DEFAULT_VALUE');
+      'TRANSFORMS-x = t1\n',
+      '[t1]\nREGEX = (?<a>\\w+)\nWRITE_META = true\nCLONE_SOURCETYPE = copy\n',
+    ).find((x) => x.directiveKey === 'CLONE_SOURCETYPE');
     expect(d?.file).toBe('transforms.conf');
     expect(d?.level).toBe('warning');
-    expect(d?.message).toContain('#183');
+    expect(d?.message).toContain('#87');
   });
 
   it('does not double-report LOOKUP, which has its own warning', () => {

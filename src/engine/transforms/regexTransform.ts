@@ -379,7 +379,18 @@ export function applyRegexTransform(
 
   if (!regexDir) return result;
 
-  const sourceValue = resolveSourceValue(event, sourceKeyDir);
+  // LOOKAHEAD bounds how far into the source an index-time REGEX searches; the
+  // bound exists even when the attribute is absent (Splunk's default is 4096
+  // characters). It is an index-time attribute, so search-time extractions scan
+  // the whole source. A non-positive or unparseable value falls back to the
+  // default rather than to "no limit".
+  let sourceValue = resolveSourceValue(event, sourceKeyDir);
+  if (phase === 'index-time') {
+    const lookaheadRaw = lastDirective(transformStanza, 'LOOKAHEAD')?.value.trim();
+    const parsedLookahead = lookaheadRaw !== undefined ? parseInt(lookaheadRaw, 10) : NaN;
+    const lookahead = Number.isFinite(parsedLookahead) && parsedLookahead > 0 ? parsedLookahead : 4096;
+    if (sourceValue.length > lookahead) sourceValue = sourceValue.slice(0, lookahead);
+  }
 
   const jsPattern = convertSplunkToJsRegex(regexDir.value.trim());
   const compiled = getCompiledRegex(transformStanza, jsPattern);
@@ -393,7 +404,20 @@ export function applyRegexTransform(
   // Match once with the plain (non-global) regex; reused below to decide named vs
   // numbered handling and as the first match for non-REPEAT_MATCH extraction.
   const firstMatch = compiled.plain.exec(sourceValue);
-  if (!firstMatch) return result;
+  if (!firstMatch) {
+    // DEFAULT_VALUE: an index-time transform whose REGEX fails writes this value
+    // to DEST_KEY instead of doing nothing, so the destination is written for
+    // every event. `matched` doubles as "has an effect to route" for the caller.
+    const defaultValue =
+      phase === 'index-time' ? lastDirective(transformStanza, 'DEFAULT_VALUE')?.value.trim() : undefined;
+    const destKeyForDefault = destKeyDir?.value.trim();
+    if (defaultValue !== undefined && defaultValue !== '' && destKeyForDefault) {
+      result.matched = true;
+      result.destKey = destKeyForDefault;
+      result.destValue = defaultValue;
+    }
+    return result;
+  }
 
   result.matched = true;
 

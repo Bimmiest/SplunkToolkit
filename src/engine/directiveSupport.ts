@@ -128,16 +128,8 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   MV_ADD: { support: 'simulated' },
   CLEAN_KEYS: { support: 'simulated' },
   KEEP_EMPTY_VALS: { support: 'simulated' },
-  DEFAULT_VALUE: {
-    support: 'ignored',
-    issue: 183,
-    note: 'A non-matching transform writes no field rather than the declared default.',
-  },
-  LOOKAHEAD: {
-    support: 'ignored',
-    issue: 183,
-    note: 'The regex is applied to the whole event rather than to the first N characters.',
-  },
+  DEFAULT_VALUE: { support: 'simulated' },
+  LOOKAHEAD: { support: 'simulated' },
 
   // ---- Structured data (INDEXED_EXTRACTIONS options) --------------------
   FIELD_DELIMITER: { support: 'ignored', issue: 184, note: 'The delimiter is fixed per format.' },

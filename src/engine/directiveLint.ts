@@ -39,6 +39,7 @@ const INERT_AT_SEARCH_TIME: Record<string, string> = {
   REPEAT_MATCH: 'it only applies to index-time transforms',
   INGEST_EVAL: 'ingest-time eval runs during indexing',
   DEFAULT_VALUE: 'it only applies to index-time transforms',
+  LOOKAHEAD: 'the regex search window only applies to index-time transforms',
   STOP_PROCESSING_IF: 'it only applies to index-time transforms',
 };
 
