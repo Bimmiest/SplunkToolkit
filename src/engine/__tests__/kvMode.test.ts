@@ -312,3 +312,39 @@ describe('applyKvMode — extraction never mutates the input event (#63)', () =>
     expect(out.fields.NAME).toEqual(['zero', 'a', 'b']);
   });
 });
+
+describe('applyKvMode — auto-KV key cleaning (#207)', () => {
+  // Observed directly against Splunk 10.4.0 while capturing
+  // transforms-default-value: _raw "zone-found=dmz" yields the search-time
+  // field zone_found. Only the punctuation-to-underscore half of key cleaning
+  // applies here — leading digits survive (see the #166 tests above), unlike
+  // under transforms CLEAN_KEYS.
+  it('sanitizes a hyphenated key the way Splunk indexes it', () => {
+    const r = applyKvMode([event('2026-01-15T10:00:00Z zone-found=dmz')], [dir('auto')])[0]!;
+    expect(r.fields['zone_found']).toBe('dmz');
+    expect(r.fields['zone-found']).toBeUndefined();
+  });
+
+  it('sanitizes dotted and colon-separated keys', () => {
+    const r = applyKvMode([event('user.name=alice ip:port=1.2.3.4')], [dir('auto')])[0]!;
+    expect(r.fields['user_name']).toBe('alice');
+    expect(r.fields['ip_port']).toBe('1.2.3.4');
+  });
+
+  it('cleans quoted-pair keys through the same rule', () => {
+    const r = applyKvMode([event('x-forwarded-for="1.2.3.4, 5.6.7.8"')], [dir('auto')])[0]!;
+    expect(r.fields['x_forwarded_for']).toBe('1.2.3.4, 5.6.7.8');
+  });
+
+  it('keeps a leading-digit key while dropping one with no alphanumerics', () => {
+    const r = applyKvMode([event('2fa=on --=x')], [dir('auto')])[0]!;
+    expect(r.fields['2fa']).toBe('on');
+    expect(Object.keys(r.fields)).not.toContain('__');
+  });
+
+  it('applies first-occurrence-wins on the CLEANED name', () => {
+    // Two raw spellings that clean to the same field: the first in the event wins.
+    const r = applyKvMode([event('a-b=1 a_b=2')], [dir('auto')])[0]!;
+    expect(r.fields['a_b']).toBe('1');
+  });
+});

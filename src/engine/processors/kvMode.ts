@@ -324,7 +324,15 @@ function extractKeyValue(
   // seen from one an EARLIER processor wrote: automatic KV must not overwrite a
   // field that INDEXED_EXTRACTIONS or a REPORT already produced.
   const seenHere = new Set<string>();
-  const record = (key: string, value: string): void => {
+  const record = (rawKey: string, value: string): void => {
+    // Auto-KV rewrites punctuation in the key to underscores (#207): observed
+    // directly against Splunk 10.4.0, `zone-found=dmz` in _raw yields the
+    // field `zone_found`. Deliberately ONLY that half of transforms-style key
+    // cleaning — the leading digits/underscores that CLEAN_KEYS would strip
+    // survive here, since auto-KV measurably keeps `1st=first` as `1st`
+    // (#166). A key with no alphanumerics left is discarded.
+    const key = rawKey.replace(/[^A-Za-z0-9_]/g, '_');
+    if (!/[A-Za-z0-9]/.test(key)) return;
     // Splunk discards a purely numeric field name from auto-KV. Reachable from
     // ordinary data via a SEDCMD that rewrites pairs, and the engine extracting
     // `1 = "a"` where Splunk extracts nothing is a field that can never exist
