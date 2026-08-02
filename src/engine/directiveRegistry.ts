@@ -229,10 +229,11 @@ const DIRECTIVE_DEFINITIONS: DirectiveDefinition[] = [
   {
     key: 'MUST_NOT_BREAK_BEFORE',
     description:
-      'A regex that identifies a line which must NOT begin a new event, so the line is merged into ' +
-      'the event before it even when another rule would have broken there. Requires ' +
-      'SHOULD_LINEMERGE = true. Use it to protect continuation lines that happen to look like the ' +
-      'start of an event — a stack-trace frame that begins with a date, for example.',
+      'A regex that identifies a line which must NOT begin a new event: a break requested by ' +
+      'BREAK_ONLY_BEFORE or MUST_BREAK_AFTER before a matching line is suppressed and the line ' +
+      'merges into the event before it. Requires SHOULD_LINEMERGE = true. Measured against a real ' +
+      'indexer, it does NOT suppress a BREAK_ONLY_BEFORE_DATE break, and MAX_EVENTS still caps ' +
+      'the merge.',
     example: 'MUST_NOT_BREAK_BEFORE = ^\\s+at ',
     defaultValue: '',
     category: 'Event Breaking',
@@ -244,10 +245,10 @@ const DIRECTIVE_DEFINITIONS: DirectiveDefinition[] = [
   {
     key: 'MUST_NOT_BREAK_AFTER',
     description:
-      'A regex that identifies a line after which an event must NOT end, so the following line is ' +
-      'merged in regardless of what other rules say. Requires SHOULD_LINEMERGE = true. The ' +
-      'counterpart to MUST_BREAK_AFTER: use it for a line that is always continued, such as one ' +
-      'ending in a continuation marker.',
+      'A regex that starts a no-break span: after a line matching it, rule-driven breaks are ' +
+      'suppressed until a line matches MUST_BREAK_AFTER, so the span merges into one event ' +
+      '(MAX_EVENTS still caps it). Requires SHOULD_LINEMERGE = true. Without a MUST_BREAK_AFTER ' +
+      'to end the span, the suppression runs to the end of the input.',
     example: 'MUST_NOT_BREAK_AFTER = \\\\$',
     defaultValue: '',
     category: 'Event Breaking',

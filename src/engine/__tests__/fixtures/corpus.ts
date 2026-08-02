@@ -863,10 +863,7 @@ export const CORPUS: FixtureCase[] = [
   // -------------------------------------------------------------------------
   {
     id: 'linebreak-must-not-break-before',
-    // MUST_NOT_BREAK_BEFORE is deliberately absent from this list: it is not in
-    // directiveRegistry.ts (see #176), and claiming coverage for a key the
-    // registry does not know would make the coverage report lie.
-    directives: ['SHOULD_LINEMERGE', 'BREAK_ONLY_BEFORE_DATE'],
+    directives: ['SHOULD_LINEMERGE', 'BREAK_ONLY_BEFORE_DATE', 'MUST_NOT_BREAK_BEFORE'],
     phase: 'index-time',
     props:
       'SHOULD_LINEMERGE = true\nBREAK_ONLY_BEFORE_DATE = true\n' +

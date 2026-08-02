@@ -111,7 +111,7 @@ function lineAtOffset(newlines: number[], offset: number): number {
  * The option is then dropped, which quietly rewrites event boundaries.
  */
 function warnUncompilableBreakPattern(
-  key: 'BREAK_ONLY_BEFORE' | 'MUST_BREAK_AFTER',
+  key: 'BREAK_ONLY_BEFORE' | 'MUST_BREAK_AFTER' | 'MUST_NOT_BREAK_BEFORE' | 'MUST_NOT_BREAK_AFTER',
   pattern: string | undefined,
   compiled: RegExp | null,
   directives: ConfDirective[],
@@ -324,6 +324,19 @@ export function breakLines(
       'MUST_BREAK_AFTER', mustBreakAfterStr, mustBreakAfterRegex, directives, diagnostics,
     );
 
+    // The negative half of the merging rules (#190): where the rules above say
+    // where a break may or must happen, these two say where one must not.
+    const mustNotBreakBeforeStr = getDirective(directives, 'MUST_NOT_BREAK_BEFORE');
+    const mustNotBreakBeforeRegex = mustNotBreakBeforeStr ? safeRegex(mustNotBreakBeforeStr) : null;
+    warnUncompilableBreakPattern(
+      'MUST_NOT_BREAK_BEFORE', mustNotBreakBeforeStr, mustNotBreakBeforeRegex, directives, diagnostics,
+    );
+    const mustNotBreakAfterStr = getDirective(directives, 'MUST_NOT_BREAK_AFTER');
+    const mustNotBreakAfterRegex = mustNotBreakAfterStr ? safeRegex(mustNotBreakAfterStr) : null;
+    warnUncompilableBreakPattern(
+      'MUST_NOT_BREAK_AFTER', mustNotBreakAfterStr, mustNotBreakAfterRegex, directives, diagnostics,
+    );
+
     // MAX_EVENTS caps how many CONTINUATION lines may be merged into an event,
     // not how many lines the event may total: MAX_EVENTS = 3 produces a
     // four-line event, as the `linebreak-max-events` capture records. Reading it
@@ -350,6 +363,10 @@ export function breakLines(
     mergedSegments = [firstSegment];
     let currentLineCount = countLines(firstSegment.text);
     let forceBreakNext = false;
+    // MUST_NOT_BREAK_AFTER is stateful: once a line matches, rule-driven breaks
+    // stay suppressed until a line matches MUST_BREAK_AFTER. Without one, the
+    // suppression runs to the end of the input.
+    let suppressBreaks = mustNotBreakAfterRegex !== null && mustNotBreakAfterRegex.test(firstSegment.text);
 
     // Check if the very first segment triggers MUST_BREAK_AFTER
     if (mustBreakAfterRegex && mustBreakAfterRegex.test(firstSegment.text)) {
@@ -358,42 +375,53 @@ export function breakLines(
 
     for (const seg of restSegments) {
       const segLines = countLines(seg.text);
-      let startNewEvent = false;
 
-      // If previous segment triggered MUST_BREAK_AFTER, force a new event
-      if (forceBreakNext) {
-        startNewEvent = true;
-        forceBreakNext = false;
-      }
+      // Decide the break and remember WHICH rule asked for it, because the rule
+      // decides whether a veto can stand against it. Precedence between the
+      // positive rules is unchanged; the vetoes are applied afterwards.
+      const overCap = currentLineCount + segLines > maxEvents;
+      const bobBreak =
+        breakOnlyBeforeAnchoredRegex !== null && breakOnlyBeforeAnchoredRegex.test(seg.text);
+      const dateBreak =
+        breakOnlyBeforeDate && DATE_LIKE_PATTERN !== null && DATE_LIKE_PATTERN.test(seg.text);
 
-      // No continue rule in force: every segment is its own event.
-      if (!canMerge) startNewEvent = true;
+      let reason:
+        | 'must-break-after'
+        | 'no-merge-rule'
+        | 'max-events'
+        | 'break-only-before'
+        | 'date'
+        | null = null;
+      if (forceBreakNext) reason = 'must-break-after';
+      else if (!canMerge) reason = 'no-merge-rule';
+      else if (overCap) reason = 'max-events';
+      else if (bobBreak) reason = 'break-only-before';
+      else if (dateBreak) reason = 'date';
+      forceBreakNext = false;
 
-      // MAX_EVENTS: break when adding this segment would exceed the line cap.
-      if (!startNewEvent && currentLineCount + segLines > maxEvents) {
-        startNewEvent = true;
-        maxEventsTriggered = true;
-      }
-
-      // BREAK_ONLY_BEFORE: only start new event if regex matches at the start of the segment.
-      // Splunk anchors this to the beginning of the line — use breakOnlyBeforeAnchoredRegex.
-      if (!startNewEvent && breakOnlyBeforeAnchoredRegex) {
-        if (breakOnlyBeforeAnchoredRegex.test(seg.text)) {
-          startNewEvent = true;
+      // The vetoes (#190). MAX_EVENTS is a hard cap neither veto defeats. A
+      // BREAK_ONLY_BEFORE_DATE break survives MUST_NOT_BREAK_BEFORE — the
+      // capture `linebreak-must-not-break-before` measures Splunk 10.4.0 doing
+      // exactly that, against the spec's own wording — so the veto only stands
+      // against BREAK_ONLY_BEFORE, MUST_BREAK_AFTER and the no-merge-rule
+      // fallback, and a vetoed break falls through to the rules it cannot
+      // defeat. MUST_NOT_BREAK_AFTER has no measured counterpart yet and
+      // follows its documented sentence: every rule-driven break is suppressed
+      // until MUST_BREAK_AFTER matches.
+      if (reason !== null && reason !== 'max-events') {
+        if (suppressBreaks) {
+          reason = overCap ? 'max-events' : null;
+        } else if (
+          (reason === 'must-break-after' || reason === 'no-merge-rule' || reason === 'break-only-before') &&
+          mustNotBreakBeforeRegex !== null &&
+          mustNotBreakBeforeRegex.test(seg.text)
+        ) {
+          reason = overCap ? 'max-events' : dateBreak ? 'date' : null;
         }
       }
+      if (reason === 'max-events') maxEventsTriggered = true;
 
-      // BREAK_ONLY_BEFORE_DATE: only break before date-like patterns
-      if (!startNewEvent && breakOnlyBeforeDate) {
-        if (DATE_LIKE_PATTERN && DATE_LIKE_PATTERN.test(seg.text)) {
-          startNewEvent = true;
-        }
-      }
-
-      // When SHOULD_LINEMERGE=true and no BREAK_ONLY_BEFORE is set,
-      // BREAK_ONLY_BEFORE_DATE=true (Splunk default) controls merging.
-
-      if (startNewEvent) {
+      if (reason !== null) {
         mergedSegments.push({ text: seg.text, offset: seg.offset });
         currentLineCount = segLines;
       } else {
@@ -403,13 +431,19 @@ export function breakLines(
         currentLineCount += segLines;
       }
 
-      // Check MUST_BREAK_AFTER for this segment
+      // MUST_BREAK_AFTER both forces a break after a matching line and ends a
+      // MUST_NOT_BREAK_AFTER suppression; a line matching MUST_NOT_BREAK_AFTER
+      // (re)starts one from the next line on.
       if (mustBreakAfterRegex) {
         if (mustBreakAfterRegex.test(seg.text)) {
+          if (suppressBreaks) suppressBreaks = false;
           forceBreakNext = true;
         } else {
           forceBreakNext = false;
         }
+      }
+      if (mustNotBreakAfterRegex && mustNotBreakAfterRegex.test(seg.text)) {
+        suppressBreaks = true;
       }
     }
   }
@@ -452,6 +486,12 @@ export function breakLines(
     }
     if (getDirective(directives, 'MUST_BREAK_AFTER')) {
       mergeInfo.push(`MUST_BREAK_AFTER=${getDirective(directives, 'MUST_BREAK_AFTER')}`);
+    }
+    if (getDirective(directives, 'MUST_NOT_BREAK_BEFORE')) {
+      mergeInfo.push(`MUST_NOT_BREAK_BEFORE=${getDirective(directives, 'MUST_NOT_BREAK_BEFORE')}`);
+    }
+    if (getDirective(directives, 'MUST_NOT_BREAK_AFTER')) {
+      mergeInfo.push(`MUST_NOT_BREAK_AFTER=${getDirective(directives, 'MUST_NOT_BREAK_AFTER')}`);
     }
     if (maxEventsTriggered) {
       mergeInfo.push(`MAX_EVENTS=${getDirective(directives, 'MAX_EVENTS') ?? '256'} (line cap forced a break)`);
