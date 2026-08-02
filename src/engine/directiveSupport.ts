@@ -74,14 +74,16 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   BREAK_ONLY_BEFORE_DATE: { support: 'simulated' },
   MUST_BREAK_AFTER: { support: 'simulated' },
   MUST_NOT_BREAK_BEFORE: {
-    support: 'ignored',
-    issue: 190,
-    note: 'A line this matches can still be broken before, so events split where Splunk would merge.',
+    support: 'simulated',
+    note:
+      'Vetoes BREAK_ONLY_BEFORE and MUST_BREAK_AFTER breaks before a matching line. A ' +
+      'BREAK_ONLY_BEFORE_DATE break stands (pinned by capture) and MAX_EVENTS still caps the merge.',
   },
   MUST_NOT_BREAK_AFTER: {
-    support: 'ignored',
-    issue: 190,
-    note: 'A line this matches can still end an event, so events split where Splunk would merge.',
+    support: 'simulated',
+    note:
+      'After a matching line, rule-driven breaks are suppressed until MUST_BREAK_AFTER matches; ' +
+      'MAX_EVENTS still caps the merge. No capture pins this half yet (#190).',
   },
   LINE_BREAKER_LOOKBEHIND: {
     support: 'documented',

@@ -191,3 +191,95 @@ describe('#161 — MUST_BREAK_AFTER does not license merging', () => {
     expect(events).toHaveLength(2);
   });
 });
+
+describe('breakLines — MUST_NOT_BREAK_BEFORE / MUST_NOT_BREAK_AFTER (#190)', () => {
+  it('MUST_NOT_BREAK_BEFORE vetoes a BREAK_ONLY_BEFORE break', () => {
+    const events = breakLines(
+      'EVENT one\ndetail\nEVENT protected\nEVENT two',
+      [
+        dir('SHOULD_LINEMERGE', 'true'),
+        dir('BREAK_ONLY_BEFORE', '^EVENT'),
+        dir('MUST_NOT_BREAK_BEFORE', '^EVENT protected'),
+      ],
+      META,
+    );
+    expect(events.map((e) => e._raw)).toEqual([
+      'EVENT one\ndetail\nEVENT protected',
+      'EVENT two',
+    ]);
+  });
+
+  it('does NOT veto a BREAK_ONLY_BEFORE_DATE break — pinned by the 10.4.0 capture', () => {
+    // Mirrors the fixture `linebreak-must-not-break-before`: the spec sentence
+    // says the break should be suppressed, and measured Splunk breaks anyway.
+    const events = breakLines(
+      '2026-01-15T10:00:00Z first\n2026-01-15T10:00:01Z suppressed break\n2026-01-15T10:00:02Z second',
+      [
+        dir('SHOULD_LINEMERGE', 'true'),
+        dir('BREAK_ONLY_BEFORE_DATE', 'true'),
+        dir('MUST_NOT_BREAK_BEFORE', '^2026-01-15T10:00:01Z'),
+      ],
+      META,
+    );
+    expect(events).toHaveLength(3);
+  });
+
+  it('does not defeat the MAX_EVENTS cap', () => {
+    const raw = Array.from({ length: 6 }, (_, i) => `line${i}`).join('\n');
+    const events = breakLines(
+      raw,
+      [
+        dir('SHOULD_LINEMERGE', 'true'),
+        dir('MAX_EVENTS', '2'),
+        dir('MUST_NOT_BREAK_BEFORE', '.*'),
+      ],
+      META,
+    );
+    expect(events).toHaveLength(2);
+    expect(events[0]!._raw.split('\n')).toHaveLength(3);
+  });
+
+  it('MUST_NOT_BREAK_AFTER suppresses date breaks until MUST_BREAK_AFTER matches', () => {
+    const events = breakLines(
+      '2026-01-15T10:00:00Z BEGIN\n' +
+        '2026-01-15T10:00:01Z inside\n' +
+        '2026-01-15T10:00:02Z END\n' +
+        '2026-01-15T10:00:03Z after',
+      [
+        dir('SHOULD_LINEMERGE', 'true'),
+        dir('BREAK_ONLY_BEFORE_DATE', 'true'),
+        dir('MUST_NOT_BREAK_AFTER', 'BEGIN'),
+        dir('MUST_BREAK_AFTER', 'END'),
+      ],
+      META,
+    );
+    expect(events.map((e) => e._raw)).toEqual([
+      '2026-01-15T10:00:00Z BEGIN\n2026-01-15T10:00:01Z inside\n2026-01-15T10:00:02Z END',
+      '2026-01-15T10:00:03Z after',
+    ]);
+  });
+
+  it('MUST_NOT_BREAK_AFTER with no MUST_BREAK_AFTER suppresses to the end of input', () => {
+    const events = breakLines(
+      '2026-01-15T10:00:00Z BEGIN\n2026-01-15T10:00:01Z a\n2026-01-15T10:00:02Z b',
+      [
+        dir('SHOULD_LINEMERGE', 'true'),
+        dir('BREAK_ONLY_BEFORE_DATE', 'true'),
+        dir('MUST_NOT_BREAK_AFTER', 'BEGIN'),
+      ],
+      META,
+    );
+    expect(events).toHaveLength(1);
+  });
+
+  it('warns when a veto pattern cannot be compiled', () => {
+    const diagnostics: ValidationDiagnostic[] = [];
+    breakLines(
+      'a\nb',
+      [dir('SHOULD_LINEMERGE', 'true'), dir('MUST_NOT_BREAK_BEFORE', '(')],
+      META,
+      diagnostics,
+    );
+    expect(diagnostics.some((d) => d.message.includes('MUST_NOT_BREAK_BEFORE'))).toBe(true);
+  });
+});
