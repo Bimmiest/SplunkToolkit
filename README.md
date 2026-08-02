@@ -226,9 +226,9 @@ Every directive the registry knows about carries one of three support levels, de
 
 | Level | Count | Meaning |
 |---|---|---|
-| **simulated** | 41 | The engine implements it and tests assert the behaviour. |
+| **simulated** | 47 | The engine implements it and tests assert the behaviour. |
 | **documented** | 25 | Recognised on purpose, outside the simulation for a reason that is not going to change — it belongs to a layer a browser has no access to, or it has no observable effect on output. |
-| **ignored** | 13 | Should be simulated, is not yet, and names the issue tracking it. Every one of these is a known wrong answer. |
+| **ignored** | 7 | Should be simulated, is not yet, and names the issue tracking it. Every one of these is a known wrong answer. |
 
 The counts are asserted by a test against the table itself, so they cannot go stale.
 
@@ -254,7 +254,7 @@ The directive levels above do not cover eval *functions*, which have their own b
 ### Simplified
 
 - **`SEDCMD` occurrence flag.** The `s/` substitute and `y/` transliterate forms are both simulated. The numeric occurrence flag (`s/…/…/2`), a value that is not a sed expression at all, a `y///` whose two character sets differ in length, and a pattern that will not compile each emit a warning rather than being dropped in silence.
-- **Delimited `INDEXED_EXTRACTIONS` overrides not honoured.** For `csv`/`tsv`/`psv`/`w3c`, the header is taken from line 1 and the delimiter is fixed per format. `FIELD_NAMES`, `FIELD_HEADER_REGEX`, `FIELD_QUOTE`, `KEEP_EMPTY_VALS`, and `CLEAN_KEYS` are parsed but ignored. This is the `INDEXED_EXTRACTIONS` context only — transforms.conf's own `CLEAN_KEYS` **is** simulated, pinned to a Splunk 10.4.0 capture.
+- **Delimited `INDEXED_EXTRACTIONS` overrides apply to `csv`/`tsv`/`psv` only.** `FIELD_DELIMITER`, `FIELD_QUOTE`, `FIELD_NAMES`, `HEADER_FIELD_LINE_NUMBER`, `PREAMBLE_REGEX` and `TIMESTAMP_FIELDS` are honoured for the delimited formats; `w3c` keeps its own `#Fields` header mechanism, which they do not override there. `FIELD_HEADER_REGEX`, header-side delimiters (`HEADER_FIELD_DELIMITER`/`HEADER_FIELD_QUOTE`), `MISSING_VALUE_REGEX`, and `KEEP_EMPTY_VALS`/`CLEAN_KEYS` in this context remain unimplemented. transforms.conf's own `CLEAN_KEYS` **is** simulated, pinned to a Splunk 10.4.0 capture.
 - **Stanza specificity is a heuristic.** Ranked by literal character count. Splunk's real tie-breaking for equal-score `source::` patterns is alphabetical; ordering can diverge for tied patterns.
 - **`priority` rules are taken from the documentation, not from a capture.** `priority` orders stanzas *within* a kind and cannot reach across kinds: `source` > `host` > `sourcetype` > `default` holds regardless of what any stanza declares, which is what `props.conf.spec` says explicitly. A stanza that declares nothing defaults by how it matches rather than by its kind — 100 when the stanza matches literally (`[my_sourcetype]`, `[source::/var/log/app.log]`), 0 when it contains a wildcard (`[source::...app...]`, `[host::web*]`) — so a wildcard stanza needs `priority` above 100 to beat a literal sibling. No fidelity fixture pins any of this, so it is the one part of stanza resolution asserted only against our reading of the docs, and the docs contradict themselves once on the cross-kind question ([#198](https://github.com/Bimmiest/propslab/issues/198)). `sourcetype` and `rename` are in the same position, though their rules are less ambiguous.
 - **`KV_MODE = xml`.** Uses `DOMParser` inside the Web Worker — works in Chromium, historically not in Firefox workers. A try/catch falls back silently, so XML extraction may produce no fields on unsupported browsers. Element fields are named by their dotted path from the document root, including the root itself (`<event><user>…` gives `event.user`), which the Splunk 10.4.0 capture pins. Attribute naming is *not* pinned by any capture: attributes keep their bare names, except that a `Name` attribute follows the Windows event-log convention and names the field itself.

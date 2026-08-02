@@ -111,7 +111,7 @@ function lineAtOffset(newlines: number[], offset: number): number {
  * The option is then dropped, which quietly rewrites event boundaries.
  */
 function warnUncompilableBreakPattern(
-  key: 'BREAK_ONLY_BEFORE' | 'MUST_BREAK_AFTER' | 'MUST_NOT_BREAK_BEFORE' | 'MUST_NOT_BREAK_AFTER',
+  key: 'BREAK_ONLY_BEFORE' | 'MUST_BREAK_AFTER' | 'MUST_NOT_BREAK_AFTER',
   pattern: string | undefined,
   compiled: RegExp | null,
   directives: ConfDirective[],
@@ -324,13 +324,12 @@ export function breakLines(
       'MUST_BREAK_AFTER', mustBreakAfterStr, mustBreakAfterRegex, directives, diagnostics,
     );
 
-    // The negative half of the merging rules (#190): where the rules above say
-    // where a break may or must happen, these two say where one must not.
-    const mustNotBreakBeforeStr = getDirective(directives, 'MUST_NOT_BREAK_BEFORE');
-    const mustNotBreakBeforeRegex = mustNotBreakBeforeStr ? safeRegex(mustNotBreakBeforeStr) : null;
-    warnUncompilableBreakPattern(
-      'MUST_NOT_BREAK_BEFORE', mustNotBreakBeforeStr, mustNotBreakBeforeRegex, directives, diagnostics,
-    );
+    // The negative half of the merging rules (#190). MUST_NOT_BREAK_BEFORE is
+    // deliberately NOT read: three captures (linebreak-must-not-break-before,
+    // -explicit, -forced) measure Splunk 10.4.0 breaking anyway against a
+    // date rule, BREAK_ONLY_BEFORE, and a MUST_BREAK_AFTER-forced break — the
+    // spec sentence describes a suppression no observable configuration
+    // exhibits, so the faithful simulation is no effect at all.
     const mustNotBreakAfterStr = getDirective(directives, 'MUST_NOT_BREAK_AFTER');
     const mustNotBreakAfterRegex = mustNotBreakAfterStr ? safeRegex(mustNotBreakAfterStr) : null;
     warnUncompilableBreakPattern(
@@ -399,25 +398,13 @@ export function breakLines(
       else if (dateBreak) reason = 'date';
       forceBreakNext = false;
 
-      // The vetoes (#190). MAX_EVENTS is a hard cap neither veto defeats. A
-      // BREAK_ONLY_BEFORE_DATE break survives MUST_NOT_BREAK_BEFORE — the
-      // capture `linebreak-must-not-break-before` measures Splunk 10.4.0 doing
-      // exactly that, against the spec's own wording — so the veto only stands
-      // against BREAK_ONLY_BEFORE, MUST_BREAK_AFTER and the no-merge-rule
-      // fallback, and a vetoed break falls through to the rules it cannot
-      // defeat. MUST_NOT_BREAK_AFTER has no measured counterpart yet and
-      // follows its documented sentence: every rule-driven break is suppressed
-      // until MUST_BREAK_AFTER matches.
-      if (reason !== null && reason !== 'max-events') {
-        if (suppressBreaks) {
-          reason = overCap ? 'max-events' : null;
-        } else if (
-          (reason === 'must-break-after' || reason === 'no-merge-rule' || reason === 'break-only-before') &&
-          mustNotBreakBeforeRegex !== null &&
-          mustNotBreakBeforeRegex.test(seg.text)
-        ) {
-          reason = overCap ? 'max-events' : dateBreak ? 'date' : null;
-        }
+      // MUST_NOT_BREAK_AFTER suppression (#190): every rule-driven break is
+      // suppressed until MUST_BREAK_AFTER matches, exactly the stateful span
+      // the capture `linebreak-must-not-break-after-span` records — dated
+      // lines inside the span stay merged. MAX_EVENTS is a hard cap the
+      // suppression does not defeat.
+      if (reason !== null && reason !== 'max-events' && suppressBreaks) {
+        reason = overCap ? 'max-events' : null;
       }
       if (reason === 'max-events') maxEventsTriggered = true;
 
@@ -486,9 +473,6 @@ export function breakLines(
     }
     if (getDirective(directives, 'MUST_BREAK_AFTER')) {
       mergeInfo.push(`MUST_BREAK_AFTER=${getDirective(directives, 'MUST_BREAK_AFTER')}`);
-    }
-    if (getDirective(directives, 'MUST_NOT_BREAK_BEFORE')) {
-      mergeInfo.push(`MUST_NOT_BREAK_BEFORE=${getDirective(directives, 'MUST_NOT_BREAK_BEFORE')}`);
     }
     if (getDirective(directives, 'MUST_NOT_BREAK_AFTER')) {
       mergeInfo.push(`MUST_NOT_BREAK_AFTER=${getDirective(directives, 'MUST_NOT_BREAK_AFTER')}`);

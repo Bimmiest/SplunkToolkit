@@ -269,9 +269,12 @@ async function clearStanzas(conf: 'props' | 'transforms'): Promise<void> {
   if (res.status !== 200) return; // conf file not created yet
   for (const entry of asCollection(res.body).entry ?? []) {
     const name = entry.name;
-    // Ours are either `fx_...` or an addressed form like `source::fx_...`.
-    // Never touch anything else in the app.
-    if (!name.startsWith('fx_') && !name.includes('::fx_')) continue;
+    // Ours are either `fx_...` or an addressed form whose pattern carries an
+    // `fx_` marker — which includes wildcarded ones like `source::...fx_a...`,
+    // where the marker does not directly follow the `::`. Requiring `::fx_`
+    // exactly missed those, and the leftovers made every later run fail with
+    // "already exists". Never touch anything else in the app.
+    if (!name.startsWith('fx_') && !(name.includes('::') && name.includes('fx_'))) continue;
     await req('DELETE', `/servicesNS/nobody/${APP}/configs/conf-${conf}/${encodeURIComponent(name)}`);
   }
 }

@@ -352,7 +352,7 @@ export function runPipeline(
   events = safeProcessor('Timestamp', events, () => extractTimestamps(events, directives, diagnostics), diagnostics);
 
   // Step 5: Indexed extractions
-  events = safeProcessor('INDEXED_EXTRACTIONS', events, () => applyIndexedExtractions(events, directives), diagnostics);
+  events = safeProcessor('INDEXED_EXTRACTIONS', events, () => applyIndexedExtractions(events, directives, diagnostics), diagnostics);
 
   // Step 6: SEDCMD
   events = safeProcessor('SEDCMD', events, () => applySedCommands(events, directives, diagnostics), diagnostics);

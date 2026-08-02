@@ -76,14 +76,15 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   MUST_NOT_BREAK_BEFORE: {
     support: 'simulated',
     note:
-      'Vetoes BREAK_ONLY_BEFORE and MUST_BREAK_AFTER breaks before a matching line. A ' +
-      'BREAK_ONLY_BEFORE_DATE break stands (pinned by capture) and MAX_EVENTS still caps the merge.',
+      'Measured inert: three 10.4.0 captures show the documented suppression never happening — ' +
+      'date, BREAK_ONLY_BEFORE and MUST_BREAK_AFTER breaks all stand — so the faithful ' +
+      'simulation is no effect.',
   },
   MUST_NOT_BREAK_AFTER: {
     support: 'simulated',
     note:
-      'After a matching line, rule-driven breaks are suppressed until MUST_BREAK_AFTER matches; ' +
-      'MAX_EVENTS still caps the merge. No capture pins this half yet (#190).',
+      'After a matching line, rule-driven breaks are suppressed until MUST_BREAK_AFTER matches ' +
+      '(pinned by capture); MAX_EVENTS still caps the merge.',
   },
   LINE_BREAKER_LOOKBEHIND: {
     support: 'documented',
@@ -109,10 +110,7 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   EXTRACT: { support: 'simulated' },
   REPORT: { support: 'simulated' },
   TRANSFORMS: { support: 'simulated' },
-  INDEXED_EXTRACTIONS: {
-    support: 'simulated',
-    note: 'The format itself is simulated; the attributes that customise it are not (#184).',
-  },
+  INDEXED_EXTRACTIONS: { support: 'simulated' },
   FIELDALIAS: { support: 'simulated' },
   EVAL: { support: 'simulated' },
   SEDCMD: { support: 'simulated' },
@@ -134,20 +132,14 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   LOOKAHEAD: { support: 'simulated' },
 
   // ---- Structured data (INDEXED_EXTRACTIONS options) --------------------
-  FIELD_DELIMITER: { support: 'ignored', issue: 184, note: 'The delimiter is fixed per format.' },
-  FIELD_QUOTE: { support: 'ignored', issue: 184, note: 'The quote character is fixed per format.' },
-  FIELD_NAMES: { support: 'ignored', issue: 184, note: 'Field names always come from the header line.' },
-  HEADER_FIELD_LINE_NUMBER: {
-    support: 'ignored',
-    issue: 184,
-    note: 'The header is always taken from line 1.',
-  },
-  PREAMBLE_REGEX: { support: 'ignored', issue: 184, note: 'Preamble lines are not skipped.' },
-  TIMESTAMP_FIELDS: {
-    support: 'ignored',
-    issue: 184,
-    note: 'The timestamp is not composed from named extracted fields.',
-  },
+  // All six apply to the delimited formats (csv/tsv/psv). W3C keeps its own
+  // #Fields header mechanism, which none of these override there.
+  FIELD_DELIMITER: { support: 'simulated' },
+  FIELD_QUOTE: { support: 'simulated' },
+  FIELD_NAMES: { support: 'simulated' },
+  HEADER_FIELD_LINE_NUMBER: { support: 'simulated' },
+  PREAMBLE_REGEX: { support: 'simulated' },
+  TIMESTAMP_FIELDS: { support: 'simulated' },
   CHECK_FOR_HEADER: {
     support: 'documented',
     note: 'Deprecated by Splunk and superseded by INDEXED_EXTRACTIONS, which is simulated.',
