@@ -46,9 +46,21 @@ jobs:
           # other, nor what the deploy runs.
           node-version-file: .nvmrc
           cache: npm
+          # Both lockfiles: this job installs the MCP server's deps too (see
+          # the lint step), so its lockfile belongs in the cache key.
+          cache-dependency-path: |
+            package-lock.json
+            packages/mcp-server/package-lock.json
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Install MCP server dependencies
+        # Lint below is type-aware over the whole repo (projectService), and
+        # packages/mcp-server resolves @modelcontextprotocol/sdk and zod from
+        # its own node_modules. Without this install those types don't
+        # resolve, and every use reports as an unsafe `any`.
+        run: npm ci --prefix packages/mcp-server
 
       - name: Lint
         run: npm run lint
