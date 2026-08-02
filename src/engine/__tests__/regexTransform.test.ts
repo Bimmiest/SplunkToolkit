@@ -601,3 +601,63 @@ describe('#174 — MV_ADD in the FORMAT-pairs path', () => {
     expect(r.fields.label).toEqual(['a', 'b']);
   });
 });
+
+describe('applyRegexTransform — LOOKAHEAD (#183)', () => {
+  it('does not match beyond the LOOKAHEAD window at index time', () => {
+    const s = stanza('t', { REGEX: 'needle', DEST_KEY: 'queue', FORMAT: 'nullQueue', LOOKAHEAD: '10' });
+    expect(applyRegexTransform(event('x'.repeat(20) + 'needle'), s).matched).toBe(false);
+  });
+
+  it('matches inside the window', () => {
+    const s = stanza('t', { REGEX: 'needle', DEST_KEY: 'queue', FORMAT: 'nullQueue', LOOKAHEAD: '30' });
+    expect(applyRegexTransform(event('x'.repeat(20) + 'needle'), s).matched).toBe(true);
+  });
+
+  it('bounds an undeclared window at 4096 characters', () => {
+    const s = stanza('t', { REGEX: 'needle', DEST_KEY: 'queue', FORMAT: 'nullQueue' });
+    expect(applyRegexTransform(event('x'.repeat(4096) + 'needle'), s).matched).toBe(false);
+    expect(applyRegexTransform(event('x'.repeat(4090) + 'needle'), s).matched).toBe(true);
+  });
+
+  it('is ignored at search time, where the whole source is scanned', () => {
+    const s = stanza('t', { REGEX: 'user=(?<user>\\w+)', LOOKAHEAD: '5' });
+    const r = searchTime(event('x'.repeat(50) + ' user=alice'), s);
+    expect(r.fields.user).toBe('alice');
+  });
+});
+
+describe('applyRegexTransform — DEFAULT_VALUE (#183)', () => {
+  const directives = {
+    REGEX: 'zone=(\\w+)',
+    DEST_KEY: 'MetaData:Sourcetype',
+    FORMAT: 'sourcetype::$1',
+    DEFAULT_VALUE: 'sourcetype::unknown',
+  };
+
+  it('routes the default to DEST_KEY when the REGEX fails at index time', () => {
+    const r = applyRegexTransform(event('no zone here'), stanza('t', directives));
+    expect(r.matched).toBe(true);
+    expect(r.destKey).toBe('MetaData:Sourcetype');
+    expect(r.destValue).toBe('sourcetype::unknown');
+  });
+
+  it('does not fire when the REGEX matches', () => {
+    const r = applyRegexTransform(event('zone=dmz'), stanza('t', directives));
+    expect(r.destValue).toBe('sourcetype::dmz');
+  });
+
+  it('does nothing at search time, where DEFAULT_VALUE is inert', () => {
+    const r = searchTime(event('no zone here'), stanza('t', directives));
+    expect(r.matched).toBe(false);
+    expect(r.destKey).toBeUndefined();
+  });
+
+  it('does nothing without a DEST_KEY to write to', () => {
+    const r = applyRegexTransform(
+      event('no zone here'),
+      stanza('t', { REGEX: 'zone=(?<zone>\\w+)', WRITE_META: 'true', DEFAULT_VALUE: 'unknown' }),
+    );
+    expect(r.matched).toBe(false);
+    expect(Object.keys(r.fields)).toEqual([]);
+  });
+});

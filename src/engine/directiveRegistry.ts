@@ -1208,16 +1208,17 @@ const DIRECTIVE_DEFINITIONS: DirectiveDefinition[] = [
   {
     key: 'DEFAULT_VALUE',
     description:
-      'For a field extraction defined in this transforms.conf stanza, the value assigned to a field ' +
-      'when the REGEX does not match. Ensures the field is always present even when extraction fails. ' +
-      '(The stanza is reached from props.conf via REPORT-<class>.)',
+      'The value an index-time transform writes to its DEST_KEY when the REGEX does not match, so ' +
+      'the destination is written for every event rather than only the matching ones. Valid only ' +
+      'for index-time transforms (reached from props.conf via TRANSFORMS-<class>); a search-time ' +
+      'REPORT- ignores it.',
     example: 'DEFAULT_VALUE = unknown',
     defaultValue: '',
     category: 'Field Extraction',
     appliesTo: 'transforms.conf',
     valueType: 'string',
     isClassBased: false,
-    phase: 'search-time',
+    phase: 'index-time',
   },
 ];
 
