@@ -69,7 +69,7 @@ jobs:
         # `npm run build` is `tsc -b && vite build`, so this type-checks (a bare
         # `tsc --noEmit` against the solution-style root tsconfig — "files": [] —
         # would check zero files) AND produces the real artifact. Without the
-        # bundler step, a bad asset reference or manualChunks drift passes PR
+        # bundler step, a bad asset reference or chunk-group drift passes PR
         # checks and only fails later, during the deploy on main.
         run: npm run build
 

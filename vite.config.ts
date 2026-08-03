@@ -15,22 +15,27 @@ export default defineConfig({
     target: 'es2022',
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Group the slim editor.api entry plus the editor contributions —
-          // NOT the `monaco-editor` barrel, which would force the ~80
-          // basic-languages and the TS/JSON/CSS/HTML language services (and
-          // their web workers) back into the graph even though nothing imports
-          // them. See TOOL-2 / main.tsx.
-          //
-          // editor.all must be named here alongside editor.api: it is a
-          // separate entry point, so without it every contribution lands in the
-          // app chunk instead — a megabyte of Monaco that then reloads on any
-          // application change.
-          'monaco-editor': [
-            'monaco-editor/esm/vs/editor/editor.api',
-            'monaco-editor/esm/vs/editor/editor.all.js',
+        // Vite 8 bundles with Rolldown, which dropped the object form of
+        // `manualChunks`; `codeSplitting.groups` replaces it. (`advancedChunks`
+        // takes the same shape but is already deprecated as of 8.2.)
+        //
+        // The two are not interchangeable: the old array form pulled the module
+        // ids it named INTO the graph, which is why editor.all had to be listed
+        // beside editor.api or every contribution scattered into the app chunk.
+        // A group only claims modules the graph already reached. Nothing is lost
+        // here — `MonacoEditor.tsx` imports editor.all directly, and the pattern
+        // below covers the whole slim `esm/vs` tree both entries pull in.
+        //
+        // Matching on path also cannot drag anything in, so the `monaco-editor`
+        // barrel stays out on its own merit: nothing imports it, which is what
+        // keeps the ~80 basic-languages and the TS/JSON/CSS/HTML language
+        // services (and their web workers) out of the bundle. See TOOL-2 /
+        // main.tsx.
+        codeSplitting: {
+          groups: [
+            { name: 'monaco-editor', test: /monaco-editor[\\/]esm[\\/]vs[\\/]/ },
+            { name: 'react-vendor', test: /node_modules[\\/](react|react-dom)[\\/]/ },
           ],
-          'react-vendor': ['react', 'react-dom'],
         },
       },
     },

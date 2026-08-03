@@ -21,7 +21,7 @@ Monaco editor instances live in a module-level `Map` in `editorRegistry.ts`, not
 
 ## Monaco bundling
 
-Monaco's widgets (hover, suggest, folding, find, multi-cursor) are *contributions*, imported separately from the API surface in `MonacoEditor.tsx` via `editor.all`. `editor.api` alone registers providers that nothing ever renders. `vite.config.ts` names both entries in `manualChunks`. A bad split type-checks and builds, then fails to mount an editor — which is one of the things the e2e suite exists to catch (see the README's Tests section).
+Monaco's widgets (hover, suggest, folding, find, multi-cursor) are *contributions*, imported separately from the API surface in `MonacoEditor.tsx` via `editor.all`. `editor.api` alone registers providers that nothing ever renders. `vite.config.ts` groups the slim `esm/vs` tree both entries pull in via `codeSplitting` (Rolldown's replacement for `manualChunks` — it claims modules the graph already reached rather than naming ids to pull in, so `editor.all` is held there by its own import in `MonacoEditor.tsx`). A bad split type-checks and builds, then fails to mount an editor — which is one of the things the e2e suite exists to catch (see the README's Tests section).
 
 ## Accessibility
 

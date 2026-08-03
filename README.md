@@ -165,7 +165,7 @@ Custom `splunk-conf` language:
 - Linting via `setModelMarkers` — unknown directives, invalid regex, type mismatches, duplicate stanzas, missing brackets, best-practice warnings.
 - Light / dark themes (`splunk-light`, `splunk-dark`) tracking the app's zinc/indigo palette.
 
-`directiveRegistry.ts` drives all three features. Add a `DirectiveInfo` entry and autocomplete, hover, and linting pick it up automatically — as does the dictionary. How Monaco is bundled (the `editor.api` / `editor.all` split and `manualChunks`) is covered in [docs/architecture.md](docs/architecture.md).
+`directiveRegistry.ts` drives all three features. Add a `DirectiveInfo` entry and autocomplete, hover, and linting pick it up automatically — as does the dictionary. How Monaco is bundled (the `editor.api` / `editor.all` split and the `codeSplitting` group around it) is covered in [docs/architecture.md](docs/architecture.md).
 
 ## Dictionary
 
@@ -212,7 +212,7 @@ It exists for the things vitest structurally cannot reach, each of which has fai
 
 - **The Content-Security-Policy.** It lives in `index.html` and only means anything in a browser. `img-src` was missing for the entire life of the policy, so Chromium refused every one of Monaco's `data:` squiggle SVGs and the lint underlines never drew — visible only as a console error nobody was watching. The suite asserts zero CSP violations and zero console errors on boot.
 - **Worker bundling.** The whole simulation runs in a Web Worker created via `new Worker(new URL(…), { type: 'module' })`. Whether Vite emits a loadable chunk for that is a build-time question with a runtime answer.
-- **The Monaco chunk split.** `MonacoEditor.tsx` imports the slim `editor.api` entry and `vite.config.ts` hand-rolls `manualChunks` around it. A bad split type-checks, builds, and then fails to mount an editor.
+- **The Monaco chunk split.** `MonacoEditor.tsx` imports the slim `editor.api` entry and `vite.config.ts` hand-rolls a `codeSplitting` group around it. A bad split type-checks, builds, and then fails to mount an editor.
 
 One note if you extend it: the app runs the pipeline once on mount with an empty raw log, and `runPipeline` returns a real result for empty input (`eventCount: 0`). So the status bar reads "Worker idle · 0 events" *before* anything is loaded — wait on a non-zero event count, as `loadExample` does, not on the idle state.
 
@@ -277,7 +277,7 @@ See [CHANGELOG.md](CHANGELOG.md) for fix history
 
 ## Tech stack
 
-React 19, Vite 7, TypeScript 5.9, Tailwind CSS 4 (CSS-first config), Monaco Editor 0.55 (mounted directly by `MonacoEditor.tsx`), Zustand 5, react-resizable-panels 4.6, `diff` 8, `cmdk` (command palette), `@radix-ui/react-tooltip`.
+React 19, Vite 8, TypeScript 5.9, Tailwind CSS 4 (CSS-first config), Monaco Editor 0.55 (mounted directly by `MonacoEditor.tsx`), Zustand 5, react-resizable-panels 4.6, `diff` 9, `cmdk` (command palette), `@radix-ui/react-tooltip`.
 
 ## Contributing
 
