@@ -5,14 +5,14 @@
   "description": "MCP server over the propslab simulation engine: simulate, validate, explain_precedence, lookup_directive.",
   "license": "MIT",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=24.0.0"
   },
   "bin": {
     "propslab-mcp": "dist/index.js"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "build": "npm run typecheck && esbuild src/index.ts src/simulateWorker.ts --bundle --platform=node --target=node22 --format=cjs --outdir=dist --sourcemap",
+    "build": "npm run typecheck && esbuild src/index.ts src/simulateWorker.ts --bundle --platform=node --target=node24 --format=cjs --outdir=dist --sourcemap",
     "start": "node dist/index.js",
     "pretest": "npm run build",
     "test": "vitest run"

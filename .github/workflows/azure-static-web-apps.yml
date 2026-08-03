@@ -33,9 +33,9 @@ jobs:
       # The build used to happen inside the Static Web Apps container, where
       # Oryx picked its own Node. That left the one artifact users actually load
       # as the only thing outside the .nvmrc / engines / CI alignment — CI could
-      # be green on 22.22.2 while the deployed bundle came off whatever Oryx
-      # chose. Building here and uploading with skip_app_build means what ships
-      # came off the toolchain that passed CI.
+      # be green on the pinned version while the deployed bundle came off
+      # whatever Oryx chose. Building here and uploading with skip_app_build
+      # means what ships came off the toolchain that passed CI.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .nvmrc
