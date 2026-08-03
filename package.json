@@ -9,7 +9,7 @@
     "url": "git+https://github.com/Bimmiest/propslab.git"
   },
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=24.0.0"
   },
   "type": "module",
   "scripts": {

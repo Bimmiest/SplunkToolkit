@@ -40,10 +40,12 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          # Kept in step with .nvmrc and package.json "engines". Node 20 went
-          # end-of-life in April 2026, so CI was building on an unsupported
-          # runtime while .nvmrc pinned a non-LTS 25.x — neither matched the
-          # other, nor what the deploy runs.
+          # Kept in step with .nvmrc and package.json "engines". The pin tracks
+          # Active LTS rather than latest, and the two failure modes it steers
+          # between have both bitten here: CI once built on an end-of-life Node
+          # 20 while .nvmrc pinned a non-LTS 25.x, so neither matched the other
+          # nor what the deploy ran. 22 entered maintenance in October 2025,
+          # which puts the actively supported line at 24 until October 2026.
           node-version-file: .nvmrc
           cache: npm
           # Both lockfiles: this job installs the MCP server's deps too (see
