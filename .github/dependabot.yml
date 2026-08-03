@@ -49,3 +49,17 @@ updates:
     groups:
       github-actions:
         patterns: ["*"]
+    ignore:
+      # The one action the SHA-raising above cannot be trusted with. Upstream
+      # publishes `v1` as both a tag and a branch: the tag is frozen at
+      # 2021-03-03, the branch is where the action is maintained, and this repo
+      # pins the branch head deliberately (see azure-static-web-apps.yml, which
+      # explains why). Dependabot resolves `v1` to the tag, sees a SHA that is
+      # not the pinned one, and proposes it as an update — so every run asks to
+      # move the deploy BACKWARDS by three and a half years, onto a build that
+      # predates the `skip_api_build` input the workflow passes. #219 was that
+      # PR; the same regression had already been fixed once before it.
+      #
+      # The cost is that this pin no longer rots forward on its own. Raising it
+      # means reading the v1 branch and updating the SHA by hand.
+      - dependency-name: "Azure/static-web-apps-deploy"
