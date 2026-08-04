@@ -8,6 +8,7 @@ import { FieldSplitLayout } from './shared/FieldSplitLayout';
 import { FieldTreeNode } from './shared/FieldTreeNode';
 import { buildFieldTree } from './shared/fieldTreeUtils';
 import type { FieldNode } from './shared/fieldTreeUtils';
+import { DirectiveNoOpList } from './shared/DirectiveNoOpList';
 
 const AUTO_PROCESSORS = ['KV_MODE', 'INDEXED_EXTRACTIONS'];
 const MANUAL_PROCESSORS = ['EXTRACT', 'REPORT', 'TRANSFORMS', 'SEDCMD'];
@@ -347,6 +348,14 @@ export function HighlightedTab({ items, allEvents, currentPage, eventsPerPage }:
               set with the search box, or unpin to page through every event.
             </div>
           )}
+          {/*
+            Extraction directives that ran against these events and produced no
+            field (#84) — the case where this tab otherwise shows an event with
+            nothing highlighted and no reason why.
+          */}
+          <div className="mb-2">
+            <DirectiveNoOpList events={filteredItems.map(({ item }) => item.event)} phase="search-time" />
+          </div>
           {filteredItems.map(({ item, globalIdx }, idx) => {
             const { eventCalcFields, autoCount, manualCount, calcCount } =
               eventBadgeCounts[idx] ?? { eventCalcFields: [], autoCount: 0, manualCount: 0, calcCount: 0 };

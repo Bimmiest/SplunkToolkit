@@ -1,4 +1,5 @@
-import type { SplunkEvent, ConfDirective, RawMutation, ValidationDiagnostic } from '../types';
+import type { SplunkEvent, ConfDirective, DirectiveNoOp, RawMutation, ValidationDiagnostic } from '../types';
+import { longestPartialMatch } from '../noOpExplainer';
 import { safeRegex } from '../../utils/splunkRegex';
 import { byClassName } from '../utils/asciiCompare';
 import { changeWindow } from '../utils/changeWindow';
@@ -274,6 +275,10 @@ export function applySedCommands(
     let raw = event._raw;
     const traces: SplunkEvent['processingTrace'] = [];
     const mutations: RawMutation[] = [];
+    // A SEDCMD that leaves _raw byte-for-byte identical is the classic silent
+    // no-op: the masking rule ships, the data is not masked, and the preview
+    // looks exactly like a working one (#84).
+    const noOps: DirectiveNoOp[] = [];
 
     for (const cmd of commands) {
       const before = raw;
@@ -297,6 +302,17 @@ export function applySedCommands(
           description: `Applied sed substitution`,
           ...changeWindow(before, raw),
         });
+      } else {
+        const partial = longestPartialMatch(cmd.pattern.source, before);
+        noOps.push({
+          directive: cmd.directive.key,
+          file: 'props.conf',
+          line: cmd.directive.line,
+          phase: 'index-time',
+          reason: partial
+            ? { kind: 'no-match', partialEnd: partial.end, partialPattern: partial.prefix }
+            : { kind: 'no-match' },
+        });
       }
     }
 
@@ -305,6 +321,7 @@ export function applySedCommands(
       _raw: raw,
       processingTrace: [...event.processingTrace, ...traces],
       rawMutations: [...(event.rawMutations ?? []), ...mutations],
+      ...(noOps.length > 0 ? { noOps: [...(event.noOps ?? []), ...noOps] } : {}),
     };
   });
 }

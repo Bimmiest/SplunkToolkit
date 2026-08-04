@@ -1,5 +1,6 @@
 import type { SplunkEvent, ConfStanza, ConfDirective } from '../types';
-import { safeRegex, convertSplunkToJsRegex } from '../../utils/splunkRegex';
+import { safeRegex, convertSplunkToJsRegex, validateRegex } from '../../utils/splunkRegex';
+import { longestPartialMatch, type NoOpReason } from '../noOpExplainer';
 import { stripLeadingUnderscoreForField } from '../utils/internalFields';
 import { getField, hasField, setField, addFieldValue } from '../utils/fieldBag';
 import { getSourceKeyValue } from '../utils/metadataFields';
@@ -9,6 +10,13 @@ export interface TransformResult {
   destKey?: string;
   destValue?: string;
   matched: boolean;
+  /**
+   * Why the transform had no effect, set only when `matched` is false (#84).
+   * Computed here rather than by the caller because this is where SOURCE_KEY
+   * has been resolved and LOOKAHEAD applied — recomputing either outside would
+   * be a second implementation to keep in step.
+   */
+  noOp?: NoOpReason;
 }
 
 // Pre-compiled patterns for format string substitution.
@@ -398,6 +406,12 @@ export function applyRegexTransform(
     // Invalid PCRE-ism or a pattern the ReDoS heuristic refused — the transform
     // silently does nothing, so let the caller surface a diagnostic.
     onInvalidRegex?.(regexDir.value.trim());
+    result.noOp = {
+      kind: 'regex-invalid',
+      error:
+        validateRegex(regexDir.value.trim()) ??
+        'refused by the ReDoS guard — it can backtrack catastrophically',
+    };
     return result;
   }
 
@@ -415,7 +429,19 @@ export function applyRegexTransform(
       result.matched = true;
       result.destKey = destKeyForDefault;
       result.destValue = defaultValue;
+      return result;
     }
+    // An empty SOURCE_KEY is reported ahead of the pattern: a working regex
+    // against nothing is not a regex problem, and saying it did not match sends
+    // the reader to rewrite something that is already correct.
+    if (sourceValue === '') {
+      result.noOp = { kind: 'source-key-empty', sourceKey: sourceKeyDir?.value.trim() ?? '_raw' };
+      return result;
+    }
+    const partial = longestPartialMatch(regexDir.value.trim(), sourceValue);
+    result.noOp = partial
+      ? { kind: 'no-match', partialEnd: partial.end, partialPattern: partial.prefix }
+      : { kind: 'no-match' };
     return result;
   }
 

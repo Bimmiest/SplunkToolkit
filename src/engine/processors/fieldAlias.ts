@@ -1,4 +1,5 @@
-import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
+import type { SplunkEvent, ConfDirective, DirectiveNoOp, ValidationDiagnostic } from '../types';
+import type { NoOpReason } from '../noOpExplainer';
 import { isInternalField } from '../utils/internalFields';
 import { byClassName } from '../utils/asciiCompare';
 import { getMetadataField } from '../utils/metadataFields';
@@ -42,16 +43,32 @@ export function applyFieldAliases(
     // Structured, so consumers never have to parse `description` back apart.
     const created: { target: string; source: string }[] = [];
 
+    const noOps: DirectiveNoOp[] = [];
+    const noteNoOp = (alias: { directive: ConfDirective }, reason: NoOpReason) => {
+      noOps.push({
+        directive: alias.directive.key,
+        file: 'props.conf',
+        line: alias.directive.line,
+        phase: 'search-time',
+        reason,
+      });
+    };
+
     for (const alias of aliases) {
       // `FIELDALIAS-cim = host AS dvc` is one of the most common CIM mappings:
       // the metadata-backed default fields are aliasable like any other.
       const sourceValue = getField(event.fields, alias.source) ?? getMetadataField(event, alias.source);
       if (sourceValue === undefined) {
         maybeWarnStrippedRef(alias, event, diagnostics, reportedStrippedRefs);
+        // An alias of a field that does not exist on this event is the FIELDALIAS
+        // equivalent of a regex that never matched: nothing appears, and nothing
+        // says why.
+        noteNoOp(alias, { kind: 'source-key-empty', sourceKey: alias.source });
         continue;
       }
 
       if (alias.mode === 'ASNEW' && hasField(newFields, alias.target)) {
+        noteNoOp(alias, { kind: 'fields-already-set', fields: [alias.target] });
         continue;
       }
 
@@ -59,10 +76,12 @@ export function applyFieldAliases(
       created.push({ target: alias.target, source: alias.source });
     }
 
-    if (created.length === 0) return event;
+    const withNoOps = noOps.length > 0 ? { noOps: [...(event.noOps ?? []), ...noOps] } : {};
+    if (created.length === 0) return { ...event, ...withNoOps };
 
     return {
       ...event,
+      ...withNoOps,
       fields: newFields,
       processingTrace: [
         ...event.processingTrace,

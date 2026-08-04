@@ -117,11 +117,32 @@ export interface SplunkEvent {
   lineNumbers: { start: number; end: number };
   processingTrace: ProcessingStep[];
   /**
+   * Directives that applied to this event and changed nothing, each with the
+   * reason (#84).
+   *
+   * Deliberately NOT part of `processingTrace`: that array is "what happened",
+   * every consumer of it treats a step as work done, and the Pipeline tab counts
+   * its length. A no-op is the absence of work, so it is recorded beside the
+   * trace rather than inside it.
+   */
+  noOps?: DirectiveNoOp[];
+  /**
    * Transient: every index-time rewrite of `_raw`, consumed and stripped by
    * `attributeRawMutations` at the end of the pipeline. Never present on the
    * events a caller receives.
    */
   rawMutations?: RawMutation[];
+}
+
+/** One directive that did nothing to one event, and why (#84). */
+export interface DirectiveNoOp {
+  /** As written, e.g. `EXTRACT-user`. */
+  directive: string;
+  file: 'props.conf' | 'transforms.conf';
+  line: number;
+  /** Which pipeline stage it belonged to, for grouping in the UI. */
+  phase: 'index-time' | 'search-time';
+  reason: import('./noOpExplainer').NoOpReason;
 }
 
 export interface ProcessingResult {

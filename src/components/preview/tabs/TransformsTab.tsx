@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { DirectiveNoOpList } from './shared/DirectiveNoOpList';
 import { useAppStore } from '../../../store/useAppStore';
 import { Icon } from '../../ui/Icon';
 import { Tooltip } from '../../ui/Tooltip';
@@ -85,6 +86,13 @@ export function TransformsTab() {
 
       <StepSection title="Index-Time Processing" steps={summary.indexTime} phaseColor="var(--color-warning)" />
       <StepSection title="Search-Time Processing" steps={summary.searchTime} phaseColor="var(--color-accent)" />
+
+      {/*
+        The directives that ran and changed nothing (#84). Listed after the steps
+        that did fire, because a silent no-op is only confusing once you have
+        looked for it above and not found it.
+      */}
+      {result && <DirectiveNoOpList events={result.events} />}
 
       {summary.indexTime.length === 0 && summary.searchTime.length === 0 && (
         <div className="text-center text-[var(--color-text-muted)] text-sm py-8">
