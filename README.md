@@ -232,6 +232,8 @@ Every directive the registry knows about carries one of three support levels, de
 
 The counts are asserted by a test against the table itself, so they cannot go stale.
 
+A fourth state sits outside that table, because the table can only classify what the registry knows about. **29** attributes are valid in Splunk 10.4.0 and are not in the registry at all; until [#178](https://github.com/Bimmiest/propslab/issues/178) generates the registry from the `.spec` files, writing one of them is the same experience as an `ignored` directive — the preview does not honour it and says so. They are named in `UNDOCUMENTED_ATTRIBUTES` in [`src/engine/directiveSupport.ts`](src/engine/directiveSupport.ts), by name only: their value types and defaults are facts belonging to the spec, and guessing them here is the failure the fidelity corpus exists to catch.
+
 Writing a directive that is not `simulated` produces a diagnostic under its editor — a warning for `ignored`, an informational note for `documented`. The dictionary and the editor hover say the same thing on the entry itself. The point is that the tool never silently renders output as though a line you wrote were absent.
 
 One `simulated` entry carries a caveat rather than a clean bill of health: `INDEXED_EXTRACTIONS` simulates every format it names — csv, tsv, psv, w3c and json — but the attributes that customise the delimited ones are `ignored` ([#184](https://github.com/Bimmiest/propslab/issues/184)).

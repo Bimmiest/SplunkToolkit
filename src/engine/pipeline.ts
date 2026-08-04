@@ -15,7 +15,7 @@ import { applyFieldAliases } from './processors/fieldAlias';
 import { applyEvalExpressions } from './processors/evalProcessor';
 import { attributeRawMutations } from './processors/rawMutationAttribution';
 import { SIMULATED_DEST_KEYS, VALID_UNSIMULATED_DEST_KEYS, normaliseDestKey } from './transforms/destKeys';
-import { getDirectiveSupport } from './directiveSupport';
+import { getDirectiveSupport, isUndocumentedAttribute } from './directiveSupport';
 import { lintInertTransformSettings, lintDirectiveValues } from './directiveLint';
 
 function safeProcessor(
@@ -143,7 +143,26 @@ export function runPipeline(
         // A class-based key is written `EXTRACT-foo`; classification is by base.
         const baseKey = dir.className ? dir.directiveType : dir.key;
         const entry = getDirectiveSupport(baseKey);
-        if (!entry || entry.support === 'simulated') continue;
+
+        // A real attribute the registry has never heard of reached this loop
+        // with no entry and left it silently, which is the one way a valid line
+        // could still vanish without being declared (#178). It gets the same
+        // warning as an `ignored` key, because from where the user is sitting
+        // it is the same event: they wrote a directive and the preview ignored it.
+        if (!entry) {
+          if (!isUndocumentedAttribute(baseKey)) continue;
+          diagnostics.push({
+            level: 'warning',
+            message:
+              `${dir.key} is a valid Splunk attribute that this simulator does not ` +
+              `document or honour — the preview ignores it. Tracked as #178.`,
+            file,
+            ...atDirective(dir),
+            directiveKey: dir.key,
+          });
+          continue;
+        }
+        if (entry.support === 'simulated') continue;
 
         const tracking = entry.issue ? ` Tracked as #${entry.issue}.` : '';
         diagnostics.push({

@@ -3,6 +3,7 @@ import type { languages } from 'monaco-editor';
 import { createCompletionProvider } from '../../monaco/splunkConfCompletion';
 import { createHoverProvider } from '../../monaco/splunkConfHover';
 import { createFoldingRangeProvider } from '../../monaco/splunkConfFolding';
+import { createCodeActionProvider } from '../../monaco/splunkConfCodeActions';
 import { OPEN_DICTIONARY_COMMAND_ID } from '../../monaco/dictionaryCommand';
 import { useAppStore } from '../../store/useAppStore';
 
@@ -277,6 +278,10 @@ function registerSplunkConfLanguage() {
   monaco.languages.registerHoverProvider(PROPS_LANGUAGE_ID, createHoverProvider('props.conf'));
   monaco.languages.registerCompletionItemProvider(TRANSFORMS_LANGUAGE_ID, createCompletionProvider('transforms.conf'));
   monaco.languages.registerHoverProvider(TRANSFORMS_LANGUAGE_ID, createHoverProvider('transforms.conf'));
+
+  // Quick fix for the mis-cased-attribute marker (#89).
+  monaco.languages.registerCodeActionProvider(PROPS_LANGUAGE_ID, createCodeActionProvider('props.conf'));
+  monaco.languages.registerCodeActionProvider(TRANSFORMS_LANGUAGE_ID, createCodeActionProvider('transforms.conf'));
 
   // Light theme
   monaco.editor.defineTheme('splunk-light', {

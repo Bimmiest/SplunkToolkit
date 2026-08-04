@@ -1,6 +1,7 @@
 import type { editor } from 'monaco-editor';
 import { getDirectiveInfo, getClassBasedDirectiveBase } from '../engine/directiveRegistry';
-import { DIRECTIVE_RE } from '../engine/parser/confParser';
+import { isUndocumentedAttribute } from '../engine/directiveSupport';
+import { DIRECTIVE_RE, miscasedCanonical, MISCASED_MESSAGE } from '../engine/parser/confParser';
 import { validateRegex } from '../utils/splunkRegex';
 
 /**
@@ -25,7 +26,16 @@ export interface DiagnosticMarker {
   startColumn: number;
   endLineNumber: number;
   endColumn: number;
+  /** Identifies a marker a quick fix can act on. See MISCASED_MARKER_CODE. */
+  code?: string;
 }
+
+/**
+ * Tags the mis-cased-attribute marker so the code action provider can offer the
+ * rename against it, rather than re-deriving which markers are fixable by
+ * matching on message text (#89).
+ */
+export const MISCASED_MARKER_CODE = 'splunk.miscased-attribute';
 
 export function computeDiagnostics(
   model: editor.ITextModel,
@@ -155,6 +165,29 @@ export function computeDiagnostics(
     }
 
     if (!info) {
+      // A case-only mismatch is a real attribute written in a casing Splunk
+      // ignores, which is a different problem from a typo and has an exact fix.
+      // Marked with MISCASED_MARKER_CODE so the quick fix can find it (#89).
+      const canonical = miscasedCanonical(key, fileType);
+      if (canonical !== undefined) {
+        markers.push({
+          severity: 4, // Warning — this config is dead on a real indexer.
+          code: MISCASED_MARKER_CODE,
+          message: MISCASED_MESSAGE(key, canonical),
+          startLineNumber: i,
+          startColumn: 1,
+          endLineNumber: i,
+          endColumn: eqIdx + 1,
+        });
+        continue;
+      }
+
+      // A valid attribute the registry has not documented yet is not a typo,
+      // and telling the user it might be sends them to check spelling that is
+      // already correct. The engine warns that the preview ignores it (#178),
+      // the same way it does for a documented-but-`ignored` key — so say
+      // nothing more here rather than contradicting it.
+      if (isUndocumentedAttribute(key)) continue;
       markers.push({
         severity: 2, // Info
         message: `Unknown directive "${key}" — possible typo?`,

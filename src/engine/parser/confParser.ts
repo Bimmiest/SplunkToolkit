@@ -115,6 +115,39 @@ function parseDirectiveKey(key: string): {
   return { directiveType: key };
 }
 
+/**
+ * The canonical spelling of a key that differs from a real attribute only by
+ * case, or undefined when the key is correct, unknown, or a properly-cased
+ * class directive.
+ *
+ * Covers both forms of the same Splunk footgun: a plain attribute (`kv_mode`
+ * for `KV_MODE`) and a class prefix (`extract-f` for `EXTRACT-f`), the second
+ * being the harder one to spot by eye. Exported because the editor's linter and
+ * its quick fix answer this question too, and three implementations of
+ * "is this a case typo" would be three chances to disagree (#89).
+ */
+export function miscasedCanonical(
+  rawKey: string,
+  file: 'props.conf' | 'transforms.conf',
+): string | undefined {
+  const { className, miscasedPrefix } = parseDirectiveKey(rawKey);
+  if (miscasedPrefix !== undefined) {
+    return `${miscasedPrefix}${rawKey.slice(miscasedPrefix.length)}`;
+  }
+  // A correctly-cased class directive carries a className and is not a typo.
+  if (className !== undefined) return undefined;
+
+  const canonical = getCanonicalDirectiveKey(rawKey, file);
+  return canonical !== undefined && canonical !== rawKey ? canonical : undefined;
+}
+
+/** Shared wording, so the engine diagnostic and the editor marker read alike. */
+export const MISCASED_MESSAGE = (rawKey: string, canonical: string): string =>
+  `"${rawKey}" is ignored — attribute names are case-sensitive. Did you mean "${canonical}"?`;
+
+export const MISCASED_SUGGESTION = (rawKey: string, canonical: string): string =>
+  `Change "${rawKey}" to "${canonical}".`;
+
 // ---------------------------------------------------------------------------
 // Stanza classification helpers
 // ---------------------------------------------------------------------------
@@ -286,41 +319,24 @@ function parseLayer(
       const rawKey = (directiveMatch[1] ?? '').trim();
       const rawValue = directiveMatch[2] ?? '';
 
-      const { directiveType, className, miscasedPrefix } = parseDirectiveKey(rawKey);
+      const { directiveType, className } = parseDirectiveKey(rawKey);
 
-      // A mis-cased class prefix (`extract-f`) is ignored by Splunk exactly like
-      // a mis-cased plain attribute, and is the harder one to spot by eye.
-      if (miscasedPrefix !== undefined) {
-        const canonical = `${miscasedPrefix}${rawKey.slice(miscasedPrefix.length)}`;
+      // Splunk attribute names are case-sensitive, so a mis-cased name -- whether
+      // a plain attribute (`kv_mode`) or a class prefix (`extract-f`) -- is
+      // silently ignored and the default applies. `miscasedCanonical` decides
+      // both cases; the editor's linter calls the same function, so the two
+      // validators cannot drift on what counts as a case typo (#89).
+      const canonical = miscasedCanonical(rawKey, fileName);
+      if (canonical !== undefined) {
         errors.push({
           level: 'warning',
-          message: `"${rawKey}" is ignored — attribute names are case-sensitive. Did you mean "${canonical}"?`,
+          message: MISCASED_MESSAGE(rawKey, canonical),
           file: fileName,
           ...from,
           line: lineNumber,
           directiveKey: rawKey,
-          suggestion: `Change "${rawKey}" to "${canonical}".`,
+          suggestion: MISCASED_SUGGESTION(rawKey, canonical),
         });
-      }
-
-      // Splunk attribute names are case-sensitive, so a mis-cased name (e.g.
-      // `kv_mode` instead of `KV_MODE`) is silently ignored — the default applies.
-      // Flag case-only mismatches (a canonical name exists but the casing differs)
-      // so the config bug surfaces. Class directives (EXTRACT-*, …) have a className
-      // and are skipped; unknown attributes return no canonical and are not flagged.
-      if (className === undefined && miscasedPrefix === undefined) {
-        const canonical = getCanonicalDirectiveKey(rawKey, fileName);
-        if (canonical && canonical !== rawKey) {
-          errors.push({
-            level: 'warning',
-            message: `"${rawKey}" is ignored — attribute names are case-sensitive. Did you mean "${canonical}"?`,
-            file: fileName,
-            ...from,
-            line: lineNumber,
-            directiveKey: rawKey,
-            suggestion: `Change "${rawKey}" to "${canonical}".`,
-          });
-        }
       }
 
       const directive: ConfDirective = {

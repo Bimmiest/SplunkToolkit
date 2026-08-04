@@ -132,6 +132,31 @@ Two rules that exist because breaking them produces fixtures that rot silently:
   ingest — so the fixture encodes the moment it was captured and never
   reproduces again.
 
+A case cannot be added ahead of its capture: `splunkFidelity.test.ts` asserts
+that every corpus case has a fixture, so an uncaptured case fails the suite. That
+is deliberate — it keeps the corpus meaning "measured against Splunk" rather than
+"intended to be". Cases written before a capture round is possible are parked
+below until someone with an instance can run one.
+
+## Queued for the next capture
+
+`eval-null-in-function-args`, for [#211](https://github.com/Bimmiest/propslab/issues/211).
+The engine now propagates null through function arguments, but that is asserted
+only against our reading of the docs — `eval-null-propagation` pins the operators
+and nothing pins the functions. Search-time, `EVAL` and `TZ`:
+
+```
+EVAL-ulen = len(user)
+EVAL-uupper = upper(user)
+EVAL-ucoalesce = coalesce(user, "anonymous")
+EVAL-uempty = len(empty)
+```
+
+Input needs one event carrying `user`, one without it, and one where `user` is
+present but empty — the third is what separates "absent" from "empty", which is
+the whole distinction the fix turns on. Expect `ulen` and `uupper` absent on the
+event with no `user`, `ucoalesce` set on every event, and `uempty` = 0.
+
 ## When a fixture disagrees with the engine
 
 That is the point of the exercise; those failures are the bug list that is

@@ -64,8 +64,8 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   MAX_DIFF_SECS_HENCE: { support: 'ignored', issue: 85, note: 'Timestamp sanity bounds are not applied.' },
   TZ_ALIAS: {
     support: 'ignored',
-    issue: 159,
-    note: 'Zone-abbreviation aliasing is not applied; it lands with the rest of the TZ work.',
+    issue: 227,
+    note: 'Zone-abbreviation aliasing is not applied, so an aliased %Z zone falls back to UTC.',
   },
 
   // ---- Event breaking ---------------------------------------------------
@@ -222,6 +222,69 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   time_format: { support: 'documented', note: 'Time-bounded lookups are not evaluated.' },
 };
 
+/**
+ * Valid props.conf / transforms.conf attributes that this repository does not
+ * document yet (#178).
+ *
+ * The table above classifies everything the registry knows. It cannot classify
+ * what the registry has never heard of, and `pipeline.ts` reads a missing entry
+ * as "honoured" -- so until #178 lands, writing one of these produced no
+ * warning anywhere and the preview ignored the line in silence. That is the
+ * failure #153 exists to prevent, reached by a different route: not a directive
+ * we decided not to simulate, but one we never knew to decide about.
+ *
+ * Names only, deliberately. Value types, defaults and valid values are
+ * structural facts belonging to Splunk's `.spec` files, and #178 generates them
+ * from the spec rather than having anyone recall them -- a half-remembered
+ * default committed here would be exactly the kind of confident wrong answer
+ * the fidelity corpus was built to catch. Naming a directive is enough to stop
+ * claiming it works.
+ *
+ * These are the 91 attributes in the Splunk 10.4.0 spec files minus the ones
+ * the registry documents. Generating this list, rather than maintaining it by
+ * hand, is the rest of #178.
+ */
+export const UNDOCUMENTED_ATTRIBUTES: ReadonlySet<string> = new Set([
+  'ADD_EXTRA_TIME_FIELDS',
+  'CAN_OPTIMIZE_IE',
+  'CHECK_METHOD',
+  'DETERMINE_TIMESTAMP_DATE_WITH_SYSTEM_TIME',
+  'FIELD_HEADER_REGEX',
+  'HEADER_FIELD_ACCEPTABLE_SPECIAL_CHARACTERS',
+  'HEADER_FIELD_DELIMITER',
+  'HEADER_FIELD_QUOTE',
+  'HEADER_MODE',
+  'JSON_TRIM_BRACES_IN_ARRAY_NAMES',
+  'KV_TRIM_SPACES',
+  'LB_CHUNK_BREAKER',
+  'LB_CHUNK_BREAKER_TRUNCATE',
+  'LEARN_MODEL',
+  'MAX_EXPECTED_EVENT_LINES',
+  'METRICS_PROTOCOL',
+  'MISSING_VALUE_REGEX',
+  'OPTIMIZE_IE_EXTRACT',
+  'PREFIX_SOURCETYPE',
+  'REMOVE_DIMS_FROM_METRIC_NAME',
+  'ROUTE_EVENTS_OLDER_THAN',
+  'RULESET',
+  'RULESET_DESC',
+  'SOURCETYPE_NAME_RESTRICTED_CHARACTERS',
+  'STATSD_EMIT_SINGLE_MEASUREMENT_FORMAT',
+  'STOP_PROCESSING_IF',
+  'XML_IE_EXCLUDE',
+  'XML_IE_INCLUDE',
+  'XML_INDEXED_EXTRACTIONS_PIPELINE',
+]);
+
+/**
+ * Whether a key is a real Splunk attribute this repository has not documented.
+ * Distinguishes "we don't simulate that" from "that isn't a thing", which are
+ * different pieces of advice and were previously both delivered as the second.
+ */
+export function isUndocumentedAttribute(key: string): boolean {
+  return UNDOCUMENTED_ATTRIBUTES.has(key);
+}
+
 /** The classification for a directive key, or undefined if it is unclassified. */
 export function getDirectiveSupport(key: string): SupportEntry | undefined {
   return DIRECTIVE_SUPPORT[key];
@@ -229,10 +292,13 @@ export function getDirectiveSupport(key: string): SupportEntry | undefined {
 
 /**
  * Whether a directive the user has written will be honoured by the preview.
- * Unknown keys count as honoured: an unrecognised key is a different problem
- * with its own diagnostic, and claiming "not simulated" for a typo would be
- * misleading advice.
+ *
+ * A key that is neither classified nor a known-undocumented attribute counts as
+ * honoured: at that point it is a typo rather than a gap, which is a different
+ * problem with its own diagnostic, and answering "not simulated" would be
+ * misleading advice about a directive that does not exist.
  */
 export function isSimulated(key: string): boolean {
+  if (UNDOCUMENTED_ATTRIBUTES.has(key)) return false;
   return (DIRECTIVE_SUPPORT[key]?.support ?? 'simulated') === 'simulated';
 }
