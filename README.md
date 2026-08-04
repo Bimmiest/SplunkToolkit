@@ -38,7 +38,7 @@ Runs in Splunk's actual order.
 **Processing Pipeline**
 1. Line breaking — `LINE_BREAKER`, `SHOULD_LINEMERGE`, `BREAK_ONLY_BEFORE`, `MUST_BREAK_AFTER`, `MAX_EVENTS`
 2. Truncation — `TRUNCATE`
-3. Timestamp extraction — `TIME_PREFIX`, `TIME_FORMAT`, `MAX_TIMESTAMP_LOOKAHEAD`, `TZ`
+3. Timestamp extraction — `TIME_PREFIX`, `TIME_FORMAT`, `MAX_TIMESTAMP_LOOKAHEAD`, `TZ`, `DATETIME_CONFIG`, and the sanity bounds (`MAX_DAYS_AGO`, `MAX_DAYS_HENCE`, `MAX_DIFF_SECS_AGO`, `MAX_DIFF_SECS_HENCE`)
 4. Indexed extractions — `INDEXED_EXTRACTIONS` (json, csv, tsv, psv, w3c)
 5. Sed commands — `SEDCMD-<class>`
 6. Transforms — `TRANSFORMS-<class>` (regex routing and `INGEST_EVAL` interleaved in `TRANSFORMS-<class>` list order; class names applied in ASCII order)
@@ -148,6 +148,8 @@ e2e/                           # Playwright smoke tests (production build, Chrom
 
 **Fields tab** lists every extracted field with phase (index-time vs search-time) and the processors that produced it. Filter pill: `All / Index-time / Search-time`.
 
+**Effective config tab** is what `splunk btool props list <sourcetype> --debug` prints, resolved for the metadata you configured: every directive that actually applies, the stanza it won from, and — expandable per row — the definitions in lower-precedence stanzas it beat. Clicking a line reference jumps the props.conf editor to it. `Show contested only` narrows to the keys more than one matching stanza defines, which is where precedence surprises live. It resolves configuration rather than output, so it answers before any data has been processed.
+
 **CIM Models tab** validates extracted fields against 27 CIM datasets: Alerts, Authentication, Certificates, Change, Data Access, Databases, DLP, Email, Endpoint (Filesystem, Ports, Processes, Registry, Services), Event Signatures, Interprocess Messaging, Intrusion Detection, Inventory, JVM, Malware, Network Resolution (DNS), Network Sessions, Network Traffic, Performance, Ticket Management, Updates, Vulnerabilities, Web.
 
 The field lists, required/recommended split and constraint tags are all derived from the model JSON that ships in Splunk's own CIM add-on (`Splunk_SA_CIM` **8.5.0**) — see the header of `src/engine/cim/cimModelsData.ts` for the exact derivation rules. Entries are one per CIM *root dataset*, so Endpoint (which has five root datasets and no model-wide `tag=endpoint`) appears five times. Three models — Databases, JVM and Interprocess Messaging — declare no key fields in the CIM, so their required score reads `n/a` rather than a meaningless 100%.
@@ -226,9 +228,9 @@ Every directive the registry knows about carries one of three support levels, de
 
 | Level | Count | Meaning |
 |---|---|---|
-| **simulated** | 47 | The engine implements it and tests assert the behaviour. |
+| **simulated** | 52 | The engine implements it and tests assert the behaviour. |
 | **documented** | 25 | Recognised on purpose, outside the simulation for a reason that is not going to change — it belongs to a layer a browser has no access to, or it has no observable effect on output. |
-| **ignored** | 7 | Should be simulated, is not yet, and names the issue tracking it. Every one of these is a known wrong answer. |
+| **ignored** | 2 | Should be simulated, is not yet, and names the issue tracking it. Every one of these is a known wrong answer. |
 
 The counts are asserted by a test against the table itself, so they cannot go stale.
 
@@ -240,7 +242,7 @@ One `simulated` entry carries a caveat rather than a clean bill of health: `INDE
 
 ### Not simulated yet (`ignored`)
 
-Each of these is a directive the preview accepts and then does not honour. The roster lives in [`src/engine/directiveSupport.ts`](src/engine/directiveSupport.ts) — every `ignored` entry states what is missing and names its tracking issue, and the same text appears verbatim on the directive's hover, its editor warning, and its dictionary entry. Highlights of what is currently missing: the timestamp fallback chain and its sanity bounds, `CLONE_SOURCETYPE`, the overrides to delimited `INDEXED_EXTRACTIONS`, the `punct` field, and the negative line-merging rules.
+Each of these is a directive the preview accepts and then does not honour. The roster lives in [`src/engine/directiveSupport.ts`](src/engine/directiveSupport.ts) — every `ignored` entry states what is missing and names its tracking issue, and the same text appears verbatim on the directive's hover, its editor warning, and its dictionary entry. Two remain: `CLONE_SOURCETYPE` ([#87](https://github.com/Bimmiest/propslab/issues/87)), where the cloned copy of the event is not produced, and `TZ_ALIAS` ([#227](https://github.com/Bimmiest/propslab/issues/227)), where an aliased `%Z` zone falls back to UTC.
 
 ### Deliberately out of scope (`documented`)
 

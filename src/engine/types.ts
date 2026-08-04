@@ -5,10 +5,38 @@ export interface EventMetadata {
   sourcetype: string;
 }
 
+/**
+ * Which rule in the timestamp fallback chain produced an event's `_time` (#85).
+ * Splunk tries these in order, and *which one fired* is the single most-debugged
+ * ingest behaviour — a `_time` that came from the previous event or from the
+ * clock looks identical in the output to one that was parsed from the text.
+ */
+export type TimeSource =
+  | 'TIME_FORMAT'
+  | 'auto-recognition'
+  | 'previous-event'
+  | 'current-time'
+  | 'datetime-config-current'
+  | 'datetime-config-none';
+
+/** `_time` sources that were not read out of the event's own text. */
+export const FALLBACK_TIME_SOURCES: readonly TimeSource[] = [
+  'previous-event',
+  'current-time',
+  'datetime-config-current',
+  'datetime-config-none',
+];
+
 export interface ProcessingStep {
   processor: string;
   phase: 'index-time' | 'search-time';
   description: string;
+  /**
+   * Set by `timestampExtractor` on the step that resolved `_time`. Structured
+   * rather than parsed back out of `description`, for the reason spelled out on
+   * `fieldAliases` below.
+   */
+  timeSource?: TimeSource;
   inputSnapshot?: string;
   outputSnapshot?: string;
   fieldsAdded?: string[];
@@ -233,6 +261,6 @@ export interface PipelineOptions {
   captureOffsets?: boolean;
 }
 
-export type OutputTabId = 'preview' | 'cim' | 'fields' | 'transforms' | 'architecture';
+export type OutputTabId = 'preview' | 'cim' | 'fields' | 'transforms' | 'effective' | 'architecture';
 
 export type PreviewSubTabId = 'raw' | 'highlighted' | 'diff' | 'timestamp' | 'regex';

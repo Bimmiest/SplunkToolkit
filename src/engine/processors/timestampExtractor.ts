@@ -67,15 +67,80 @@ function autoRecognize(
   return null;
 }
 
+/**
+ * props.conf.spec defaults for the timestamp sanity bounds. A timestamp outside
+ * these is not trusted: Splunk keeps the event and falls back down the chain
+ * rather than placing it years away from its neighbours.
+ */
+const BOUND_DEFAULTS = {
+  MAX_DAYS_AGO: 2000,
+  MAX_DAYS_HENCE: 2,
+  MAX_DIFF_SECS_AGO: 3600,
+  MAX_DIFF_SECS_HENCE: 604800,
+} as const;
+
+const DAY_MS = 86_400_000;
+
+function numericDirective(
+  directives: ConfDirective[],
+  key: keyof typeof BOUND_DEFAULTS,
+): number {
+  const raw = directives.find((d) => d.key === key)?.value.trim();
+  if (raw === undefined) return BOUND_DEFAULTS[key];
+  const parsed = parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : BOUND_DEFAULTS[key];
+}
+
 export function extractTimestamps(
   events: SplunkEvent[],
   directives: ConfDirective[],
   diagnostics?: ValidationDiagnostic[],
+  /**
+   * The moment that stands in for index time. Injected so the fallback tail of
+   * the chain is assertable; production passes nothing.
+   */
+  now: Date = new Date(),
 ): SplunkEvent[] {
   const timePrefixDir = directives.find((d) => d.key === 'TIME_PREFIX');
   const timeFormatDir = directives.find((d) => d.key === 'TIME_FORMAT');
   const maxLookaheadDir = directives.find((d) => d.key === 'MAX_TIMESTAMP_LOOKAHEAD');
   const tzDir = directives.find((d) => d.key === 'TZ');
+  const datetimeConfigDir = directives.find((d) => d.key === 'DATETIME_CONFIG');
+
+  // DATETIME_CONFIG = CURRENT stamps every event with the time it was merged;
+  // = NONE stops the extractor running at all and the event keeps its index
+  // time. In a browser both land on the same instant — the moment of
+  // simulation — so they are distinguished by their trace text rather than by
+  // producing different values. Any other value names a datetime.xml file,
+  // which is a file this tool has no access to; that case falls through to the
+  // normal path and keeps its `ignored` diagnostic.
+  const datetimeConfig = datetimeConfigDir?.value.trim().toUpperCase();
+  if (datetimeConfig === 'CURRENT' || datetimeConfig === 'NONE') {
+    const timeSource = datetimeConfig === 'CURRENT' ? 'datetime-config-current' : 'datetime-config-none';
+    const description =
+      datetimeConfig === 'CURRENT'
+        ? `DATETIME_CONFIG = CURRENT — _time set to the time of indexing (${now.toISOString()}), not read from the event`
+        : `DATETIME_CONFIG = NONE — timestamp extraction disabled, _time is the time of indexing (${now.toISOString()})`;
+
+    return events.map((event) => ({
+      ...event,
+      _time: now,
+      processingTrace: [
+        ...event.processingTrace,
+        {
+          processor: 'timestampExtractor',
+          phase: 'index-time' as const,
+          description,
+          timeSource,
+        },
+      ],
+    }));
+  }
+
+  const maxDaysAgo = numericDirective(directives, 'MAX_DAYS_AGO');
+  const maxDaysHence = numericDirective(directives, 'MAX_DAYS_HENCE');
+  const maxDiffSecsAgo = numericDirective(directives, 'MAX_DIFF_SECS_AGO');
+  const maxDiffSecsHence = numericDirective(directives, 'MAX_DIFF_SECS_HENCE');
 
   const timeFormat = timeFormatDir?.value.trim();
   // props.conf.spec default for MAX_TIMESTAMP_LOOKAHEAD is 128 characters.
@@ -125,19 +190,103 @@ export function extractTimestamps(
   // event that actually parsed one.
   let lastResolved: Date | null = null;
 
-  /** Apply inheritance to an event whose own text yielded no timestamp. */
-  const inherit = (event: SplunkEvent): SplunkEvent => {
-    if (!lastResolved) return event;
-    const inherited = lastResolved;
+  /**
+   * Why a parsed timestamp was rejected, or null when it is within bounds.
+   *
+   * The AGO/HENCE pair is measured against the clock; the DIFF_SECS pair against
+   * the previous event, which is what makes them catch a single bad line in an
+   * otherwise coherent file rather than a whole misconfigured source.
+   */
+  const outOfBounds = (date: Date): string | null => {
+    const fromNow = now.getTime() - date.getTime();
+    if (fromNow > maxDaysAgo * DAY_MS) {
+      return `more than MAX_DAYS_AGO (${maxDaysAgo}) days in the past`;
+    }
+    if (-fromNow > maxDaysHence * DAY_MS) {
+      return `more than MAX_DAYS_HENCE (${maxDaysHence}) days in the future`;
+    }
+    if (lastResolved) {
+      const fromPrevious = lastResolved.getTime() - date.getTime();
+      if (fromPrevious > maxDiffSecsAgo * 1000) {
+        return `more than MAX_DIFF_SECS_AGO (${maxDiffSecsAgo}s) before the previous event`;
+      }
+      if (-fromPrevious > maxDiffSecsHence * 1000) {
+        return `more than MAX_DIFF_SECS_HENCE (${maxDiffSecsHence}s) after the previous event`;
+      }
+    }
+    return null;
+  };
+
+  const reportedBounds = new Set<string>();
+
+  /**
+   * The tail of the fallback chain: the previous event's `_time`, and failing
+   * that the time of indexing. Splunk always places an event on the timeline —
+   * leaving `_time` null is not one of the outcomes — so `reason` explains which
+   * rule got us here and the trace records it as a fallback either way.
+   */
+  const inherit = (event: SplunkEvent, reason: string): SplunkEvent => {
+    const step =
+      lastResolved !== null
+        ? {
+            date: lastResolved,
+            timeSource: 'previous-event' as const,
+            description: `${reason} — inherited ${lastResolved.toISOString()} from the previous event`,
+          }
+        : {
+            date: now,
+            timeSource: 'current-time' as const,
+            description: `${reason}, and no previous event to inherit from — fell back to the time of indexing (${now.toISOString()})`,
+          };
+
     return {
       ...event,
-      _time: inherited,
+      _time: step.date,
       processingTrace: [
         ...event.processingTrace,
         {
           processor: 'timestampExtractor',
           phase: 'index-time' as const,
-          description: `No timestamp in this event — inherited ${inherited.toISOString()} from the previous event`,
+          description: step.description,
+          timeSource: step.timeSource,
+        },
+      ],
+    };
+  };
+
+  /**
+   * Accept a parsed timestamp, or reject it and fall back. Rejection warns once
+   * per distinct reason: a misconfigured TIME_FORMAT can put every event in the
+   * batch out of bounds, and one warning per event would bury everything else.
+   */
+  const accept = (event: SplunkEvent, date: Date, source: 'TIME_FORMAT' | 'auto-recognition', label: string) => {
+    const rejection = outOfBounds(date);
+    if (rejection !== null) {
+      if (diagnostics && !reportedBounds.has(rejection)) {
+        reportedBounds.add(rejection);
+        const anchor = timeFormatDir ?? tzDir;
+        diagnostics.push({
+          level: 'warning',
+          message: `Timestamp ${date.toISOString()} is ${rejection}, so it was not used. Check TIME_FORMAT, TZ, and the sanity bounds (MAX_DAYS_AGO, MAX_DAYS_HENCE, MAX_DIFF_SECS_AGO, MAX_DIFF_SECS_HENCE).`,
+          file: 'props.conf',
+          ...atDirective(anchor),
+          ...(anchor?.key !== undefined ? { directiveKey: anchor.key } : {}),
+        });
+      }
+      return inherit(event, `Timestamp ${date.toISOString()} rejected: ${rejection}`);
+    }
+
+    lastResolved = date;
+    return {
+      ...event,
+      _time: date,
+      processingTrace: [
+        ...event.processingTrace,
+        {
+          processor: 'timestampExtractor',
+          phase: 'index-time' as const,
+          description: label,
+          timeSource: source,
         },
       ],
     };
@@ -152,7 +301,7 @@ export function extractTimestamps(
       if (match) {
         searchStart = match.index + match[0].length;
       } else {
-        return inherit(event);
+        return inherit(event, 'TIME_PREFIX did not match this event');
       }
     }
 
@@ -165,47 +314,26 @@ export function extractTimestamps(
       // otherwise (no prefix) scan the lookahead window from the start.
       const activeRegex = formatRegexAnchored ?? formatRegex;
       const formatMatch = activeRegex.exec(searchRegion);
-      if (!formatMatch) return inherit(event);
+      if (!formatMatch) return inherit(event, 'TIME_FORMAT did not match this event');
 
       const timestampStr = formatMatch[0];
       const parsedTime = parseTimestamp(timestampStr, timeFormat, tz, onUnresolvedTz);
       // A match that will not parse is still a failure to read a timestamp, so
       // it inherits rather than leaving the event unplaced.
-      if (!parsedTime) return inherit(event);
-      lastResolved = parsedTime;
+      if (!parsedTime) return inherit(event, `Could not parse "${timestampStr}" with TIME_FORMAT`);
 
-      return {
-        ...event,
-        _time: parsedTime,
-        processingTrace: [
-          ...event.processingTrace,
-          {
-            processor: 'timestampExtractor',
-            phase: 'index-time' as const,
-            description: parsedTime
-              ? `Extracted timestamp: ${parsedTime.toISOString()}`
-              : `Failed to parse timestamp from: "${timestampStr}"`,
-          },
-        ],
-      };
+      return accept(event, parsedTime, 'TIME_FORMAT', `Extracted timestamp: ${parsedTime.toISOString()}`);
     }
 
     // No TIME_FORMAT → automatic timestamp recognition (datetime.xml-style).
     const auto = autoRecognize(searchRegion, tz, onUnresolvedTz);
-    if (!auto) return inherit(event);
-    lastResolved = auto.date;
+    if (!auto) return inherit(event, 'No recognisable timestamp in this event');
 
-    return {
-      ...event,
-      _time: auto.date,
-      processingTrace: [
-        ...event.processingTrace,
-        {
-          processor: 'timestampExtractor',
-          phase: 'index-time' as const,
-          description: `Auto-recognized timestamp (${auto.format}): ${auto.date.toISOString()}`,
-        },
-      ],
-    };
+    return accept(
+      event,
+      auto.date,
+      'auto-recognition',
+      `Auto-recognized timestamp (${auto.format}): ${auto.date.toISOString()}`,
+    );
   });
 }

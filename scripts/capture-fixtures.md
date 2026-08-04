@@ -157,6 +157,25 @@ present but empty — the third is what separates "absent" from "empty", which i
 the whole distinction the fix turns on. Expect `ulen` and `uupper` absent on the
 event with no `user`, `ucoalesce` set on every event, and `uempty` = 0.
 
+`timestamp-fallback-chain` and `timestamp-sanity-bounds`, for
+[#85](https://github.com/Bimmiest/propslab/issues/85). The fallback chain and the
+`MAX_DAYS_*` / `MAX_DIFF_SECS_*` bounds are implemented from the spec's
+documented defaults and wording; nothing measures them. These are the two cases
+in the queue most worth capturing, because a bound whose comparison is against
+the wrong reference — the clock rather than the previous event — produces
+plausible output in every test we can write ourselves.
+
+Index-time, needs `TZ = UTC`. For the chain, three events: one with a parseable
+timestamp, one with none (expect it to inherit), and a leading one with none
+(expect index time). For the bounds, a `MAX_DAYS_HENCE = 2` stanza and an event
+dated a year ahead — the question the capture answers is whether Splunk falls
+back to the previous event's `_time` or to index time, and whether
+`MAX_DIFF_SECS_AGO` is really measured against the previous event.
+
+`datetime-config-current` and `datetime-config-none` are worth capturing in the
+same round, though the browser cannot reproduce index time exactly — assert that
+`_time` is *not* the date in the event text rather than its precise value.
+
 ## When a fixture disagrees with the engine
 
 That is the point of the exercise; those failures are the bug list that is

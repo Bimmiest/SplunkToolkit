@@ -54,14 +54,15 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   MAX_TIMESTAMP_LOOKAHEAD: { support: 'simulated' },
   TZ: { support: 'simulated' },
   DATETIME_CONFIG: {
-    support: 'ignored',
-    issue: 85,
-    note: 'Timestamp fallback behaviour, including CURRENT and NONE, is not simulated.',
+    support: 'simulated',
+    note:
+      'CURRENT and NONE are simulated; both resolve to the moment of simulation, since a browser ' +
+      'has no index time. A value naming a datetime.xml file is not applied — that file is not reachable from here.',
   },
-  MAX_DAYS_AGO: { support: 'ignored', issue: 85, note: 'Timestamp sanity bounds are not applied.' },
-  MAX_DAYS_HENCE: { support: 'ignored', issue: 85, note: 'Timestamp sanity bounds are not applied.' },
-  MAX_DIFF_SECS_AGO: { support: 'ignored', issue: 85, note: 'Timestamp sanity bounds are not applied.' },
-  MAX_DIFF_SECS_HENCE: { support: 'ignored', issue: 85, note: 'Timestamp sanity bounds are not applied.' },
+  MAX_DAYS_AGO: { support: 'simulated' },
+  MAX_DAYS_HENCE: { support: 'simulated' },
+  MAX_DIFF_SECS_AGO: { support: 'simulated' },
+  MAX_DIFF_SECS_HENCE: { support: 'simulated' },
   TZ_ALIAS: {
     support: 'ignored',
     issue: 227,
