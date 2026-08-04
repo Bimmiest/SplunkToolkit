@@ -142,7 +142,7 @@ e2e/                           # Playwright smoke tests (production build, Chrom
 | Timestamp | Matched prefix, format pattern, and parsed `_time` per event. |
 | Extractions | Field extractions inline within `_raw`, classified as auto (KV_MODE / INDEXED_EXTRACTIONS), manual (EXTRACT / REPORT / TRANSFORMS / SEDCMD), or calc (EVAL). Filter pills: `Auto / Manual / Calculated / All`. A collapsible sidebar supports search, hover-focus, and pin-to-filter. |
 | Diff | Character-level unified diff between original raw data and processed `_raw`. |
-| Regex | Interactive regex tester against event text; shows matches only, with empty-state prompt when no pattern is entered. |
+| Regex | Interactive regex tester against event text; shows matches only, with empty-state prompt when no pattern is entered. `Add to props.conf` upserts the built `EXTRACT-` line into the event's sourcetype stanza. When the event has no sourcetype it writes a placeholder stanza *and* points the metadata at it, since a stanza the event cannot match would be scaffolding that does nothing — the panel says so before the click. |
 
 **Field highlighting** prefers authoritative byte offsets recorded at extraction time (for positional EXTRACT captures against `_raw`). It falls back to context-aware matching (`"key":"value"`, `key="value"`, `key: value`, `key=value`) for EVAL-computed, aliased, JSON-flattened, and KV-mode fields. Single-character values only highlight when context-matching succeeds — a bare substring search on `"0"` would light up the whole event.
 

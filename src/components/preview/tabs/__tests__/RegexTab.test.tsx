@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import { useAppStore } from '../../../../store/useAppStore';
 import { RegexTab } from '../RegexTab';
 import type { EnrichedEvent } from '../../PreviewPanel';
 import type { SplunkEvent } from '../../../../engine/types';
@@ -68,5 +69,75 @@ describe('RegexTab', () => {
     fireEvent.change(input, { target: { value: '[unterminated' } });
 
     expect(screen.getByText(/Fix the regex error above/i)).toBeInTheDocument();
+  });
+});
+
+const initialState = useAppStore.getState();
+const defaultProps = { items, allEvents: items, currentPage: 1, eventsPerPage: 10 };
+
+describe('RegexTab — one-click Add to props.conf (#88)', () => {
+  function setup(sourcetype: string) {
+    useAppStore.setState(initialState, true);
+    useAppStore.setState({
+      metadata: { index: 'main', host: 'h', source: 's', sourcetype },
+      propsConf: sourcetype ? `[${sourcetype}]\nSHOULD_LINEMERGE = false\n` : '',
+    });
+  }
+
+  function typePattern(container: HTMLElement, pattern: string) {
+    // Same handle the tests above use: the label is not wired to the input.
+    const input = within(container).getByPlaceholderText(/\\d\+/);
+    fireEvent.change(input, { target: { value: pattern } });
+  }
+
+  it('upserts the directive into the event sourcetype stanza', () => {
+    setup('my_app');
+    const { container } = render(<RegexTab {...defaultProps} />);
+    typePattern(container, 'user=(?<user>\\w+)');
+
+    fireEvent.click(within(container).getByRole('button', { name: 'Add to props.conf' }));
+
+    const props = useAppStore.getState().propsConf;
+    expect(props).toContain('EXTRACT-');
+    expect(props).toContain('user=(?<user>\\w+)');
+    // Upserted into the existing stanza rather than appending a second one.
+    expect(props.match(/\[my_app\]/g)).toHaveLength(1);
+    expect(props).toContain('SHOULD_LINEMERGE = false');
+  });
+
+  it('points the metadata at the placeholder stanza when there is no sourcetype', () => {
+    // Writing [my:sourcetype] alone produces config that can never match the
+    // event it was scaffolded from (#72).
+    setup('');
+    const { container } = render(<RegexTab {...defaultProps} />);
+    typePattern(container, 'user=(?<user>\\w+)');
+
+    fireEvent.click(within(container).getByRole('button', { name: 'Add to props.conf' }));
+
+    expect(useAppStore.getState().propsConf).toContain('[my:sourcetype]');
+    expect(useAppStore.getState().metadata.sourcetype).toBe('my:sourcetype');
+  });
+
+  it('warns before the click that the sourcetype will be set', () => {
+    setup('');
+    const { container } = render(<RegexTab {...defaultProps} />);
+    typePattern(container, 'user=(?<user>\\w+)');
+    expect(container.textContent).toContain('This event has no sourcetype');
+  });
+
+  it('says nothing about the sourcetype when the event has one', () => {
+    setup('my_app');
+    const { container } = render(<RegexTab {...defaultProps} />);
+    typePattern(container, 'user=(?<user>\\w+)');
+    expect(container.textContent).not.toContain('This event has no sourcetype');
+  });
+
+  it('offers no button until there is a valid pattern', () => {
+    setup('my_app');
+    const { container } = render(<RegexTab {...defaultProps} />);
+    expect(within(container).queryByRole('button', { name: 'Add to props.conf' })).not.toBeInTheDocument();
+
+    typePattern(container, '(unbalanced');
+    expect(within(container).queryByRole('button', { name: 'Add to props.conf' })).not.toBeInTheDocument();
   });
 });
