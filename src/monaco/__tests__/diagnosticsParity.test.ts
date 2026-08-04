@@ -101,3 +101,42 @@ describe('computeDiagnostics — best-practice checks are stanza-scoped (#125)',
     expect(timeFormatWarning(computeDiagnostics(fakeModel(text), 'transforms.conf'))).toHaveLength(0);
   });
 });
+
+// #89: the linter said "possible typo?" where the engine said "did you mean
+// TIME_FORMAT?". Both are shown in the UI at once, and the vaguer one sends the
+// user to check spelling that is only wrong in its casing.
+describe('computeDiagnostics — agrees with confParser on mis-cased attributes (#89)', () => {
+  it('gives the same message the engine gives', () => {
+    const text = '[st]\ntime_format = %s\n';
+    const engineWarning = parseConf(text, 'props.conf').errors.find((e) => /case-sensitive/.test(e.message));
+    const marker = computeDiagnostics(fakeModel(text), 'props.conf').find((m) =>
+      /case-sensitive/.test(m.message),
+    );
+
+    expect(engineWarning).toBeDefined();
+    expect(marker?.message).toBe(engineWarning?.message);
+  });
+
+  it('flags it as a warning rather than an informational typo note', () => {
+    const markers = computeDiagnostics(fakeModel('[st]\ntime_format = %s\n'), 'props.conf');
+    expect(markers.some((m) => /possible typo/.test(m.message))).toBe(false);
+    expect(markers.find((m) => /case-sensitive/.test(m.message))?.severity).toBe(4);
+  });
+
+  it('agrees on a mis-cased class prefix too', () => {
+    const text = '[st]\nextract-f = (?<a>\\w+)\n';
+    const engineWarning = parseConf(text, 'props.conf').errors.find((e) => /case-sensitive/.test(e.message));
+    const marker = computeDiagnostics(fakeModel(text), 'props.conf').find((m) =>
+      /case-sensitive/.test(m.message),
+    );
+    expect(marker?.message).toBe(engineWarning?.message);
+  });
+
+  it('agrees that a correctly-cased attribute is fine', () => {
+    const text = '[st]\nTIME_FORMAT = %s\n';
+    expect(parseConf(text, 'props.conf').errors.filter((e) => /case-sensitive/.test(e.message))).toEqual([]);
+    expect(
+      computeDiagnostics(fakeModel(text), 'props.conf').filter((m) => /case-sensitive/.test(m.message)),
+    ).toEqual([]);
+  });
+});
