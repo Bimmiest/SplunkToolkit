@@ -1,5 +1,5 @@
 import { useAppStore } from '../../store/useAppStore';
-import { useOverlay } from '../../hooks/useOverlay';
+import { Overlay } from '../ui/Overlay';
 import { Icon } from '../ui/Icon';
 
 function Toggle({
@@ -48,25 +48,17 @@ export function SettingsPanel() {
 
   // Escape closes only the topmost overlay, Tab cycles inside this panel, and
   // sibling content is hidden from assistive tech while it is open.
-  const overlayRef = useOverlay<HTMLElement>({ open: settingsOpen, onClose: toggleSettings });
 
   if (!settingsOpen) return null;
 
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-40"
-        aria-hidden="true"
-        onClick={toggleSettings}
-      />
-
-      {/* Panel */}
+    <Overlay
+      open={settingsOpen}
+      onClose={toggleSettings}
+      label="Settings"
+      containerClassName=""
+    >
       <aside
-        ref={overlayRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Settings"
         className="fixed top-0 right-0 z-50 h-full w-80 flex flex-col shadow-xl"
         style={{
           backgroundColor: 'var(--color-bg-secondary)',
@@ -156,6 +148,6 @@ export function SettingsPanel() {
 
         </div>
       </aside>
-    </>
+    </Overlay>
   );
 }

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useOverlay } from '../../hooks/useOverlay';
+import { Overlay } from '../ui/Overlay';
 import { useAppStore } from '../../store/useAppStore';
 import { scaffoldConfig } from '../../engine/scaffold/scaffoldConfig';
 import { renderStanza, appendStanza, stanzaNameError } from '../../engine/scaffold/serialize';
@@ -39,9 +39,6 @@ export function ScaffoldModal() {
   // the appended stanza actually matches the events.
   const [sourcetype, setSourcetype] = useState(() => result.sourcetype);
 
-  // Escape closes only the topmost overlay; the hook also traps Tab and hides
-  // sibling content while the modal is open.
-  const overlayRef = useOverlay({ open: true, onClose: toggleScaffold });
 
   const stanzaName = sourcetype.trim() || 'my:sourcetype';
 
@@ -64,19 +61,15 @@ export function ScaffoldModal() {
   };
 
   return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] px-4"
-      style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
-      onMouseDown={(e) => { if (e.target === e.currentTarget) toggleScaffold(); }}
+    <Overlay
+      open
+      onClose={toggleScaffold}
+      label="Scaffold configuration"
+      containerClassName="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] px-4"
+      className="w-full max-w-3xl max-h-[80vh] flex flex-col rounded-xl overflow-hidden shadow-2xl"
+      style={{ backgroundColor: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)' }}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Scaffold configuration"
-        className="w-full max-w-3xl max-h-[80vh] flex flex-col rounded-xl overflow-hidden shadow-2xl"
-        style={{ backgroundColor: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)' }}
-      >
+      <div className="contents">
         {/* Header */}
         <div className="flex items-center gap-2 px-4 h-12 shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
           <Icon name="sparkles" className="w-4 h-4 text-[var(--color-accent)]" />
@@ -190,7 +183,7 @@ export function ScaffoldModal() {
           </button>
         </div>
       </div>
-    </div>
+    </Overlay>
   );
 }
 
