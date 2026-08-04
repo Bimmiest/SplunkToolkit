@@ -35,15 +35,13 @@ Contributor-facing internals — store layout, Monaco bundling, accessibility pa
 
 Runs in Splunk's actual order.
 
-**Index-time**
+**Processing Pipeline**
 1. Line breaking — `LINE_BREAKER`, `SHOULD_LINEMERGE`, `BREAK_ONLY_BEFORE`, `MUST_BREAK_AFTER`, `MAX_EVENTS`
 2. Truncation — `TRUNCATE`
 3. Timestamp extraction — `TIME_PREFIX`, `TIME_FORMAT`, `MAX_TIMESTAMP_LOOKAHEAD`, `TZ`
 4. Indexed extractions — `INDEXED_EXTRACTIONS` (json, csv, tsv, psv, w3c)
 5. Sed commands — `SEDCMD-<class>`
 6. Transforms — `TRANSFORMS-<class>` (regex routing and `INGEST_EVAL` interleaved in `TRANSFORMS-<class>` list order; class names applied in ASCII order)
-
-**Search-time**
 7. Field extraction — `EXTRACT-<class>`
 8. Report transforms — `REPORT-<class>`
 9. KV mode — `KV_MODE` (auto, auto_escaped, json, xml, multi) — runs *after* `REPORT`, as Splunk documents
