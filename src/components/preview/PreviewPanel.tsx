@@ -13,6 +13,7 @@ import { DiffTab } from './tabs/DiffTab';
 import { TimestampTab } from './tabs/TimestampTab';
 import { RegexTab } from './tabs/RegexTab';
 import { CimModelsTab } from './tabs/CimModelsTab';
+import { EffectiveConfigTab } from './tabs/EffectiveConfigTab';
 import { FieldsTab } from './tabs/FieldsTab';
 import { TransformsTab } from './tabs/TransformsTab';
 import { ArchitecturePanel } from '../architecture/ArchitecturePanel';
@@ -55,6 +56,7 @@ export function PreviewPanel() {
     { id: 'cim', label: 'CIM Models' },
     { id: 'fields', label: 'Fields' },
     { id: 'transforms', label: 'Pipeline' },
+    { id: 'effective', label: 'Effective config' },
     { id: 'architecture', label: 'Architecture' },
   ], []);
 
@@ -96,6 +98,10 @@ export function PreviewPanel() {
 
 function TabContent({ tab, hasData }: { tab: OutputTabId; hasData: boolean }) {
   if (tab === 'architecture') return <ArchitecturePanel embedded />;
+  // Resolves props.conf against the configured metadata, so it has an answer
+  // before any data has been processed — the same reason Architecture sits
+  // above the gate rather than inside the switch.
+  if (tab === 'effective') return <EffectiveConfigTab />;
 
   if (!hasData) {
     return <EmptyState />;

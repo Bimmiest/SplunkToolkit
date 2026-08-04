@@ -233,6 +233,6 @@ export interface PipelineOptions {
   captureOffsets?: boolean;
 }
 
-export type OutputTabId = 'preview' | 'cim' | 'fields' | 'transforms' | 'architecture';
+export type OutputTabId = 'preview' | 'cim' | 'fields' | 'transforms' | 'effective' | 'architecture';
 
 export type PreviewSubTabId = 'raw' | 'highlighted' | 'diff' | 'timestamp' | 'regex';
