@@ -16,7 +16,10 @@ export async function copyToClipboard(text: string): Promise<void> {
   textarea.style.opacity = '0';
   document.body.appendChild(textarea);
   textarea.select();
-  let ok = false;
+  // Deliberately uninitialized: the try below either assigns or throws past
+  // the read, so a seed value would be dead (no-useless-assignment). A finally
+  // without a catch still leaves `ok` definitely assigned at the read.
+  let ok: boolean;
   try {
     // execCommand can return false (or throw in a sandboxed iframe) without
     // copying. Propagate that as a rejection so callers don't show a false
