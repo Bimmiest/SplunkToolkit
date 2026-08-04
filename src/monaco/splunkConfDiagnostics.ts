@@ -1,5 +1,6 @@
 import type { editor } from 'monaco-editor';
 import { getDirectiveInfo, getClassBasedDirectiveBase } from '../engine/directiveRegistry';
+import { isUndocumentedAttribute } from '../engine/directiveSupport';
 import { DIRECTIVE_RE } from '../engine/parser/confParser';
 import { validateRegex } from '../utils/splunkRegex';
 
@@ -155,6 +156,12 @@ export function computeDiagnostics(
     }
 
     if (!info) {
+      // A valid attribute the registry has not documented yet is not a typo,
+      // and telling the user it might be sends them to check spelling that is
+      // already correct. The engine warns that the preview ignores it (#178),
+      // the same way it does for a documented-but-`ignored` key — so say
+      // nothing more here rather than contradicting it.
+      if (isUndocumentedAttribute(key)) continue;
       markers.push({
         severity: 2, // Info
         message: `Unknown directive "${key}" — possible typo?`,

@@ -102,3 +102,23 @@ describe('computeDiagnostics — SHOULD_LINEMERGE best practice inspects the val
     expect(warned(computeDiagnostics(fakeModel('[st]\nLINE_BREAKER = ([\\r\\n]+)'), 'props.conf'))).toBe(true);
   });
 });
+
+describe('computeDiagnostics — undocumented attributes are not typos (#178)', () => {
+  const typoMarkers = (text: string) =>
+    computeDiagnostics(fakeModel(text), 'props.conf').filter((m) => /possible typo/.test(m.message));
+
+  it('does not call a valid Splunk attribute a possible typo', () => {
+    // The engine warns that the preview ignores it; calling it a typo as well
+    // sends the user to check spelling that is already correct.
+    expect(typoMarkers('[st]\nSTOP_PROCESSING_IF = foo')).toEqual([]);
+    expect(typoMarkers('[st]\nKV_TRIM_SPACES = true')).toEqual([]);
+  });
+
+  it('still flags an actual misspelling', () => {
+    expect(typoMarkers('[st]\nSTOP_PROCESING_IF = foo')).toHaveLength(1);
+  });
+
+  it('still flags a key that resembles nothing at all', () => {
+    expect(typoMarkers('[st]\nNOT_A_REAL_DIRECTIVE = 1')).toHaveLength(1);
+  });
+});

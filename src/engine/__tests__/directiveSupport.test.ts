@@ -11,7 +11,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { getAllDirectives } from '../directiveRegistry';
-import { DIRECTIVE_SUPPORT } from '../directiveSupport';
+import { DIRECTIVE_SUPPORT, UNDOCUMENTED_ATTRIBUTES } from '../directiveSupport';
 import { runPipeline } from '../pipeline';
 import type { EventMetadata } from '../types';
 
@@ -106,6 +106,33 @@ describe('directive support classification (#153)', () => {
     }
   });
 
+  it('lists nothing as undocumented that the registry has since documented', () => {
+    // This is the drift that #178's own issue body suffered: it named 32
+    // missing attributes, three of which #176 added before anyone acted on it.
+    // A list of "things we do not know about" is worth exactly as much as its
+    // freshness, so it is asserted rather than trusted.
+    const keys = new Set(getAllDirectives().map((d) => d.key));
+    const documented = [...UNDOCUMENTED_ATTRIBUTES].filter((k) => keys.has(k));
+    expect(
+      documented,
+      'these are in the registry now -- remove them from UNDOCUMENTED_ATTRIBUTES',
+    ).toEqual([]);
+  });
+
+  it('keeps the undocumented list disjoint from the classification table', () => {
+    const both = [...UNDOCUMENTED_ATTRIBUTES].filter((k) => k in DIRECTIVE_SUPPORT);
+    expect(both, 'a key cannot be both classified and unknown to us').toEqual([]);
+  });
+
+  it('keeps the README undocumented count in step with the list', () => {
+    const readme = Object.values(
+      import.meta.glob<string>('../../../README.md', { eager: true, query: '?raw', import: 'default' }),
+    )[0];
+    const stated = /\*\*(\d+)\*\* attributes are valid in Splunk/.exec(readme ?? '');
+    expect(stated, 'README has no undocumented-attribute count').toBeTruthy();
+    expect(Number(stated?.[1])).toBe(UNDOCUMENTED_ATTRIBUTES.size);
+  });
+
   it('never marks a directive simulated without the engine reading it', () => {
     // A cheap direction check on the two the registry defines per conf file:
     // both are `documented`, so neither should ever be claimed as simulated.
@@ -167,6 +194,24 @@ describe('unsimulated directives are reported rather than ignored (#153)', () =>
     expect(d?.file).toBe('transforms.conf');
     expect(d?.level).toBe('warning');
     expect(d?.message).toContain('#87');
+  });
+
+  it('warns for a valid attribute the registry does not document (#178)', () => {
+    const d = diagnosticsFor('STOP_PROCESSING_IF = foo\n').find(
+      (x) => x.directiveKey === 'STOP_PROCESSING_IF',
+    );
+    expect(d?.level).toBe('warning');
+    expect(d?.message).toContain('valid Splunk attribute');
+    expect(d?.message).toContain('#178');
+  });
+
+  it('still says nothing about a key that is genuinely not an attribute', () => {
+    // The undocumented list must not turn into a catch-all that mutes the typo
+    // diagnostic, which is the only thing that catches a misspelling.
+    const d = diagnosticsFor('NOT_A_REAL_DIRECTIVE = 1\n').find(
+      (x) => x.directiveKey === 'NOT_A_REAL_DIRECTIVE',
+    );
+    expect(d).toBeUndefined();
   });
 
   it('does not double-report LOOKUP, which has its own warning', () => {
