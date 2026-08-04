@@ -1,4 +1,4 @@
-import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
+import type { SplunkEvent, ConfDirective, DirectiveNoOp, ValidationDiagnostic } from '../types';
 import { safeRegex } from '../../utils/splunkRegex';
 import { fieldQuotingWarning } from '../utils/fieldRef';
 import { getMetadataField } from '../utils/metadataFields';
@@ -92,9 +92,13 @@ export function applyEvalExpressions(
       }
     });
 
+  /** Field name → the directive that computes it, for locating a no-op (#84). */
+  const byField = new Map(compiled.map((c) => [c.fieldName, c.dir]));
+
   return events.map((event) => {
     // Eval expressions run in parallel — compute all before applying
     const results = new Map<string, { value: EvalValue; expression: string }>();
+    const noOps: DirectiveNoOp[] = [];
 
     for (const c of compiled) {
       if (c.error !== null) {
@@ -120,6 +124,16 @@ export function applyEvalExpressions(
 
     for (const [field, { value, expression }] of results) {
       if (value === null) {
+        // A null result deletes the field, so an EVAL that was meant to create
+        // one leaves no trace of having run at all (#84). Null propagation makes
+        // this the single most common way an EVAL silently does nothing.
+        noOps.push({
+          directive: `EVAL-${field}`,
+          file: 'props.conf',
+          line: byField.get(field)?.line ?? 0,
+          phase: 'search-time',
+          reason: { kind: 'eval-null', expression },
+        });
         deleteField(newFields, field);
       } else if (Array.isArray(value)) {
         setField(newFields, field, value);
@@ -133,6 +147,7 @@ export function applyEvalExpressions(
     return {
       ...event,
       fields: newFields,
+      ...(noOps.length > 0 ? { noOps: [...(event.noOps ?? []), ...noOps] } : {}),
       processingTrace: [
         ...event.processingTrace,
         {

@@ -1,5 +1,6 @@
-import type { SplunkEvent, ConfDirective, ValidationDiagnostic } from '../types';
-import { safeRegex, convertSplunkToJsRegex } from '../../utils/splunkRegex';
+import type { SplunkEvent, ConfDirective, DirectiveNoOp, ValidationDiagnostic } from '../types';
+import { safeRegex, convertSplunkToJsRegex, validateRegex } from '../../utils/splunkRegex';
+import { longestPartialMatch, type NoOpReason } from '../noOpExplainer';
 import { isInternalField } from '../utils/internalFields';
 import { byClassName } from '../utils/asciiCompare';
 import { unquoteFieldName } from '../utils/fieldRef';
@@ -68,8 +69,28 @@ export function extractFields(
     let offsetsChanged = false;
     const traces: SplunkEvent['processingTrace'] = [];
 
+    // Every directive that reaches a `continue` below changed nothing, which is
+    // the case the preview has never explained (#84).
+    const noOps: DirectiveNoOp[] = [];
+    const noteNoOp = (dir: ConfDirective, reason: NoOpReason) => {
+      noOps.push({
+        directive: dir.key,
+        file: 'props.conf',
+        line: dir.line,
+        phase: 'search-time',
+        reason,
+      });
+    };
+
     for (const extraction of extractions) {
-      if (!extraction.regex) continue;
+      if (!extraction.regex) {
+        const { pattern } = parseExtractValue(extraction.directive.value);
+        noteNoOp(extraction.directive, {
+          kind: 'regex-invalid',
+          error: validateRegex(pattern) ?? 'refused by the ReDoS guard — it can backtrack catastrophically',
+        });
+        continue;
+      }
 
       const sourceValue = extraction.sourceField
         ? getFieldValue(event, extraction.sourceField)
@@ -99,17 +120,32 @@ export function extractFields(
             });
           }
         }
+        noteNoOp(extraction.directive, {
+          kind: 'source-key-empty',
+          sourceKey: extraction.sourceField ?? '_raw',
+        });
         continue;
       }
 
       // Inline EXTRACT takes the first match only.
       const m = extraction.regex.exec(sourceValue);
-      if (!m || !m.groups) continue;
+      if (!m || !m.groups) {
+        const { pattern } = parseExtractValue(extraction.directive.value);
+        const partial = longestPartialMatch(pattern, sourceValue);
+        noteNoOp(
+          extraction.directive,
+          partial
+            ? { kind: 'no-match', partialEnd: partial.end, partialPattern: partial.prefix }
+            : { kind: 'no-match' },
+        );
+        continue;
+      }
       const indices = isPositional
         ? (m as RegExpExecArray & { indices?: { groups?: Record<string, [number, number] | undefined> } }).indices?.groups
         : undefined;
 
       const added: string[] = [];
+      const alreadySet: string[] = [];
       for (const [name, value] of Object.entries(m.groups)) {
         if (value === undefined) continue;
         // First-wins (simplification — SEM-12): this engine keeps the value from
@@ -117,7 +153,10 @@ export function extractFields(
         // Real Splunk's behaviour when two search-time extractions yield the same
         // field is closer to producing a multivalue field; verify against a live
         // indexer before relying on the collision outcome here.
-        if (hasField(newFields, name)) continue;
+        if (hasField(newFields, name)) {
+          alreadySet.push(name);
+          continue;
+        }
         setField(newFields, name, value);
         added.push(name);
         const span = indices?.[name];
@@ -134,6 +173,10 @@ export function extractFields(
           description: `Extracted fields: ${added.join(', ')}`,
           fieldsAdded: added,
         });
+      } else if (alreadySet.length > 0) {
+        // It matched and still produced nothing, which looks identical in the
+        // preview to a pattern that never matched at all.
+        noteNoOp(extraction.directive, { kind: 'fields-already-set', fields: alreadySet });
       }
     }
 
@@ -142,6 +185,7 @@ export function extractFields(
       fields: newFields,
       ...(offsetsChanged ? { fieldOffsets: newOffsets } : {}),
       processingTrace: [...event.processingTrace, ...traces],
+      ...(noOps.length > 0 ? { noOps: [...(event.noOps ?? []), ...noOps] } : {}),
     };
   });
 }

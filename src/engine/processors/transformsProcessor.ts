@@ -1,4 +1,5 @@
-import type { SplunkEvent, ConfDirective, ParsedConf, ProcessingStep, ValidationDiagnostic } from '../types';
+import type { SplunkEvent, ConfDirective, DirectiveNoOp, ParsedConf, ProcessingStep, ValidationDiagnostic } from '../types';
+import type { NoOpReason } from '../noOpExplainer';
 import { applyRegexTransform } from '../transforms/regexTransform';
 import { applyDestKey } from '../transforms/destKeyRouter';
 import { applyIngestEval } from '../transforms/ingestEval';
@@ -58,6 +59,17 @@ export function applyTransforms(
 
   return events.map((event) => {
     let currentEvent: SplunkEvent = event;
+    // Directives that reached a transform and changed nothing (#84).
+    const noOps: DirectiveNoOp[] = [];
+    const noteNoOp = (dir: ConfDirective, stanzaName: string, reason: NoOpReason) => {
+      noOps.push({
+        directive: `${dir.key} → [${stanzaName}]`,
+        file: 'props.conf',
+        line: dir.line,
+        phase,
+        reason,
+      });
+    };
 
     for (const dir of transformDirectives) {
       // Value can be comma-separated list of transform stanza names
@@ -65,7 +77,10 @@ export function applyTransforms(
 
       for (const stanzaName of stanzaNames) {
         const transformStanza = stanzaMap.get(stanzaName);
-        if (!transformStanza) continue;
+        if (!transformStanza) {
+          noteNoOp(dir, stanzaName, { kind: 'transforms-stanza-missing', name: stanzaName });
+          continue;
+        }
 
         // INGEST_EVAL stanzas are part of the index-time TRANSFORMS list: they
         // execute at THIS position (interleaved with regex transforms), and only
@@ -144,11 +159,15 @@ export function applyTransforms(
                 ]
               : routed.rawMutations,
           };
+        } else if (result.noOp) {
+          noteNoOp(dir, stanzaName, result.noOp);
         }
       }
     }
 
-    return currentEvent;
+    return noOps.length > 0
+      ? { ...currentEvent, noOps: [...(currentEvent.noOps ?? []), ...noOps] }
+      : currentEvent;
   });
 }
 
