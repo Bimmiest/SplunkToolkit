@@ -627,3 +627,60 @@ describe('#168 — null propagates through concatenation', () => {
     expect(evalWith('if(isnull(absent_field), "missing", "present")', {})).toBe('missing');
   });
 });
+
+describe('#211 — null propagates into function arguments', () => {
+  // #168 fixed the operators; the functions kept coercing an absent field to ""
+  // first, so `EVAL-ulen = len(user)` wrote 0 on every event without a `user`.
+  // 0 is the damaging case precisely because it looks like a real answer.
+  it('writes no field for len() of a missing field', () => {
+    expect(evalWith('len(user)', {})).toBeUndefined();
+  });
+
+  it.each([
+    ['upper(user)'],
+    ['lower(user)'],
+    ['trim(user)'],
+    ['ltrim(user)'],
+    ['rtrim(user)'],
+    ['substr(user, 1, 3)'],
+    ['replace(user, "a", "b")'],
+    ['urldecode(user)'],
+    ['split(user, ",")'],
+    ['mvjoin(user, ",")'],
+    ['tostring(user)'],
+    ['strftime(user, "%F")'],
+  ])('writes no field for %s when user is absent', (expr) => {
+    expect(evalWith(expr, {})).toBeUndefined();
+  });
+
+  it('keeps an empty-but-present field distinct from a missing one', () => {
+    // The field exists, so it is "" and not null: len("") is genuinely 0.
+    expect(evalWith('len(user)', { user: '' })).toBe('0');
+    expect(evalWith('upper(user)', { user: '' })).toBe('');
+  });
+
+  it('still computes over a field that is present', () => {
+    expect(evalWith('len(user)', { user: 'alice' })).toBe('5');
+    expect(evalWith('upper(user)', { user: 'alice' })).toBe('ALICE');
+  });
+
+  it('leaves coalesce() able to supply the default it exists for', () => {
+    expect(evalWith('coalesce(user, "anonymous")', {})).toBe('anonymous');
+    expect(evalWith('len(coalesce(user, "anonymous"))', {})).toBe('9');
+  });
+
+  it('does not propagate through the predicates, which report on absence', () => {
+    // These answer a question about the value rather than computing from it, so
+    // they must keep returning a boolean the surrounding if()/case() can branch on.
+    expect(evalWith('if(isnull(user), "missing", "present")', {})).toBe('missing');
+    expect(evalWith('typeof(user)', {})).toBe('Invalid');
+    expect(evalWith('if(match(user, "^a"), "yes", "no")', {})).toBe('no');
+    expect(evalWith('if(like(user, "a%"), "yes", "no")', {})).toBe('no');
+  });
+
+  it('drops the whole expression when a missing field feeds a longer chain', () => {
+    expect(evalWith('upper(trim(user))', {})).toBeUndefined();
+    expect(evalWith('len(user) + 1', {})).toBeUndefined();
+    expect(evalWith('"user=" . upper(user)', {})).toBeUndefined();
+  });
+});

@@ -654,48 +654,60 @@ function evalBuiltin(fn: string, args: EvalValue[], ctx: EvalCtx): EvalValue {
   switch (fn) {
     case 'nullif': return toStr(args[0]) === toStr(args[1]) ? null : args[0] ?? null;
 
-    // String
-    case 'lower': return toStr(args[0]).toLowerCase();
-    case 'upper': return toStr(args[0]).toUpperCase();
-    case 'len': return toStr(args[0]).length;
+    // String — an absent argument propagates NULL rather than being coerced to
+    // "". `len(nonexistent)` is null, not 0; a plausible-looking 0 is worse than
+    // no field at all, because nothing about it says the field was missing (#211).
+    // The predicates below (match, like, isnull, typeof) deliberately do not
+    // propagate: they answer a question about the value, including its absence.
+    case 'lower': { const s = strArg(args[0]); return s === null ? null : s.toLowerCase(); }
+    case 'upper': { const s = strArg(args[0]); return s === null ? null : s.toUpperCase(); }
+    case 'len': { const s = strArg(args[0]); return s === null ? null : s.length; }
     case 'substr': {
-      const s = toStr(args[0]);
+      const s = strArg(args[0]);
+      if (s === null) return null;
       const start = toNum(args[1]);
       const startIdx = start > 0 ? start - 1 : s.length + start;
       const len = args[2] !== undefined ? toNum(args[2]) : undefined;
       return len !== undefined ? s.substring(startIdx, startIdx + len) : s.substring(startIdx);
     }
     case 'replace': {
-      const s = toStr(args[0]);
+      const s = strArg(args[0]);
+      if (s === null) return null;
       const regex = safeRegex(toStr(args[1]), 'g');
       if (!regex) return s;
       return s.replace(regex, splunkReplacementToJs(toStr(args[2])));
     }
-    case 'trim': return toStr(args[0]).trim();
+    case 'trim': { const s = strArg(args[0]); return s === null ? null : s.trim(); }
     case 'ltrim': {
-      const s = toStr(args[0]);
+      const s = strArg(args[0]);
+      if (s === null) return null;
       const chars = args[1] !== undefined ? toStr(args[1]) : ' \t\n\r';
       let i = 0;
       while (i < s.length && chars.includes(s.charAt(i))) i++;
       return s.substring(i);
     }
     case 'rtrim': {
-      const s = toStr(args[0]);
+      const s = strArg(args[0]);
+      if (s === null) return null;
       const chars = args[1] !== undefined ? toStr(args[1]) : ' \t\n\r';
       let i = s.length - 1;
       while (i >= 0 && chars.includes(s.charAt(i))) i--;
       return s.substring(0, i + 1);
     }
     case 'urldecode': {
-      try { return decodeURIComponent(toStr(args[0])); }
-      catch { return toStr(args[0]); }
+      const s = strArg(args[0]);
+      if (s === null) return null;
+      try { return decodeURIComponent(s); }
+      catch { return s; }
     }
     case 'split': {
-      const s = toStr(args[0]);
+      const s = strArg(args[0]);
+      if (s === null) return null;
       const delim = toStr(args[1]);
       return s.split(delim);
     }
     case 'mvjoin': {
+      if (args[0] === null || args[0] === undefined) return null;
       const v = toMv(args[0]);
       return v.join(toStr(args[1]));
     }
@@ -714,6 +726,7 @@ function evalBuiltin(fn: string, args: EvalValue[], ctx: EvalCtx): EvalValue {
       return isNaN(n) ? null : n;
     }
     case 'tostring': {
+      if (args[0] === null || args[0] === undefined) return null;
       const val = numArg(args[0]);
       // The numeric formats only apply to numeric input; a non-numeric value is
       // passed through unchanged rather than coerced to 0 (tostring("abc","commas") → "abc").
@@ -855,14 +868,17 @@ function evalBuiltin(fn: string, args: EvalValue[], ctx: EvalCtx): EvalValue {
     case 'now': return Math.floor(Date.now() / 1000);
     case 'time': return Math.floor(Date.now() / 1000);
     case 'strftime': {
-      const epoch = toNum(args[0]);
+      // A non-numeric or absent epoch is NULL rather than 1970 — coercing to 0
+      // renders a confident, wrong timestamp for a field that isn't there.
+      const epoch = numArg(args[0]);
+      if (epoch === null) return null;
       const format = toStr(args[1]);
       const date = new Date(epoch * 1000);
       return simpleStrftime(date, format);
     }
     case 'strptime':
       ctx.onStubWarning?.('strptime');
-      return toStr(args[0]);
+      return strArg(args[0]);
     case 'relative_time':
       ctx.onStubWarning?.('relative_time');
       return toNum(args[0]);
@@ -995,6 +1011,20 @@ function addOrConcat(l: EvalArg, r: EvalArg): EvalValue {
  * propagate NULL the way Splunk does (`"abc" * 2` and `abs("foo")` are null, not
  * 0). Booleans still coerce (true→1, false→0), matching Splunk.
  */
+/**
+ * String operand for the string functions. Unlike {@link toStr} it does NOT
+ * coerce an absent value to "" — it returns null so the caller can propagate
+ * NULL the way Splunk does (`len(nonexistent)` is null, not 0).
+ *
+ * The distinction that makes this work is drawn in {@link getField}: a field
+ * that is present and empty evaluates to "", a field that is absent evaluates
+ * to null. So `len(empty_field)` is still 0 and only the absent case propagates.
+ */
+function strArg(v: EvalArg): string | null {
+  if (v === null || v === undefined) return null;
+  return toStr(v);
+}
+
 function numArg(v: EvalArg): number | null {
   if (v === null || v === undefined) return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
