@@ -38,7 +38,7 @@ Runs in Splunk's actual order.
 **Processing Pipeline**
 1. Line breaking — `LINE_BREAKER`, `SHOULD_LINEMERGE`, `BREAK_ONLY_BEFORE`, `MUST_BREAK_AFTER`, `MAX_EVENTS`
 2. Truncation — `TRUNCATE`
-3. Timestamp extraction — `TIME_PREFIX`, `TIME_FORMAT`, `MAX_TIMESTAMP_LOOKAHEAD`, `TZ`
+3. Timestamp extraction — `TIME_PREFIX`, `TIME_FORMAT`, `MAX_TIMESTAMP_LOOKAHEAD`, `TZ`, `DATETIME_CONFIG`, and the sanity bounds (`MAX_DAYS_AGO`, `MAX_DAYS_HENCE`, `MAX_DIFF_SECS_AGO`, `MAX_DIFF_SECS_HENCE`)
 4. Indexed extractions — `INDEXED_EXTRACTIONS` (json, csv, tsv, psv, w3c)
 5. Sed commands — `SEDCMD-<class>`
 6. Transforms — `TRANSFORMS-<class>` (regex routing and `INGEST_EVAL` interleaved in `TRANSFORMS-<class>` list order; class names applied in ASCII order)
@@ -228,9 +228,9 @@ Every directive the registry knows about carries one of three support levels, de
 
 | Level | Count | Meaning |
 |---|---|---|
-| **simulated** | 47 | The engine implements it and tests assert the behaviour. |
+| **simulated** | 52 | The engine implements it and tests assert the behaviour. |
 | **documented** | 25 | Recognised on purpose, outside the simulation for a reason that is not going to change — it belongs to a layer a browser has no access to, or it has no observable effect on output. |
-| **ignored** | 7 | Should be simulated, is not yet, and names the issue tracking it. Every one of these is a known wrong answer. |
+| **ignored** | 2 | Should be simulated, is not yet, and names the issue tracking it. Every one of these is a known wrong answer. |
 
 The counts are asserted by a test against the table itself, so they cannot go stale.
 
@@ -242,7 +242,7 @@ One `simulated` entry carries a caveat rather than a clean bill of health: `INDE
 
 ### Not simulated yet (`ignored`)
 
-Each of these is a directive the preview accepts and then does not honour. The roster lives in [`src/engine/directiveSupport.ts`](src/engine/directiveSupport.ts) — every `ignored` entry states what is missing and names its tracking issue, and the same text appears verbatim on the directive's hover, its editor warning, and its dictionary entry. Highlights of what is currently missing: the timestamp fallback chain and its sanity bounds, `CLONE_SOURCETYPE`, the overrides to delimited `INDEXED_EXTRACTIONS`, the `punct` field, and the negative line-merging rules.
+Each of these is a directive the preview accepts and then does not honour. The roster lives in [`src/engine/directiveSupport.ts`](src/engine/directiveSupport.ts) — every `ignored` entry states what is missing and names its tracking issue, and the same text appears verbatim on the directive's hover, its editor warning, and its dictionary entry. Two remain: `CLONE_SOURCETYPE` ([#87](https://github.com/Bimmiest/propslab/issues/87)), where the cloned copy of the event is not produced, and `TZ_ALIAS` ([#227](https://github.com/Bimmiest/propslab/issues/227)), where an aliased `%Z` zone falls back to UTC.
 
 ### Deliberately out of scope (`documented`)
 

@@ -20,6 +20,16 @@ function dir(key: string, value: string): ConfDirective {
 
 const iso = (d: Date | null) => d?.toISOString() ?? null;
 
+/**
+ * A fixed stand-in for index time. The tail of the fallback chain is the time of
+ * indexing, so without pinning it these assertions would drift with the clock.
+ */
+const NOW = new Date('2026-08-04T00:00:00.000Z');
+
+/** The step that resolved _time, which is where the provenance lives (#85). */
+const timeSource = (e: SplunkEvent) =>
+  e.processingTrace.filter((s) => s.processor === 'timestampExtractor').at(-1)?.timeSource;
+
 describe('extractTimestamps — explicit TIME_FORMAT (regression)', () => {
   it('parses with a configured TIME_FORMAT', () => {
     const e = extractTimestamps(
@@ -40,13 +50,18 @@ describe('extractTimestamps — explicit TIME_FORMAT (regression)', () => {
   // #66: with TIME_PREFIX set, the format must match immediately after the
   // prefix. A date elsewhere in the line must NOT be extracted (a broken
   // TIME_PREFIX config fails in Splunk rather than silently grabbing a mid-line
-  // date), so _time stays null and falls back to default handling.
+  // date), so the event falls through to the rest of the chain.
   it('does not extract a mid-line date when TIME_PREFIX does not sit before it', () => {
     const e = extractTimestamps(
       [event('ts=pending job started 2024-01-15 10:00:00')],
       [dir('TIME_FORMAT', '%Y-%m-%d %H:%M:%S'), dir('TIME_PREFIX', 'ts=')],
+      undefined,
+      NOW,
     )[0]!;
-    expect(e._time).toBeNull();
+    // The mid-line date is not used. With nothing to inherit from, the chain
+    // ends at index time (#85) — what matters is that it did not come from the text.
+    expect(iso(e._time)).toBe(NOW.toISOString());
+    expect(timeSource(e)).toBe('current-time');
   });
 
   it('still parses when only whitespace separates the prefix from the date', () => {
@@ -110,9 +125,10 @@ describe('extractTimestamps — auto recognition (no TIME_FORMAT)', () => {
     expect(iso(e._time)).toBe('2024-01-15T10:00:00.000Z');
   });
 
-  it('leaves _time null when no timestamp is recognisable', () => {
-    const e = extractTimestamps([event('no timestamp anywhere here')], [])[0]!;
-    expect(e._time).toBeNull();
+  it('falls back to index time when no timestamp is recognisable', () => {
+    const e = extractTimestamps([event('no timestamp anywhere here')], [], undefined, NOW)[0]!;
+    expect(iso(e._time)).toBe(NOW.toISOString());
+    expect(timeSource(e)).toBe('current-time');
   });
 
   // #12: position-scored recognition — the timestamp at the front of the region
@@ -128,18 +144,27 @@ describe('extractTimestamps — range validation (#12)', () => {
   const fmt = dir('TIME_FORMAT', '%Y-%m-%d %H:%M:%S');
 
   it('rejects an impossible day (Feb 30) instead of rolling into March', () => {
-    const e = extractTimestamps([event('2024-02-30 10:00:00 x')], [fmt])[0]!;
-    expect(e._time).toBeNull();
+    const e = extractTimestamps([event('2024-02-30 10:00:00 x')], [fmt], undefined, NOW)[0]!;
+    // Feb 30 is a parse failure, so the text supplies no timestamp and the
+    // chain falls through — it must never roll over into a neighbouring date.
+    expect(iso(e._time)).toBe(NOW.toISOString());
+    expect(timeSource(e)).toBe('current-time');
   });
 
   it('rejects an out-of-range month (13)', () => {
-    const e = extractTimestamps([event('2024-13-01 10:00:00 x')], [fmt])[0]!;
-    expect(e._time).toBeNull();
+    const e = extractTimestamps([event('2024-13-01 10:00:00 x')], [fmt], undefined, NOW)[0]!;
+    // month 13 is a parse failure, so the text supplies no timestamp and the
+    // chain falls through — it must never roll over into a neighbouring date.
+    expect(iso(e._time)).toBe(NOW.toISOString());
+    expect(timeSource(e)).toBe('current-time');
   });
 
   it('rejects an out-of-range hour (25)', () => {
-    const e = extractTimestamps([event('2024-01-15 25:00:00 x')], [fmt])[0]!;
-    expect(e._time).toBeNull();
+    const e = extractTimestamps([event('2024-01-15 25:00:00 x')], [fmt], undefined, NOW)[0]!;
+    // hour 25 is a parse failure, so the text supplies no timestamp and the
+    // chain falls through — it must never roll over into a neighbouring date.
+    expect(iso(e._time)).toBe(NOW.toISOString());
+    expect(timeSource(e)).toBe('current-time');
   });
 
   it('still accepts a valid leap day', () => {
@@ -202,9 +227,17 @@ describe('#163 — an event with no timestamp inherits the previous one', () => 
     expect(iso(out[1]!._time)).toBe('2024-01-15T10:00:00.000Z');
   });
 
-  it('leaves the first event null when there is nothing to inherit from', () => {
-    const out = extractTimestamps([event('no date here'), event('2024-01-15 10:00:00 later')], [fmt]);
-    expect(out[0]!._time).toBeNull();
+  it('falls back to index time when there is nothing to inherit from', () => {
+    const out = extractTimestamps(
+      [event('no date here'), event('2024-01-15 10:00:00 later')],
+      [fmt],
+      undefined,
+      NOW,
+    );
+    // Splunk always places an event on the timeline; the trace is what says the
+    // value was not read from the event (#85).
+    expect(iso(out[0]!._time)).toBe(NOW.toISOString());
+    expect(timeSource(out[0]!)).toBe('current-time');
     expect(iso(out[1]!._time)).toBe('2024-01-15T10:00:00.000Z');
   });
 
@@ -228,5 +261,169 @@ describe('#163 — an event with no timestamp inherits the previous one', () => 
     const out = extractTimestamps([event('2024-01-15 10:00:00 a'), event('no date')], [fmt]);
     const step = out[1]!.processingTrace.at(-1);
     expect(step?.description).toContain('inherited');
+  });
+});
+
+describe('#85 — DATETIME_CONFIG', () => {
+  const fmt = dir('TIME_FORMAT', '%Y-%m-%d %H:%M:%S');
+
+  it('CURRENT stamps index time and ignores the date in the event', () => {
+    const e = extractTimestamps(
+      [event('2024-01-15 10:00:00 has a perfectly good date')],
+      [fmt, dir('DATETIME_CONFIG', 'CURRENT')],
+      undefined,
+      NOW,
+    )[0]!;
+    expect(iso(e._time)).toBe(NOW.toISOString());
+    expect(timeSource(e)).toBe('datetime-config-current');
+  });
+
+  it('NONE disables extraction and says so distinctly', () => {
+    const e = extractTimestamps(
+      [event('2024-01-15 10:00:00 has a perfectly good date')],
+      [fmt, dir('DATETIME_CONFIG', 'NONE')],
+      undefined,
+      NOW,
+    )[0]!;
+    expect(iso(e._time)).toBe(NOW.toISOString());
+    expect(timeSource(e)).toBe('datetime-config-none');
+  });
+
+  it('is case-insensitive, as conf values are', () => {
+    const e = extractTimestamps([event('x')], [dir('DATETIME_CONFIG', 'current')], undefined, NOW)[0]!;
+    expect(timeSource(e)).toBe('datetime-config-current');
+  });
+
+  it('leaves extraction alone when it names a datetime.xml file', () => {
+    // That file is unreachable from a browser, so the normal path runs and the
+    // directive keeps its declared limitation rather than silently meaning CURRENT.
+    const e = extractTimestamps(
+      [event('2024-01-15 10:00:00 x')],
+      [fmt, dir('DATETIME_CONFIG', '/etc/apps/my_app/datetime.xml')],
+      undefined,
+      NOW,
+    )[0]!;
+    expect(iso(e._time)).toBe('2024-01-15T10:00:00.000Z');
+    expect(timeSource(e)).toBe('TIME_FORMAT');
+  });
+});
+
+describe('#85 — timestamp sanity bounds', () => {
+  const fmt = dir('TIME_FORMAT', '%Y-%m-%d %H:%M:%S');
+
+  it('accepts a timestamp inside the default bounds', () => {
+    const e = extractTimestamps([event('2026-08-03 10:00:00 x')], [fmt], undefined, NOW)[0]!;
+    expect(iso(e._time)).toBe('2026-08-03T10:00:00.000Z');
+    expect(timeSource(e)).toBe('TIME_FORMAT');
+  });
+
+  it('rejects a timestamp further back than MAX_DAYS_AGO', () => {
+    const e = extractTimestamps(
+      [event('2026-07-01 10:00:00 x')],
+      [fmt, dir('MAX_DAYS_AGO', '7')],
+      undefined,
+      NOW,
+    )[0]!;
+    expect(iso(e._time)).toBe(NOW.toISOString());
+    expect(timeSource(e)).toBe('current-time');
+  });
+
+  it('rejects a timestamp further ahead than MAX_DAYS_HENCE', () => {
+    // Default MAX_DAYS_HENCE is 2 days, so a date a year out is refused.
+    const e = extractTimestamps([event('2027-08-04 10:00:00 x')], [fmt], undefined, NOW)[0]!;
+    expect(timeSource(e)).toBe('current-time');
+  });
+
+  it('falls back to the previous event rather than the clock when there is one', () => {
+    const out = extractTimestamps(
+      [event('2026-08-03 10:00:00 good'), event('2027-08-04 10:00:00 way out')],
+      [fmt],
+      undefined,
+      NOW,
+    );
+    expect(iso(out[1]!._time)).toBe('2026-08-03T10:00:00.000Z');
+    expect(timeSource(out[1]!)).toBe('previous-event');
+  });
+
+  it('rejects a jump backwards beyond MAX_DIFF_SECS_AGO', () => {
+    const out = extractTimestamps(
+      [event('2026-08-03 10:00:00 first'), event('2026-08-03 08:00:00 two hours earlier')],
+      [fmt, dir('MAX_DIFF_SECS_AGO', '3600')],
+      undefined,
+      NOW,
+    );
+    expect(iso(out[1]!._time)).toBe('2026-08-03T10:00:00.000Z');
+    expect(timeSource(out[1]!)).toBe('previous-event');
+  });
+
+  it('allows a backwards jump within MAX_DIFF_SECS_AGO', () => {
+    const out = extractTimestamps(
+      [event('2026-08-03 10:00:00 first'), event('2026-08-03 09:30:00 half an hour earlier')],
+      [fmt, dir('MAX_DIFF_SECS_AGO', '3600')],
+      undefined,
+      NOW,
+    );
+    expect(iso(out[1]!._time)).toBe('2026-08-03T09:30:00.000Z');
+    expect(timeSource(out[1]!)).toBe('TIME_FORMAT');
+  });
+
+  it('warns once per reason rather than once per event', () => {
+    const diagnostics: ValidationDiagnostic[] = [];
+    extractTimestamps(
+      [event('2027-08-04 10:00:00 a'), event('2027-08-05 10:00:00 b'), event('2027-08-06 10:00:00 c')],
+      [fmt],
+      diagnostics,
+      NOW,
+    );
+    const bounds = diagnostics.filter((d) => d.message.includes('MAX_DAYS_HENCE'));
+    expect(bounds).toHaveLength(1);
+    expect(bounds[0]?.level).toBe('warning');
+  });
+
+  it('names the bound that rejected the timestamp in the trace', () => {
+    const e = extractTimestamps([event('2027-08-04 10:00:00 x')], [fmt], undefined, NOW)[0]!;
+    const step = e.processingTrace.at(-1);
+    expect(step?.description).toContain('MAX_DAYS_HENCE');
+    expect(step?.description).toContain('rejected');
+  });
+
+  it('an out-of-bounds timestamp does not become the baseline for the next event', () => {
+    // If the rejected value were recorded, the following event would be
+    // measured against a time Splunk never accepted.
+    const out = extractTimestamps(
+      [event('2026-08-03 10:00:00 good'), event('2027-08-04 10:00:00 rejected'), event('no date')],
+      [fmt],
+      undefined,
+      NOW,
+    );
+    expect(iso(out[2]!._time)).toBe('2026-08-03T10:00:00.000Z');
+  });
+});
+
+describe('#85 — MAX_DIFF_SECS_HENCE', () => {
+  const fmt = dir('TIME_FORMAT', '%Y-%m-%d %H:%M:%S');
+
+  it('rejects a jump forwards beyond MAX_DIFF_SECS_HENCE', () => {
+    // Three days after the previous event, but still inside MAX_DAYS_HENCE — so
+    // this isolates the previous-event bound from the wall-clock one.
+    const out = extractTimestamps(
+      [event('2026-08-01 10:00:00 first'), event('2026-08-04 09:00:00 three days later')],
+      [fmt, dir('MAX_DIFF_SECS_HENCE', '3600')],
+      undefined,
+      NOW,
+    );
+    expect(iso(out[1]!._time)).toBe('2026-08-01T10:00:00.000Z');
+    expect(timeSource(out[1]!)).toBe('previous-event');
+  });
+
+  it('allows a forwards jump within MAX_DIFF_SECS_HENCE', () => {
+    const out = extractTimestamps(
+      [event('2026-08-01 10:00:00 first'), event('2026-08-01 10:30:00 half an hour later')],
+      [fmt, dir('MAX_DIFF_SECS_HENCE', '3600')],
+      undefined,
+      NOW,
+    );
+    expect(iso(out[1]!._time)).toBe('2026-08-01T10:30:00.000Z');
+    expect(timeSource(out[1]!)).toBe('TIME_FORMAT');
   });
 });

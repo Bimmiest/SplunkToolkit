@@ -4,7 +4,7 @@ import { parseConf } from '../../../engine/parser/confParser';
 import { matchStanzas, mergeDirectives } from '../../../engine/parser/stanzaMatcher';
 import { useTimestampMatch } from '../../../hooks/useTimestampMatch';
 import type { TimeConfig, TimestampProbe } from '../../../engine/timestampMatch';
-import type { EventMetadata } from '../../../engine/types';
+import type { EventMetadata, SplunkEvent, TimeSource } from '../../../engine/types';
 import type { EnrichedEvent } from '../PreviewPanel';
 
 interface TimestampTabProps {
@@ -349,6 +349,8 @@ export function TimestampTab({ items, currentPage, eventsPerPage }: TimestampTab
                 config={config}
                 probe={probes[idx] ?? null}
                 pending={status === 'pending'}
+                resolvedTime={item.event._time}
+                timeSource={resolvedTimeSource(item.event)}
               />
             );
           })
@@ -373,21 +375,46 @@ function ConfigValue({ label, value, color }: { label: string; value: string | n
   );
 }
 
+/** How the pipeline actually resolved this event's `_time` (#85). */
+function resolvedTimeSource(event: SplunkEvent): TimeSource | undefined {
+  return event.processingTrace
+    .filter((step) => step.processor === 'timestampExtractor')
+    .at(-1)?.timeSource;
+}
+
+/**
+ * What each fallback rule should say when it, rather than the event text,
+ * supplied `_time`. A timestamp that came from the clock or the event before it
+ * is indistinguishable from a parsed one in the output, which is the whole
+ * reason for badging it.
+ */
+const FALLBACK_LABEL: Partial<Record<TimeSource, string>> = {
+  'previous-event': 'From previous event',
+  'current-time': 'From index time',
+  'datetime-config-current': 'DATETIME_CONFIG = CURRENT',
+  'datetime-config-none': 'DATETIME_CONFIG = NONE',
+};
+
 function TimestampEventCard({
   raw,
   globalIdx,
   config,
   probe,
   pending,
+  resolvedTime,
+  timeSource,
 }: {
   raw: string;
   globalIdx: number;
   config: TimeConfig;
   probe: TimestampProbe | null;
   pending: boolean;
+  resolvedTime: Date | null;
+  timeSource: TimeSource | undefined;
 }) {
   const result = probe?.match ?? null;
   const parsedTime = result?.parsedTimeMs != null ? new Date(result.parsedTimeMs) : null;
+  const fallbackLabel = timeSource ? FALLBACK_LABEL[timeSource] : undefined;
 
   return (
     <div className="border border-[var(--color-border)] rounded bg-[var(--color-bg-secondary)]">
@@ -400,6 +427,22 @@ function TimestampEventCard({
             <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] font-medium">
               Matching…
             </span>
+          ) : fallbackLabel ? (
+            // The event still has a _time — it just did not come from this
+            // event's text, so it is warned about rather than shown as a match.
+            <>
+              <span
+                className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-warning)]/20 text-[var(--color-warning)] font-medium"
+                title="This _time was not read from the event text"
+              >
+                {fallbackLabel}
+              </span>
+              {resolvedTime && (
+                <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] font-medium font-mono">
+                  {resolvedTime.toISOString()}
+                </span>
+              )}
+            </>
           ) : parsedTime ? (
             <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-success)]/20 text-[var(--color-success)] font-medium font-mono">
               {parsedTime.toISOString()}
