@@ -187,3 +187,19 @@ jobs:
         # Reported, never fatal: a CVE in a build tool must not be able to block
         # a fix for something users are actually hitting.
         run: npm audit --audit-level=high || true
+
+      # `npm audit` resolves exactly one lockfile — the one for the tree it is
+      # pointed at — so the two steps above say nothing whatsoever about
+      # packages/mcp-server, which carries its own. Nothing audited it until
+      # GHSA-8j4g-w8fx-2239 (hono, under @modelcontextprotocol/sdk) was found by
+      # hand in #226; these steps are what would have reported it.
+      - name: Audit the MCP server's production dependencies
+        # Same gate as the app's, for the same reason: these are what run on the
+        # machine of whoever starts the server, and the process they run in
+        # holds whatever the agent driving it can reach.
+        working-directory: packages/mcp-server
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Report the MCP server's dev-only advisories
+        working-directory: packages/mcp-server
+        run: npm audit --audit-level=high || true

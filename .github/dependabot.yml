@@ -36,6 +36,28 @@ updates:
     # Majors are deliberately left out of both groups, so they arrive one PR at
     # a time. react 19→20 or vite 7→8 is a change to read, not to batch.
 
+  # `directory` is not recursive, so the entry above never sees
+  # packages/mcp-server's lockfile. That was harmless while nothing audited that
+  # tree; now that the audit job gates on its production dependencies, the
+  # opening comment applies to it word for word — a gate with nothing keeping
+  # the tree current is a gate that eventually fires on an unrelated PR.
+  - package-ecosystem: npm
+    directory: "/packages/mcp-server"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    groups:
+      # One group rather than the production/development split above: this
+      # package has six direct dependencies, and splitting six across two PRs
+      # buys nothing but a second review.
+      mcp-server-dependencies:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    # Majors stay out of the group for the same reason they do above — and note
+    # that @modelcontextprotocol/sdk majors move a protocol version, which is a
+    # change to read against the spec rather than to wave through.
+
   # Actions are pinned to commit SHAs (#138), which is what stops a mutable tag
   # from moving an unreviewed change into a job holding the deploy credentials.
   # A SHA cannot move on its own, so without something raising the pin forward
