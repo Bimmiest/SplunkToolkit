@@ -133,6 +133,19 @@ function EventRow({ item, globalIdx, originalMetadata, search }: { item: Enriche
               Truncated{truncatedByDefault ? ' (default)' : ''}
             </span>
           )}
+          {/*
+            A CLONE_SOURCETYPE copy is byte-identical to its original, so
+            without saying where it came from a duplicated event reads as a
+            line-breaking bug rather than the routing rule working (#87).
+          */}
+          {event.clonedFrom !== undefined && (
+            <span
+              className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-info)]/20 text-[var(--color-info)] font-medium"
+              title={`Emitted by CLONE_SOURCETYPE from an event with sourcetype "${event.clonedFrom}"`}
+            >
+              Cloned from {event.clonedFrom}
+            </span>
+          )}
           {hasMetadataChanges && (
             <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-warning)]/20 text-[var(--color-warning)] font-medium">
               Metadata modified

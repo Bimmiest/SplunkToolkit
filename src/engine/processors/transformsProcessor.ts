@@ -57,8 +57,13 @@ export function applyTransforms(
   const warnedSearchTimeDestKey = new Set<string>();
   const warnedSearchOnlyAttrs = new Set<string>();
 
-  return events.map((event) => {
+  return events.flatMap((event) => {
     let currentEvent: SplunkEvent = event;
+    // CLONE_SOURCETYPE copies show up alongside the original (#87). Collected
+    // rather than emitted inline: the clone is taken from the event as it stood
+    // when the transform matched, and the original carries on through the rest
+    // of the list unchanged.
+    const clones: SplunkEvent[] = [];
     // Directives that reached a transform and changed nothing (#84).
     const noOps: DirectiveNoOp[] = [];
     const noteNoOp = (dir: ConfDirective, stanzaName: string, reason: NoOpReason) => {
@@ -159,15 +164,41 @@ export function applyTransforms(
                 ]
               : routed.rawMutations,
           };
+          // CLONE_SOURCETYPE is index-time only. Splunk emits a copy carrying
+          // the new sourcetype and lets the original continue untouched; the
+          // copy re-enters the pipeline and picks up the new sourcetype's props,
+          // which the per-event path below already does for any event whose
+          // metadata changed.
+          const cloneType =
+            phase === 'index-time'
+              ? transformStanza.directives.filter((d) => d.key === 'CLONE_SOURCETYPE').at(-1)?.value.trim()
+              : undefined;
+          if (cloneType) {
+            clones.push({
+              ...currentEvent,
+              metadata: { ...currentEvent.metadata, sourcetype: cloneType },
+              clonedFrom: currentEvent.metadata.sourcetype,
+              processingTrace: [
+                ...currentEvent.processingTrace,
+                {
+                  processor: `${directiveType}-${dir.className ?? ''}:${stanzaName}`,
+                  phase,
+                  description: `CLONE_SOURCETYPE = ${cloneType} — emitted a copy of this event under sourcetype "${cloneType}"`,
+                },
+              ],
+            });
+          }
         } else if (result.noOp) {
           noteNoOp(dir, stanzaName, result.noOp);
         }
       }
     }
 
-    return noOps.length > 0
-      ? { ...currentEvent, noOps: [...(currentEvent.noOps ?? []), ...noOps] }
-      : currentEvent;
+    const resolved =
+      noOps.length > 0
+        ? { ...currentEvent, noOps: [...(currentEvent.noOps ?? []), ...noOps] }
+        : currentEvent;
+    return clones.length > 0 ? [resolved, ...clones] : [resolved];
   });
 }
 

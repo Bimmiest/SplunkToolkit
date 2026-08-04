@@ -52,3 +52,21 @@ describe('RawTab — row state does not bleed across pages', () => {
     expect(metadataShown()).toBe(true);
   });
 });
+
+describe('RawTab — CLONE_SOURCETYPE badge (#87)', () => {
+  it('says where a cloned event came from', () => {
+    const cloned = makeItem('2024-01-15 user=alice', 1);
+    cloned.event.clonedFrom = 'my_app';
+    const { container } = render(
+      <RawTab items={[cloned]} currentPage={1} eventsPerPage={10} search="" />,
+    );
+    expect(container.textContent).toContain('Cloned from my_app');
+  });
+
+  it('badges nothing on an ordinary event', () => {
+    const { container } = render(
+      <RawTab items={[makeItem('2024-01-15 user=alice', 1)]} currentPage={1} eventsPerPage={10} search="" />,
+    );
+    expect(container.textContent).not.toContain('Cloned from');
+  });
+});

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { applyTransforms } from '../processors/transformsProcessor';
+import { runPipeline } from '../pipeline';
 import type { SplunkEvent, ConfDirective, ConfStanza, ParsedConf, ValidationDiagnostic } from '../types';
 
 function event(raw: string): SplunkEvent {
@@ -341,5 +342,65 @@ describe('applyTransforms — search-time-only attributes reached index-time', (
     const conf = transformsConf('route', { REGEX: '(\\w+)', DEST_KEY: 'MetaData:Index', FORMAT: 'main' });
     applyTransforms([event('hello')], transformsDir('route'), conf, 'index-time', diags);
     expect(diags.filter(warnMsg)).toHaveLength(0);
+  });
+});
+
+const metadata = { index: 'main', host: 'h', source: 's', sourcetype: 'my_app' };
+
+describe('#87 — CLONE_SOURCETYPE', () => {
+  const props = '[my_app]\nTRANSFORMS-clone = cloner\n';
+  const transforms = '[cloner]\nREGEX = user=(\\w+)\nCLONE_SOURCETYPE = my_app_masked\n';
+
+  function run(raw: string, propsConf = props, transformsConf = transforms) {
+    return runPipeline(raw, metadata, propsConf, transformsConf, {
+      perEventPipeline: true,
+      captureOffsets: false,
+    }).result.events;
+  }
+
+  it('emits a copy carrying the new sourcetype', () => {
+    const events = run('2024-01-15 user=alice\n');
+    expect(events).toHaveLength(2);
+    expect(events[0]?.metadata.sourcetype).toBe('my_app');
+    expect(events[1]?.metadata.sourcetype).toBe('my_app_masked');
+  });
+
+  it('leaves the original untouched', () => {
+    const events = run('2024-01-15 user=alice\n');
+    expect(events[0]?._raw).toBe(events[1]?._raw);
+    expect(events[0]?.clonedFrom).toBeUndefined();
+  });
+
+  it('links the pair, so a duplicate does not read as a breaking bug', () => {
+    const events = run('2024-01-15 user=alice\n');
+    expect(events[1]?.clonedFrom).toBe('my_app');
+  });
+
+  it('emits nothing when the REGEX does not match', () => {
+    const events = run('2024-01-15 nothing here\n');
+    expect(events).toHaveLength(1);
+  });
+
+  it('processes the clone under its new sourcetype stanza', () => {
+    // The whole point of the clone: it re-enters the pipeline and picks up the
+    // props of the sourcetype it was rewritten to.
+    const events = run(
+      '2024-01-15 user=alice\n',
+      `${props}\n[my_app_masked]\nEXTRACT-masked = user=(?<masked_user>\\w+)\n`,
+    );
+    expect(events[1]?.fields['masked_user']).toBe('alice');
+    expect(events[0]?.fields['masked_user']).toBeUndefined();
+  });
+
+  it('records the clone in the original event trace', () => {
+    const events = run('2024-01-15 user=alice\n');
+    const step = events[1]?.processingTrace.find((s) => s.description.includes('CLONE_SOURCETYPE'));
+    expect(step?.description).toContain('my_app_masked');
+  });
+
+  it('ignores CLONE_SOURCETYPE reached through a search-time REPORT', () => {
+    // It is an index-time attribute; a REPORT- reference must not clone.
+    const events = run('2024-01-15 user=alice\n', '[my_app]\nREPORT-clone = cloner\n');
+    expect(events).toHaveLength(1);
   });
 });

@@ -138,7 +138,7 @@ e2e/                           # Playwright smoke tests (production build, Chrom
 
 | Sub-tab | Shows |
 |---|---|
-| Raw | Events after line/event breaking, with line numbers and timestamp regions. Truncated events carry a `Truncated` badge; expand/collapse handles long events. |
+| Raw | Events after line/event breaking, with line numbers and timestamp regions. Truncated events carry a `Truncated` badge, and a `CLONE_SOURCETYPE` copy a `Cloned from <sourcetype>` one; expand/collapse handles long events. |
 | Timestamp | Matched prefix, format pattern, and parsed `_time` per event. |
 | Extractions | Field extractions inline within `_raw`, classified as auto (KV_MODE / INDEXED_EXTRACTIONS), manual (EXTRACT / REPORT / TRANSFORMS / SEDCMD), or calc (EVAL). Filter pills: `Auto / Manual / Calculated / All`. A collapsible sidebar supports search, hover-focus, and pin-to-filter. |
 | Diff | Character-level unified diff between original raw data and processed `_raw`. |
@@ -232,9 +232,9 @@ Every directive the registry knows about carries one of three support levels, de
 
 | Level | Count | Meaning |
 |---|---|---|
-| **simulated** | 52 | The engine implements it and tests assert the behaviour. |
+| **simulated** | 53 | The engine implements it and tests assert the behaviour. |
 | **documented** | 25 | Recognised on purpose, outside the simulation for a reason that is not going to change — it belongs to a layer a browser has no access to, or it has no observable effect on output. |
-| **ignored** | 2 | Should be simulated, is not yet, and names the issue tracking it. Every one of these is a known wrong answer. |
+| **ignored** | 1 | Should be simulated, is not yet, and names the issue tracking it. Every one of these is a known wrong answer. |
 
 The counts are asserted by a test against the table itself, so they cannot go stale.
 
@@ -246,7 +246,7 @@ One `simulated` entry carries a caveat rather than a clean bill of health: `INDE
 
 ### Not simulated yet (`ignored`)
 
-Each of these is a directive the preview accepts and then does not honour. The roster lives in [`src/engine/directiveSupport.ts`](src/engine/directiveSupport.ts) — every `ignored` entry states what is missing and names its tracking issue, and the same text appears verbatim on the directive's hover, its editor warning, and its dictionary entry. Two remain: `CLONE_SOURCETYPE` ([#87](https://github.com/Bimmiest/propslab/issues/87)), where the cloned copy of the event is not produced, and `TZ_ALIAS` ([#227](https://github.com/Bimmiest/propslab/issues/227)), where an aliased `%Z` zone falls back to UTC.
+Each of these is a directive the preview accepts and then does not honour. The roster lives in [`src/engine/directiveSupport.ts`](src/engine/directiveSupport.ts) — every `ignored` entry states what is missing and names its tracking issue, and the same text appears verbatim on the directive's hover, its editor warning, and its dictionary entry. One remains: `TZ_ALIAS` ([#227](https://github.com/Bimmiest/propslab/issues/227)), where an aliased `%Z` zone falls back to UTC.
 
 ### Deliberately out of scope (`documented`)
 
