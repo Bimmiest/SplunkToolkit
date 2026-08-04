@@ -1,5 +1,6 @@
 import type { SplunkEvent, ConfDirective, DirectiveNoOp, ValidationDiagnostic } from '../types';
 import { safeRegex } from '../../utils/splunkRegex';
+import { formatStrftime } from '../../utils/strftime';
 import { fieldQuotingWarning } from '../utils/fieldRef';
 import { getMetadataField } from '../utils/metadataFields';
 import { deleteField, getField as getOwnField, setField } from '../utils/fieldBag';
@@ -889,7 +890,7 @@ function evalBuiltin(fn: string, args: EvalValue[], ctx: EvalCtx): EvalValue {
       if (epoch === null) return null;
       const format = toStr(args[1]);
       const date = new Date(epoch * 1000);
-      return simpleStrftime(date, format);
+      return formatStrftime(date, format);
     }
     case 'strptime':
       ctx.onStubWarning?.('strptime');
@@ -1130,81 +1131,6 @@ function compare(left: EvalArg, right: EvalArg, op: string): boolean {
     case '>=': return l >= r;
     default: return false;
   }
-}
-
-const STRFTIME_MONTHS_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const STRFTIME_MONTHS_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const STRFTIME_DAYS_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const STRFTIME_DAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-/**
- * Format a Date with a Splunk strftime string. Uses the browser's local timezone
- * (a documented browser-tool divergence — real Splunk uses the configured/indexer
- * TZ). Covers the common token set rather than the full strptime grammar.
- */
-function simpleStrftime(date: Date, format: string): string {
-  // An epoch outside the Date range yields an Invalid Date, whose accessors all
-  // return NaN — %F would render "NaN-NaN-NaN", and the %b/%B/%a/%A name lookups
-  // below would index their table with NaN and fall back to echoing the literal
-  // specifier. Neither reaches the caller today only because building the token
-  // table throws first: %Z calls Intl.formatToParts, which rejects an invalid
-  // date with a bare "Invalid time value". Reject it deliberately instead, so the
-  // error names the function that caused it — and so every accessor past this
-  // point is known to be in its documented range.
-  if (Number.isNaN(date.getTime())) {
-    throw new Error('strftime(): timestamp is out of range');
-  }
-
-  const pad = (n: number, w = 2) => String(n).padStart(w, '0');
-  const h24 = date.getHours();
-  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
-  const startOfYear = new Date(date.getFullYear(), 0, 0);
-  const dayOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / 86_400_000);
-  // The four name-table lookups below are asserted: getMonth() is 0-11 and
-  // getDay() is 0-6 for any valid Date, and the invalid case returned above.
-  const tokens: Record<string, string> = {
-    '%Y': String(date.getFullYear()),
-    '%y': pad(date.getFullYear() % 100),
-    '%m': pad(date.getMonth() + 1),
-    '%d': pad(date.getDate()),
-    '%e': String(date.getDate()).padStart(2, ' '),
-    '%H': pad(h24),
-    '%I': pad(h12),
-    '%M': pad(date.getMinutes()),
-    '%S': pad(date.getSeconds()),
-    '%p': h24 < 12 ? 'AM' : 'PM',
-    '%b': STRFTIME_MONTHS_ABBR[date.getMonth()]!,
-    '%B': STRFTIME_MONTHS_FULL[date.getMonth()]!,
-    '%a': STRFTIME_DAYS_ABBR[date.getDay()]!,
-    '%A': STRFTIME_DAYS_FULL[date.getDay()]!,
-    '%j': pad(dayOfYear, 3),
-    '%s': String(Math.floor(date.getTime() / 1000)),
-    '%3N': pad(date.getMilliseconds(), 3),
-    '%6N': pad(date.getMilliseconds(), 3) + '000',
-    '%T': `${pad(h24)}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`,
-    '%F': `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
-    // Splunk emits the indexer's zone; in the browser that is the viewer's, which
-    // is the same divergence the rest of the timestamp simulation already carries.
-    // Leaving the specifier as literal `%z` text was worse: it looked like output.
-    '%z': formatUtcOffset(date),
-    '%Z': timeZoneAbbreviation(date),
-    '%%': '%',
-  };
-  return format.replace(/%(?:3N|6N|[YymdeHIMSpbBaAjsTFzZ%])/g, (m) => tokens[m] ?? m);
-}
-
-/** `%z` — the local UTC offset as `+hhmm` / `-hhmm`. */
-function formatUtcOffset(date: Date): string {
-  const offsetMinutes = -date.getTimezoneOffset();
-  const sign = offsetMinutes < 0 ? '-' : '+';
-  const abs = Math.abs(offsetMinutes);
-  return `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}${String(abs % 60).padStart(2, '0')}`;
-}
-
-/** `%Z` — the local zone's short name, falling back to the numeric offset. */
-function timeZoneAbbreviation(date: Date): string {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' }).formatToParts(date);
-  return parts.find((p) => p.type === 'timeZoneName')?.value ?? formatUtcOffset(date);
 }
 
 /** Parse an eval expression into an AST. Throws on a syntax error. */

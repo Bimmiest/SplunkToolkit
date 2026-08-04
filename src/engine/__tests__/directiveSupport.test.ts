@@ -187,13 +187,15 @@ describe('unsimulated directives are reported rather than ignored (#153)', () =>
   });
 
   it('reports transforms.conf attributes against the transforms editor', () => {
+    // `external_cmd` is `documented` rather than `ignored`, so this also pins
+    // the informational level for a deliberate, permanent edge.
     const d = diagnosticsFor(
       'TRANSFORMS-x = t1\n',
-      '[t1]\nREGEX = (?<a>\\w+)\nWRITE_META = true\nCLONE_SOURCETYPE = copy\n',
-    ).find((x) => x.directiveKey === 'CLONE_SOURCETYPE');
+      '[t1]\nREGEX = (?<a>\\w+)\nWRITE_META = true\nexternal_cmd = lookup.py\n',
+    ).find((x) => x.directiveKey === 'external_cmd');
     expect(d?.file).toBe('transforms.conf');
-    expect(d?.level).toBe('warning');
-    expect(d?.message).toContain('#87');
+    expect(d?.level).toBe('info');
+    expect(d?.message).toContain('not simulated');
   });
 
   it('warns for a valid attribute the registry does not document (#178)', () => {

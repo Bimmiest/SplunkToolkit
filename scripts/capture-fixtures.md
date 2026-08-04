@@ -176,6 +176,14 @@ back to the previous event's `_time` or to index time, and whether
 same round, though the browser cannot reproduce index time exactly — assert that
 `_time` is *not* the date in the event text rather than its precise value.
 
+`clone-sourcetype`, for [#87](https://github.com/Bimmiest/propslab/issues/87).
+Index-time. A stanza with `CLONE_SOURCETYPE`, and a second props stanza for the
+cloned sourcetype that extracts a field the original does not — so the capture
+pins both that the copy is emitted and that it is processed under its new
+sourcetype's props rather than the original's. Worth asking of the instance
+rather than the docs: whether the clone keeps the original's already-extracted
+index-time fields, and the order the pair comes back in.
+
 ## When a fixture disagrees with the engine
 
 That is the point of the exercise; those failures are the bug list that is

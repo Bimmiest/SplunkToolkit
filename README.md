@@ -138,15 +138,17 @@ e2e/                           # Playwright smoke tests (production build, Chrom
 
 | Sub-tab | Shows |
 |---|---|
-| Raw | Events after line/event breaking, with line numbers and timestamp regions. Truncated events carry a `Truncated` badge; expand/collapse handles long events. |
+| Raw | Events after line/event breaking, with line numbers and timestamp regions. Truncated events carry a `Truncated` badge, and a `CLONE_SOURCETYPE` copy a `Cloned from <sourcetype>` one; expand/collapse handles long events. |
 | Timestamp | Matched prefix, format pattern, and parsed `_time` per event. |
 | Extractions | Field extractions inline within `_raw`, classified as auto (KV_MODE / INDEXED_EXTRACTIONS), manual (EXTRACT / REPORT / TRANSFORMS / SEDCMD), or calc (EVAL). Filter pills: `Auto / Manual / Calculated / All`. A collapsible sidebar supports search, hover-focus, and pin-to-filter. |
 | Diff | Character-level unified diff between original raw data and processed `_raw`. |
-| Regex | Interactive regex tester against event text; shows matches only, with empty-state prompt when no pattern is entered. |
+| Regex | Interactive regex tester against event text; shows matches only, with empty-state prompt when no pattern is entered. `Add to props.conf` upserts the built `EXTRACT-` line into the event's sourcetype stanza. When the event has no sourcetype it writes a placeholder stanza *and* points the metadata at it, since a stanza the event cannot match would be scaffolding that does nothing — the panel says so before the click. |
 
 **Field highlighting** prefers authoritative byte offsets recorded at extraction time (for positional EXTRACT captures against `_raw`). It falls back to context-aware matching (`"key":"value"`, `key="value"`, `key: value`, `key=value`) for EVAL-computed, aliased, JSON-flattened, and KV-mode fields. Single-character values only highlight when context-matching succeeds — a bare substring search on `"0"` would light up the whole event.
 
 **Fields tab** lists every extracted field with phase (index-time vs search-time) and the processors that produced it. Filter pill: `All / Index-time / Search-time`.
+
+**TIME_FORMAT preview.** Hovering a `TIME_FORMAT` value renders the current time with that pattern, tries it against the first line of the loaded raw data — honouring `TIME_PREFIX`, and anchoring after it exactly as the engine does — and names any specifier the simulator does not implement. The strftime completions carry the same rendering, so the choice between five opaque token strings is made by looking at what each produces. An unsimulated specifier also gets an informational marker in the editor: the config may be correct for a real indexer, but this preview will not resolve `_time` from it.
 
 **"Did not fire"** appears in the Pipeline and Extractions tabs whenever a directive ran against the loaded events and changed nothing — the failure mode the preview otherwise renders as an ordinary unchanged event. Each row names the directive, how many events it had no effect on, and why: the transforms stanza it references is not defined, its pattern did not compile, its `SOURCE_KEY` was empty, the pattern did not match (with the character where it stopped agreeing), the fields it produces were already set, or an `EVAL` expression evaluated to null. Covers `EXTRACT`, `TRANSFORMS`/`REPORT`, `SEDCMD`, `FIELDALIAS` and `EVAL`. Clicking the line reference jumps the editor to it.
 
@@ -230,9 +232,9 @@ Every directive the registry knows about carries one of three support levels, de
 
 | Level | Count | Meaning |
 |---|---|---|
-| **simulated** | 52 | The engine implements it and tests assert the behaviour. |
+| **simulated** | 53 | The engine implements it and tests assert the behaviour. |
 | **documented** | 25 | Recognised on purpose, outside the simulation for a reason that is not going to change — it belongs to a layer a browser has no access to, or it has no observable effect on output. |
-| **ignored** | 2 | Should be simulated, is not yet, and names the issue tracking it. Every one of these is a known wrong answer. |
+| **ignored** | 1 | Should be simulated, is not yet, and names the issue tracking it. Every one of these is a known wrong answer. |
 
 The counts are asserted by a test against the table itself, so they cannot go stale.
 
@@ -244,7 +246,7 @@ One `simulated` entry carries a caveat rather than a clean bill of health: `INDE
 
 ### Not simulated yet (`ignored`)
 
-Each of these is a directive the preview accepts and then does not honour. The roster lives in [`src/engine/directiveSupport.ts`](src/engine/directiveSupport.ts) — every `ignored` entry states what is missing and names its tracking issue, and the same text appears verbatim on the directive's hover, its editor warning, and its dictionary entry. Two remain: `CLONE_SOURCETYPE` ([#87](https://github.com/Bimmiest/propslab/issues/87)), where the cloned copy of the event is not produced, and `TZ_ALIAS` ([#227](https://github.com/Bimmiest/propslab/issues/227)), where an aliased `%Z` zone falls back to UTC.
+Each of these is a directive the preview accepts and then does not honour. The roster lives in [`src/engine/directiveSupport.ts`](src/engine/directiveSupport.ts) — every `ignored` entry states what is missing and names its tracking issue, and the same text appears verbatim on the directive's hover, its editor warning, and its dictionary entry. One remains: `TZ_ALIAS` ([#227](https://github.com/Bimmiest/propslab/issues/227)), where an aliased `%Z` zone falls back to UTC.
 
 ### Deliberately out of scope (`documented`)
 

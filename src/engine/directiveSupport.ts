@@ -179,11 +179,7 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   disabled: { support: 'simulated' },
 
   // ---- Routing ----------------------------------------------------------
-  CLONE_SOURCETYPE: {
-    support: 'ignored',
-    issue: 87,
-    note: 'The cloned copy of the event is not produced, so only the original appears in the preview.',
-  },
+  CLONE_SOURCETYPE: { support: 'simulated' },
 
   // ---- Performance / optimiser knobs ------------------------------------
   MATCH_LIMIT: {

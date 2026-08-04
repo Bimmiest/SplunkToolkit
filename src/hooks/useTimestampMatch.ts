@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect } from 'react';
+import { useWorkerRequest } from './useWorkerRequest';
 import { probeTimestamps } from '../engine/timestampMatch';
 import type { TimeConfig, TimestampProbe } from '../engine/timestampMatch';
-import type { TimestampMatchRequest, TimestampMatchResponse } from '../engine/timestampMatchWorker';
+import type { TimestampMatchResponse } from '../engine/timestampMatchWorker';
 
 const createWorker = () =>
   new Worker(new URL('../engine/timestampMatchWorker.ts', import.meta.url), { type: 'module' });
@@ -27,108 +28,43 @@ export interface TimestampMatchState {
  * ambiguous pattern froze the tab for tens of seconds with no diagnostic. Here it
  * only hangs the worker, which the watchdog kills and restarts.
  *
+ * The lifecycle around that — construction, staleness, watchdog, teardown —
+ * lives in `useWorkerRequest` (#151).
+ *
  * Where `Worker` is unavailable (tests / SSR) it falls back to probing on the
  * calling thread; the browser always has a worker and uses the safe path.
  *
  * `raws` must be referentially stable (memoise it in the caller) so a probe only
  * re-runs when the events or the config actually change.
  */
+
+interface Request {
+  raws: string[];
+  config: TimeConfig;
+}
+
+const EMPTY: TimestampProbe[] = [];
+
 export function useTimestampMatch(raws: string[], config: TimeConfig): TimestampMatchState {
-  const [status, setStatus] = useState<TimestampMatchStatus>('idle');
-  const [probes, setProbes] = useState<TimestampProbe[]>([]);
-
-  const workerRef = useRef<Worker | null>(null);
-  const idRef = useRef(0);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Assigned inside the setup effect (never during render) so calling it from the
-  // trigger effect keeps setState off the render path and refs off render reads.
-  const runRef = useRef<(raws: string[], config: TimeConfig) => void>(() => {});
-
-  useEffect(() => {
-    function clearTimer() {
-      if (timeoutRef.current !== null) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
-    }
-
-    function init() {
-      if (typeof Worker === 'undefined') {
-        workerRef.current = null;
-        return;
-      }
-      let worker: Worker;
-      try {
-        worker = createWorker();
-      } catch {
-        workerRef.current = null; // fall back to inline probing
-        return;
-      }
-      workerRef.current = worker;
-
-      worker.onmessage = (e: MessageEvent<TimestampMatchResponse>) => {
-        if (e.data.id !== idRef.current) return; // stale response
-        clearTimer();
-        setStatus('ok');
-        setProbes(e.data.probes);
-      };
-
-      worker.onerror = () => {
-        // The worker died mid-probe (e.g. a runaway pattern). Terminate, restart,
-        // and surface it like a timeout so the tab recovers.
-        clearTimer();
-        workerRef.current?.terminate();
-        init();
-        setStatus('timeout');
-        setProbes([]);
-      };
-    }
-
-    runRef.current = (nextRaws: string[], nextConfig: TimeConfig) => {
-      clearTimer();
-
-      if (nextRaws.length === 0) {
-        setStatus('idle');
-        setProbes([]);
-        return;
-      }
-
-      const id = ++idRef.current;
-
-      // No worker (tests / SSR, or worker construction failed): probe inline.
-      if (workerRef.current === null) {
-        setStatus('ok');
-        setProbes(probeTimestamps(nextRaws, nextConfig));
-        return;
-      }
-
-      setStatus('pending');
-      timeoutRef.current = setTimeout(() => {
-        timeoutRef.current = null;
-        // Too slow — a catastrophic TIME_PREFIX has hung the worker. Kill and
-        // restart it so the next edit gets a fresh one.
-        workerRef.current?.terminate();
-        init();
-        setStatus('timeout');
-        setProbes([]);
-      }, TIMESTAMP_TIMEOUT_MS);
-
-      const request: TimestampMatchRequest = { id, raws: nextRaws, config: nextConfig };
-      workerRef.current.postMessage(request);
-    };
-
-    init();
-
-    return () => {
-      clearTimer();
-      workerRef.current?.terminate();
-      workerRef.current = null;
-    };
-  }, []);
+  const { status, data, run } = useWorkerRequest<Request, TimestampMatchResponse, TimestampProbe[]>({
+    createWorker,
+    timeoutMs: TIMESTAMP_TIMEOUT_MS,
+    empty: EMPTY,
+    interpret: (response) => ({ status: 'ok', data: response.probes }),
+    runInline: ({ raws: r, config: c }) => ({ status: 'ok', data: probeTimestamps(r, c) }),
+    isIdle: ({ raws: r }) => r.length === 0,
+  });
 
   useEffect(() => {
-    runRef.current(raws, config);
+    run({ raws, config });
+    // `run` is stable for the life of the hook; listing it would re-probe on
+    // every render of the caller.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [raws, config]);
 
-  return { status, probes };
+  // Probing has no "the input was rejected" outcome — `interpret` and
+  // `runInline` above both return `ok` — so `invalid` is unreachable here. Mapped
+  // rather than cast, so the narrower public status stays a fact about this hook
+  // instead of an assertion about the shared one.
+  return { status: status === 'invalid' ? 'timeout' : status, probes: data };
 }

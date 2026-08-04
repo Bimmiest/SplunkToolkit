@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { useAppStore } from '../../../../store/useAppStore';
 import type { SplunkEvent } from '../../../../engine/types';
 import { copyQuietly } from '../../../../utils/clipboard';
-import { upsertDirectiveInStanza } from '../../../../engine/scaffold/serialize';
+import { useApplyDirective } from './useApplyDirective';
 import { ExtractNameDialog } from './ExtractNameDialog';
 import { TimePrefixDialog } from './TimePrefixDialog';
 import {
@@ -28,25 +27,7 @@ function currentSelection(): string {
  * takes precedence over the native window.getSelection fallback used elsewhere.
  */
 export function EventContextMenu({ event, children, selectionText, selectionStart }: { event: SplunkEvent; children: ReactNode; selectionText?: string; selectionStart?: number }) {
-  const propsConf = useAppStore((s) => s.propsConf);
-  const setPropsConf = useAppStore((s) => s.setPropsConf);
-  const setMetadataField = useAppStore((s) => s.setMetadataField);
-  const sourcetype = useAppStore((s) => s.metadata.sourcetype);
-  const stanza = sourcetype.trim() || 'my:sourcetype';
-
-  /**
-   * Write a scaffolded directive into the event's sourcetype stanza.
-   *
-   * When the event has no sourcetype we fall back to a placeholder stanza name —
-   * but `matchStanzas` requires `metadata.sourcetype` to equal the stanza name,
-   * so writing `[my:sourcetype]` alone produced config that could never match the
-   * event it was scaffolded from. Point the metadata at the stanza too, the way
-   * ScaffoldModal already does.
-   */
-  const applyDirective = (key: string, value: string) => {
-    setPropsConf(upsertDirectiveInStanza(propsConf, stanza, key, value));
-    if (stanza !== sourcetype) setMetadataField('sourcetype', stanza);
-  };
+  const { stanza, apply: applyDirective } = useApplyDirective();
 
   // Capture the native selection when the menu opens — by the time an item's onSelect
   // fires, the menu has taken focus and window.getSelection() is usually empty. A

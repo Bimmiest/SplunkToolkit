@@ -5,6 +5,7 @@ import { useRegexMatch } from '../../../hooks/useRegexMatch';
 import type { RegexMatchInfo } from '../../../engine/regexMatch';
 import type { EnrichedEvent } from '../PreviewPanel';
 import { fieldColorAt } from './shared/fieldColors';
+import { useApplyDirective } from './shared/useApplyDirective';
 
 // ─── Regex Reference Data ────────────────────────────────────────────────────
 
@@ -133,6 +134,8 @@ export function RegexTab({ items, allEvents, currentPage, eventsPerPage }: Regex
   const [refOpen, setRefOpen] = useState(false);
   const [refSearch, setRefSearch] = useState('');
   const [copied, setCopied] = useState(false);
+  const [added, setAdded] = useState(false);
+  const { stanza, isPlaceholderStanza, apply: applyDirective } = useApplyDirective();
 
   // Compile-only validation (safe on the main thread — compiling can't backtrack).
   // Pass the raw Splunk pattern so validateRegex runs the single canonical
@@ -194,6 +197,19 @@ export function RegexTab({ items, allEvents, currentPage, eventsPerPage }: Regex
     const matched = status === 'ok' ? results.reduce((n, r) => (r != null ? n + 1 : n), 0) : 0;
     return { matched, total: allEvents.length };
   }, [status, results, allEvents]);
+
+  /**
+   * Write the directive straight into props.conf (#88), closing the loop from
+   * experiment to config. The match statistics beside it are whole-dataset
+   * (#78), so what is being committed to is visible at the moment of the click
+   * rather than inferred from the current page.
+   */
+  const handleAddToProps = () => {
+    if (!pattern || validationError) return;
+    applyDirective(`EXTRACT-${className}`, pattern);
+    setAdded(true);
+    setTimeout(() => setAdded(false), 1500);
+  };
 
   const handleCopy = () => {
     if (extractDirective) {
@@ -277,7 +293,26 @@ export function RegexTab({ items, allEvents, currentPage, eventsPerPage }: Regex
             >
               {copied ? 'Copied!' : 'Copy'}
             </button>
+            <button
+              onClick={handleAddToProps}
+              className="flex-shrink-0 px-2 py-1 text-xs rounded border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-bg-tertiary)] transition-colors cursor-pointer"
+              title={`Upsert into [${stanza}] in props.conf`}
+            >
+              {added ? 'Added!' : 'Add to props.conf'}
+            </button>
           </div>
+          {/*
+            Say what the button is about to do to the metadata. Writing
+            [my:sourcetype] and silently repointing the event's sourcetype at it
+            is the right behaviour (#72) but a surprising one to discover after
+            the fact.
+          */}
+          {isPlaceholderStanza && (
+            <p className="mt-1 text-[10px] text-[var(--color-text-muted)]">
+              This event has no sourcetype. Adding writes <code>[{stanza}]</code> and sets the
+              event&apos;s sourcetype to match, so the stanza applies.
+            </p>
+          )}
         </div>
       )}
 

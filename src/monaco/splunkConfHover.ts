@@ -3,6 +3,40 @@ import { getDirectiveInfo, getClassBasedDirectiveBase } from '../engine/directiv
 import { classifyStanza } from '../engine/stanzaRegistry';
 import { getStagesForDirective } from '../engine/pipelineStages';
 import { openDictionaryCommandUri } from './dictionaryCommand';
+import { buildTimeFormatPreview, renderTimeFormatPreview } from './timeFormatPreview';
+import { useAppStore } from '../store/useAppStore';
+
+/**
+ * The first non-empty line of the loaded raw data, which is what the preview
+ * tries the format against. Read straight from the store rather than threaded
+ * through the provider: Monaco constructs these once at setup, long before any
+ * data is loaded, so a value captured at registration would always be stale.
+ */
+function firstSampleLine(): string | undefined {
+  const raw = useAppStore.getState().rawData;
+  return raw.split('\n').find((l) => l.trim() !== '');
+}
+
+/**
+ * The TIME_PREFIX in force for a line: the last one defined above it within the
+ * same stanza. The engine anchors TIME_FORMAT immediately after TIME_PREFIX, so
+ * a preview that ignored it would answer a different question from the pipeline.
+ */
+function timePrefixFor(model: editor.ITextModel, lineNumber: number): string | undefined {
+  let prefix: string | undefined;
+  for (let i = 1; i < lineNumber; i++) {
+    const text = model.getLineContent(i).trim();
+    if (text.startsWith('[')) {
+      prefix = undefined; // a new stanza resets it
+      continue;
+    }
+    const eq = text.indexOf('=');
+    if (eq > 0 && text.substring(0, eq).trim() === 'TIME_PREFIX') {
+      prefix = text.substring(eq + 1).trim();
+    }
+  }
+  return prefix;
+}
 
 export function createHoverProvider(fileType: 'props.conf' | 'transforms.conf'): languages.HoverProvider {
   return {
@@ -30,8 +64,37 @@ export function createHoverProvider(fileType: 'props.conf' | 'transforms.conf'):
         };
       }
 
-      // Check if hovering over a directive key (before =)
       const eqIdx = line.indexOf('=');
+
+      // Hovering over the VALUE of a strftime directive renders it (#90).
+      // Timestamp config fails silently, so making the pattern show its own
+      // output is worth more here than restating the directive's docs.
+      if (eqIdx > 0 && position.column - 1 > eqIdx) {
+        const key = line.substring(0, eqIdx).trim();
+        const info = getDirectiveInfo(key, fileType);
+        if (info?.valueType === 'strftime') {
+          const value = line.substring(eqIdx + 1);
+          const markdown = renderTimeFormatPreview(
+            buildTimeFormatPreview(value, {
+              sampleLine: firstSampleLine(),
+              timePrefix: timePrefixFor(model, position.lineNumber),
+            }),
+          );
+          if (markdown !== '') {
+            return {
+              contents: [{ value: markdown }],
+              range: {
+                startLineNumber: position.lineNumber,
+                startColumn: eqIdx + 2,
+                endLineNumber: position.lineNumber,
+                endColumn: line.length + 1,
+              },
+            };
+          }
+        }
+      }
+
+      // Check if hovering over a directive key (before =)
       if (eqIdx > 0 && position.column - 1 <= eqIdx) {
         const key = line.substring(0, eqIdx).trim();
 

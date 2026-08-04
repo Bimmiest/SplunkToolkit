@@ -1,0 +1,188 @@
+// @vitest-environment jsdom
+// ---------------------------------------------------------------------------
+// useWorkerRequest.test.tsx
+// The lifecycle both live-matching hooks now share (#151).
+//
+// Staleness and teardown are the parts worth pinning: both were reimplemented
+// per hook, and both fail silently — a stale response renders results for a
+// pattern the user has already changed, and a leaked worker only shows up as
+// drift under a profiler.
+// ---------------------------------------------------------------------------
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
+import { useWorkerRequest } from '../useWorkerRequest';
+
+interface Req { value: string }
+interface Res { id: number; echo: string }
+
+class FakeWorker {
+  static instances: FakeWorker[] = [];
+  onmessage: ((e: MessageEvent<Res>) => void) | null = null;
+  onerror: (() => void) | null = null;
+  posted: (Req & { id: number })[] = [];
+  terminated = false;
+
+  constructor() {
+    FakeWorker.instances.push(this);
+  }
+  postMessage(message: Req & { id: number }) {
+    this.posted.push(message);
+  }
+  terminate() {
+    this.terminated = true;
+  }
+  /** Deliver a response as the real worker would. */
+  respond(id: number, echo: string) {
+    this.onmessage?.({ data: { id, echo } } as MessageEvent<Res>);
+  }
+}
+
+function setup() {
+  return renderHook(() =>
+    useWorkerRequest<Req, Res, string>({
+      createWorker: () => new FakeWorker() as unknown as Worker,
+      timeoutMs: 1000,
+      empty: '',
+      interpret: (response) =>
+        response.echo === 'bad' ? { status: 'invalid', data: '' } : { status: 'ok', data: response.echo },
+      runInline: (request) => ({ status: 'ok', data: `inline:${request.value}` }),
+      isIdle: (request) => request.value === '',
+    }),
+  );
+}
+
+const latest = () => FakeWorker.instances[FakeWorker.instances.length - 1]!;
+
+describe('useWorkerRequest', () => {
+  beforeEach(() => {
+    FakeWorker.instances = [];
+    vi.stubGlobal('Worker', FakeWorker);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('starts idle and posts nothing', () => {
+    const { result } = setup();
+    expect(result.current.status).toBe('idle');
+    expect(latest().posted).toEqual([]);
+  });
+
+  it('reports pending, then the interpreted response', () => {
+    const { result } = setup();
+    act(() => result.current.run({ value: 'a' }));
+    expect(result.current.status).toBe('pending');
+
+    act(() => latest().respond(1, 'A'));
+    expect(result.current.status).toBe('ok');
+    expect(result.current.data).toBe('A');
+  });
+
+  it('assigns the request id itself, monotonically', () => {
+    const { result } = setup();
+    act(() => result.current.run({ value: 'a' }));
+    act(() => result.current.run({ value: 'b' }));
+    expect(latest().posted.map((p) => p.id)).toEqual([1, 2]);
+  });
+
+  it('discards a response to a superseded request', () => {
+    const { result } = setup();
+    act(() => result.current.run({ value: 'first' }));
+    act(() => result.current.run({ value: 'second' }));
+
+    // The first request answers late — it must not overwrite the second.
+    act(() => latest().respond(1, 'STALE'));
+    expect(result.current.status).toBe('pending');
+
+    act(() => latest().respond(2, 'FRESH'));
+    expect(result.current.data).toBe('FRESH');
+  });
+
+  it('goes idle without posting when there is nothing to do', () => {
+    const { result } = setup();
+    act(() => result.current.run({ value: '' }));
+    expect(result.current.status).toBe('idle');
+    expect(latest().posted).toEqual([]);
+  });
+
+  it('clears data on an invalid response rather than keeping the last good one', () => {
+    const { result } = setup();
+    act(() => result.current.run({ value: 'a' }));
+    act(() => latest().respond(1, 'A'));
+    act(() => result.current.run({ value: 'b' }));
+    act(() => latest().respond(2, 'bad'));
+
+    expect(result.current.status).toBe('invalid');
+    expect(result.current.data).toBe('');
+  });
+
+  it('terminates and replaces the worker when the watchdog fires', () => {
+    const { result } = setup();
+    const first = latest();
+    act(() => result.current.run({ value: 'slow' }));
+
+    act(() => void vi.advanceTimersByTime(1000));
+
+    expect(result.current.status).toBe('timeout');
+    expect(first.terminated).toBe(true);
+    expect(FakeWorker.instances).toHaveLength(2);
+  });
+
+  it('cancels the watchdog when a response arrives in time', () => {
+    const { result } = setup();
+    act(() => result.current.run({ value: 'a' }));
+    act(() => latest().respond(1, 'A'));
+
+    act(() => void vi.advanceTimersByTime(5000));
+    expect(result.current.status).toBe('ok');
+  });
+
+  it('restarts and reports a crash the way it reports a timeout', () => {
+    const { result } = setup();
+    const first = latest();
+    act(() => result.current.run({ value: 'a' }));
+
+    act(() => first.onerror?.());
+
+    expect(result.current.status).toBe('timeout');
+    expect(first.terminated).toBe(true);
+    expect(FakeWorker.instances).toHaveLength(2);
+  });
+
+  it('terminates the worker on unmount', () => {
+    const { unmount } = setup();
+    const worker = latest();
+    unmount();
+    expect(worker.terminated).toBe(true);
+  });
+
+  it('falls back to running inline where there is no Worker', () => {
+    vi.stubGlobal('Worker', undefined);
+    const { result } = setup();
+    act(() => result.current.run({ value: 'x' }));
+    expect(result.current.status).toBe('ok');
+    expect(result.current.data).toBe('inline:x');
+  });
+
+  it('falls back to running inline when construction throws', () => {
+    const { result } = renderHook(() =>
+      useWorkerRequest<Req, Res, string>({
+        createWorker: () => {
+          throw new Error('blocked by CSP');
+        },
+        timeoutMs: 1000,
+        empty: '',
+        interpret: () => ({ status: 'ok', data: 'unused' }),
+        runInline: (request) => ({ status: 'ok', data: `inline:${request.value}` }),
+        isIdle: () => false,
+      }),
+    );
+
+    act(() => result.current.run({ value: 'x' }));
+    expect(result.current.data).toBe('inline:x');
+  });
+});

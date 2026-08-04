@@ -127,6 +127,13 @@ export interface SplunkEvent {
    */
   noOps?: DirectiveNoOp[];
   /**
+   * Set on an event produced by `CLONE_SOURCETYPE` (#87): the sourcetype the
+   * original carried when the clone was taken. The clone re-enters the pipeline
+   * under its NEW sourcetype, so without this there is nothing linking the pair
+   * and a duplicated event looks like a line-breaking bug.
+   */
+  clonedFrom?: string;
+  /**
    * Transient: every index-time rewrite of `_raw`, consumed and stripped by
    * `attributeRawMutations` at the end of the pipeline. Never present on the
    * events a caller receives.
