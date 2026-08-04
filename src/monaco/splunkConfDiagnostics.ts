@@ -2,6 +2,7 @@ import type { editor } from 'monaco-editor';
 import { getDirectiveInfo, getClassBasedDirectiveBase } from '../engine/directiveRegistry';
 import { isUndocumentedAttribute } from '../engine/directiveSupport';
 import { DIRECTIVE_RE, miscasedCanonical, MISCASED_MESSAGE } from '../engine/parser/confParser';
+import { unsupportedSpecifiers } from '../utils/strftime';
 import { validateRegex } from '../utils/splunkRegex';
 
 /**
@@ -197,6 +198,28 @@ export function computeDiagnostics(
         endColumn: eqIdx + 1,
       });
       continue;
+    }
+
+    // A strftime specifier the simulator does not implement is treated as
+    // literal text, so the format quietly fails to match rather than erroring
+    // (#90). Informational, not a warning: the config may well be correct for a
+    // real indexer — it is this preview that will be wrong.
+    // Offsets are into the value, so they only map back to THIS line when the
+    // value was not joined from a continuation. Rather than mis-place a marker
+    // on a continued format, the whole value is underlined in that case.
+    if (info.valueType === 'strftime' && value && !endsWithBackslash) {
+      const rawValue = line.substring(eqIdx + 1);
+      const valueStartColumn = eqIdx + 2 + (rawValue.length - rawValue.trimStart().length);
+      for (const { specifier, index } of unsupportedSpecifiers(value)) {
+        markers.push({
+          severity: 2, // Info
+          message: `${specifier} is not simulated — the preview treats it as literal text, so _time may not resolve here even if a real indexer parses it.`,
+          startLineNumber: i,
+          startColumn: valueStartColumn + index,
+          endLineNumber: i,
+          endColumn: valueStartColumn + index + specifier.length,
+        });
+      }
     }
 
     // Validate value types

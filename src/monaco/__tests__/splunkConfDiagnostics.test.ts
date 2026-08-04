@@ -122,3 +122,24 @@ describe('computeDiagnostics — undocumented attributes are not typos (#178)', 
     expect(typoMarkers('[st]\nNOT_A_REAL_DIRECTIVE = 1')).toHaveLength(1);
   });
 });
+
+describe('computeDiagnostics — unsimulated strftime specifiers (#90)', () => {
+  const specifierMarkers = (text: string) =>
+    computeDiagnostics(fakeModel(text), 'props.conf').filter((m) => /not simulated/.test(m.message));
+
+  it('says nothing about a format built from supported specifiers', () => {
+    expect(specifierMarkers('[st]\nTIME_FORMAT = %Y-%m-%dT%H:%M:%S')).toEqual([]);
+  });
+
+  it('flags a specifier the preview will treat as literal text', () => {
+    const markers = specifierMarkers('[st]\nTIME_FORMAT = %Y-%m-%d %H:%i');
+    expect(markers).toHaveLength(1);
+    expect(markers[0]?.severity).toBe(2); // Info — a real indexer may parse it.
+  });
+
+  it('underlines the specifier itself, not the whole line', () => {
+    const marker = specifierMarkers('[st]\nTIME_FORMAT = %Y-%m-%d %H:%i')[0]!;
+    const line = '[st]\nTIME_FORMAT = %Y-%m-%d %H:%i'.split('\n')[1]!;
+    expect(line.slice(marker.startColumn - 1, marker.endColumn - 1)).toBe('%i');
+  });
+});
