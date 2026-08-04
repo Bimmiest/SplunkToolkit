@@ -263,7 +263,9 @@ function ianaFormatter(tz: string): Intl.DateTimeFormat | null {
   const cached = ianaFormatters.get(tz);
   if (cached !== undefined) return cached;
 
-  let formatter: Intl.DateTimeFormat | null = null;
+  // Deliberately uninitialized: both branches below assign, so a seed value
+  // would be dead (no-useless-assignment).
+  let formatter: Intl.DateTimeFormat | null;
   try {
     formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: tz,
