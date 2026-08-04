@@ -34,3 +34,26 @@ Monaco's widgets (hover, suggest, folding, find, multi-cursor) are *contribution
 - All inputs have associated `<label>` via `htmlFor`/`id`.
 - `focus-visible:ring-2` on all interactive elements.
 - Panel-level `ErrorBoundary` with "Try Again" recovery.
+
+### Overlays
+
+Every overlay — command palette, settings, scaffold modal, pipeline reference,
+directive dialogs — goes through `components/ui/Overlay.tsx`, which wraps
+`@radix-ui/react-dialog`. That supplies the Escape layer stack (only the topmost
+overlay closes), the focus trap, background inertness, scroll lock, and focus
+return to the trigger.
+
+Two props exist for one consumer each, and both encode a bug found while
+adopting Radix:
+
+- **`forceMount`** keeps a sliding panel mounted while closed. A closed
+  force-mounted overlay is marked `inert` and `aria-hidden` by `Overlay` itself
+  — otherwise it remains a `dialog` in the accessibility tree with focusable
+  buttons parked off-screen, and role-based queries find it instead of whatever
+  is actually open.
+- **Modality is scoped to `open`** (`modal={open}`). Left permanently modal, a
+  force-mounted overlay keeps the *rest of the app* `aria-hidden` while it sits
+  closed, which makes every element in the app unreachable to assistive tech.
+
+Neither shows up in a unit test of an overlay on its own; the e2e suite caught
+both.

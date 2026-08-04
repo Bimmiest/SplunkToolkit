@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useOverlay } from '../../hooks/useOverlay';
+import { Overlay } from '../ui/Overlay';
 import { useAppStore } from '../../store/useAppStore';
 import { Icon } from '../ui/Icon';
 import { PIPELINE_STAGES, PHASE_LABELS, type PipelineStage } from '../../engine/pipelineStages';
@@ -18,44 +18,28 @@ export function HelpPanel() {
     toggleHelp();
   };
 
-  // Escape closes only the topmost overlay; the hook also traps Tab and hides
-  // sibling content while the panel is open.
-  const overlayRef = useOverlay({ open: helpOpen, onClose: toggleHelp });
 
   const indexStages = PIPELINE_STAGES.filter((s) => s.phase === 'index-time');
   const searchStages = PIPELINE_STAGES.filter((s) => s.phase === 'search-time');
 
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-40 transition-opacity duration-200"
-        style={{
-          backgroundColor: 'rgba(0,0,0,0.3)',
-          opacity: helpOpen ? 1 : 0,
-          pointerEvents: helpOpen ? 'auto' : 'none',
-        }}
-        onClick={toggleHelp}
-        aria-hidden="true"
-      />
-
-      {/* Panel — always mounted for the slide animation, so when closed mark it
-          `inert`/`aria-hidden` to drop its buttons from the tab order and the
-          accessibility tree (otherwise they're focusable while off-screen). */}
-      <div
-        ref={overlayRef}
-        role="dialog"
-        aria-label="Pipeline reference"
-        aria-modal={helpOpen ? 'true' : undefined}
-        aria-hidden={!helpOpen}
-        inert={!helpOpen}
-        className="fixed top-0 right-0 bottom-0 z-50 flex flex-col w-[420px] max-w-full shadow-2xl transition-transform duration-250 ease-in-out"
-        style={{
-          backgroundColor: 'var(--color-bg-primary)',
-          borderLeft: '1px solid var(--color-border)',
-          transform: helpOpen ? 'translateX(0)' : 'translateX(100%)',
-        }}
-      >
+    // Force-mounted: the panel slides in and out, so it has to stay in the tree
+    // while closed. Overlay marks a closed force-mounted panel inert, which is
+    // what keeps its off-screen buttons out of the tab order.
+    <Overlay
+      open={helpOpen}
+      onClose={toggleHelp}
+      label="Pipeline reference"
+      forceMount
+      containerClassName=""
+      className="fixed top-0 right-0 bottom-0 z-50 flex flex-col w-[420px] max-w-full shadow-2xl transition-transform duration-250 ease-in-out"
+      style={{
+        backgroundColor: 'var(--color-bg-primary)',
+        borderLeft: '1px solid var(--color-border)',
+        transform: helpOpen ? 'translateX(0)' : 'translateX(100%)',
+      }}
+    >
+      <div className="contents">
         {/* Header */}
         <div
           className="flex items-center justify-between px-5 py-3 shrink-0 border-b"
@@ -119,7 +103,7 @@ export function HelpPanel() {
           </p>
         </div>
       </div>
-    </>
+    </Overlay>
   );
 }
 

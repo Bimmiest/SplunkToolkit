@@ -5,7 +5,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { SAMPLE_CONFIGS } from '../../engine/sampleData';
 import { getAllDirectives } from '../../engine/directiveRegistry';
 import { Icon } from './Icon';
-import { useOverlay } from '../../hooks/useOverlay';
+import { Overlay } from './Overlay';
 
 // Static registry, so the lookup list is built once rather than per keystroke.
 // Deduplicated because a few keys (MATCH_LIMIT, DEPTH_LIMIT) are registered once
@@ -43,7 +43,6 @@ export function CommandPalette() {
 
   // Escape (topmost layer only), the focus trap that `aria-modal` promises, and
   // focus restore on close all come from the shared overlay hook.
-  const overlayRef = useOverlay({ open, onClose: close });
 
   // Global Ctrl+K / Cmd+K shortcut
   useEffect(() => {
@@ -70,23 +69,17 @@ export function CommandPalette() {
   if (!open) return null;
 
   return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]"
-      style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Command palette"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}
+    <Overlay
+      open
+      onClose={close}
+      label="Command palette"
+      className="w-full max-w-lg rounded-xl overflow-hidden shadow-2xl"
+      style={{
+        backgroundColor: 'var(--color-bg-elevated)',
+        border: '1px solid var(--color-border)',
+      }}
     >
-      <Command
-        label="Command palette"
-        className="w-full max-w-lg rounded-xl overflow-hidden shadow-2xl"
-        style={{
-          backgroundColor: 'var(--color-bg-elevated)',
-          border: '1px solid var(--color-border)',
-        }}
-      >
+      <Command label="Command palette">
         <div
           className="flex items-center gap-2 px-3 border-b"
           style={{ borderColor: 'var(--color-border)' }}
@@ -210,7 +203,7 @@ export function CommandPalette() {
           </CommandGroup>
         </Command.List>
       </Command>
-    </div>
+    </Overlay>
   );
 }
 
