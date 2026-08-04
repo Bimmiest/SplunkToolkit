@@ -64,8 +64,8 @@ export const DIRECTIVE_SUPPORT: Record<string, SupportEntry> = {
   MAX_DIFF_SECS_HENCE: { support: 'ignored', issue: 85, note: 'Timestamp sanity bounds are not applied.' },
   TZ_ALIAS: {
     support: 'ignored',
-    issue: 159,
-    note: 'Zone-abbreviation aliasing is not applied; it lands with the rest of the TZ work.',
+    issue: 227,
+    note: 'Zone-abbreviation aliasing is not applied, so an aliased %Z zone falls back to UTC.',
   },
 
   // ---- Event breaking ---------------------------------------------------
